@@ -553,6 +553,82 @@ function drawLayerContent(ctx, layer) {
   }
 }
 
+// ---------- halftone fade ----------
+// A layer dissolves into a screen of dots (or bars) along one direction —
+// the classic livery "speed fade". Geometry is worked out from the layer's
+// doc-space corners projected onto the fade axis, so rotation/skew/corner
+// pins all fade along the same world direction the user picked.
+//
+// Returns the band in axis coordinates: u runs along the fade direction,
+// v across it. Solid up to uStart, dots shrinking to nothing at u1.
+export function fadeBand(corners, angleDeg, fadePct) {
+  const a = (angleDeg * Math.PI) / 180;
+  const dx = Math.cos(a), dy = Math.sin(a);
+  let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+  for (const c of corners) {
+    const u = c.x * dx + c.y * dy;
+    const v = -c.x * dy + c.y * dx;
+    if (u < u0) u0 = u; if (u > u1) u1 = u;
+    if (v < v0) v0 = v; if (v > v1) v1 = v;
+  }
+  const f = Math.max(0, Math.min(100, fadePct)) / 100;
+  const uStart = u1 - (u1 - u0) * f;
+  return { u0, u1, v0, v1, uStart, dx, dy };
+}
+
+// dot radius (as a fraction of half a cell) at position u inside the band:
+// full at uStart so the screen meets the solid region seamlessly, zero at u1.
+// sqrt keeps the *area* ramp linear, which is what reads as an even fade.
+export function fadeDotFrac(u, band) {
+  const span = band.u1 - band.uStart;
+  if (span <= 0) return u < band.u1 ? 1 : 0;
+  const t = (band.u1 - u) / span;
+  return t <= 0 ? 0 : t >= 1 ? 1 : Math.sqrt(t);
+}
+
+// paint the fade mask (white where the layer survives) into ctx (doc space)
+function paintFadeMask(ctx, layer, fx) {
+  const band = fadeBand(layerCorners(layer), fx.fadeAngle || 0, fx.fade);
+  const cell = Math.max(4, Math.min(64, fx.fadeCell || 14));
+  ctx.save();
+  ctx.clearRect(0, 0, SIZE, SIZE);
+  // rotate into band space: x → u, y → v
+  ctx.setTransform(band.dx, band.dy, -band.dy, band.dx, 0, 0);
+  ctx.fillStyle = '#fff';
+  const pad = cell; // spill past the bbox so nothing clips at the edges
+  ctx.fillRect(band.u0 - pad, band.v0 - pad, band.uStart - band.u0 + pad, band.v1 - band.v0 + pad * 2);
+  const path = new Path2D();
+  const half = cell / 2;
+  if (fx.fadeStyle === 'lines') {
+    // bars across the fade direction, thinning toward the end
+    for (let u = band.uStart; u < band.u1 + cell; u += cell) {
+      const t = fadeDotFrac(u + half, band);
+      if (t <= 0) continue;
+      const w = cell * t * t; // linear in coverage
+      path.rect(u + half - w / 2, band.v0 - pad, w, band.v1 - band.v0 + pad * 2);
+    }
+  } else {
+    // staggered dot screen — offset every other row so the fade reads
+    // as a screen instead of a grid
+    let row = 0;
+    for (let v = band.v0 - pad; v < band.v1 + pad; v += cell, row++) {
+      const off = row % 2 ? half : 0;
+      for (let u = band.uStart + off; u < band.u1 + cell; u += cell) {
+        const t = fadeDotFrac(u, band);
+        if (t <= 0) continue;
+        // oversized at the band start so neighbouring dots overlap and the
+        // screen meets the solid region with no visible seam; they separate
+        // into a true dot screen about a third of the way in
+        const r = half * 1.5 * t;
+        path.moveTo(u + r, v);
+        path.arc(u, v, r, 0, Math.PI * 2);
+      }
+    }
+  }
+  ctx.fill(path);
+  ctx.restore();
+}
+
 export function drawLayer(ctx, layer, forSpec = false) {
   // layer effects apply only to raster layers (image/text). Stroke changes
   // the design silhouette so it renders in both paint and spec passes;
@@ -563,6 +639,8 @@ export function drawLayer(ctx, layer, forSpec = false) {
   const doStroke = hasImgFx && fx.strokeW > 0;
   const doShadow = hasImgFx && !forSpec && fx.shadow > 0;
   const doGlow = hasImgFx && !forSpec && fx.glow > 0;
+  // halftone fade changes the silhouette, so it runs in paint AND spec passes
+  const doFade = fx && fx.fade > 0 && (isRaster || layer.type === 'fill' || layer.type === 'pattern');
   // neon halo: from the fx slider, or implied by the Neon material itself
   // (bloom matParam). Paint-only — the sim spec map has no emissive channel.
   const neonAmt = !forSpec && isRaster
@@ -573,7 +651,7 @@ export function drawLayer(ctx, layer, forSpec = false) {
   ctx.save();
   ctx.globalAlpha = layer.opacity;
   ctx.globalCompositeOperation = (BLEND_MODES[layer.blend] || BLEND_MODES.normal).op;
-  if (!doStroke && !doShadow && !doGlow && !neonAmt) {
+  if (!doStroke && !doShadow && !doGlow && !neonAmt && !doFade) {
     drawLayerContent(ctx, layer);
     ctx.restore();
     return;
@@ -583,6 +661,15 @@ export function drawLayer(ctx, layer, forSpec = false) {
   const rctx = fxScratch.getContext('2d');
   rctx.clearRect(0, 0, SIZE, SIZE);
   drawLayerContent(rctx, layer);
+  if (doFade) {
+    // punch the dot screen into the buffer first so every later effect
+    // (shadow, glow, outline) follows the dots rather than the full shape
+    paintFadeMask(fxTint.getContext('2d'), layer, fx);
+    rctx.save();
+    rctx.globalCompositeOperation = 'destination-in';
+    rctx.drawImage(fxTint, 0, 0);
+    rctx.restore();
+  }
   if (doShadow) {
     // draw the buffer fully off-canvas and let the shadow land in view
     ctx.save();
@@ -1042,6 +1129,12 @@ function normalizeFx(fx) {
     shadowColor: fx.shadowColor || '#000000',
     glow: fx.glow ?? 0,
     glowColor: fx.glowColor || '#ffffff',
+    neon: fx.neon ?? 0,
+    neonColor: fx.neonColor || '#39ff14',
+    fade: fx.fade ?? 0,
+    fadeAngle: fx.fadeAngle ?? 0,
+    fadeCell: fx.fadeCell ?? 14,
+    fadeStyle: fx.fadeStyle === 'lines' ? 'lines' : 'dots',
   };
 }
 

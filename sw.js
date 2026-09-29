@@ -6,7 +6,7 @@
 // the reload that activates it. If VERSION doesn't change, returning users
 // keep being served the old cached shell.
 
-const VERSION = 'v0.62';
+const VERSION = 'v0.63';
 const CACHE = 'clearcoat-' + VERSION;
 
 // app shell — every path here must exist in the repo

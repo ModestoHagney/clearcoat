@@ -21,6 +21,8 @@ const {
   resolveParams,
   defaultParams,
   lumSpecChannels,
+  fadeBand,
+  fadeDotFrac,
 } = await import('../js/engine.js');
 
 // Layers built by hand (factory functions for image/text need real canvas).
@@ -97,8 +99,47 @@ test('deserializeDoc coerces partial fx blocks to full defaults', async () => {
     strokeW: 10, strokeColor: '#000000',
     shadow: 0, shadowDX: 8, shadowDY: 8, shadowColor: '#000000',
     glow: 30, glowColor: '#ffffff',
+    neon: 0, neonColor: '#39ff14',
+    fade: 0, fadeAngle: 0, fadeCell: 14, fadeStyle: 'dots',
   });
   assert.equal(doc.layers[1].fx, null);
+});
+
+test('deserializeDoc keeps neon and fade settings across a reload', async () => {
+  const doc = await deserializeDoc({
+    format: 'clearcoat/1',
+    layers: [{ type: 'image', src: 'data:x', fx: { neon: 30, neonColor: '#ff00ff', fade: 60, fadeAngle: 90, fadeCell: 20, fadeStyle: 'lines' } }],
+  });
+  const fx = doc.layers[0].fx;
+  assert.equal(fx.neon, 30);
+  assert.equal(fx.neonColor, '#ff00ff');
+  assert.deepEqual([fx.fade, fx.fadeAngle, fx.fadeCell, fx.fadeStyle], [60, 90, 20, 'lines']);
+});
+
+test('fadeBand: axis-aligned box at 0° fades toward the right edge', () => {
+  const box = [{ x: 100, y: 200 }, { x: 500, y: 200 }, { x: 500, y: 300 }, { x: 100, y: 300 }];
+  const b = fadeBand(box, 0, 50);
+  assert.equal(b.u0, 100); assert.equal(b.u1, 500);
+  assert.equal(b.v0, 200); assert.equal(b.v1, 300);
+  assert.equal(b.uStart, 300); // last half of the width dissolves
+});
+
+test('fadeBand: 180° fades toward the left edge, 100% covers the whole layer', () => {
+  const box = [{ x: 100, y: 200 }, { x: 500, y: 200 }, { x: 500, y: 300 }, { x: 100, y: 300 }];
+  const b = fadeBand(box, 180, 100);
+  // u axis points left, so the box spans u = -500 .. -100 and the band is all of it
+  assert.ok(Math.abs(b.u0 - -500) < 1e-9 && Math.abs(b.u1 - -100) < 1e-9);
+  assert.ok(Math.abs(b.uStart - b.u0) < 1e-9);
+});
+
+test('fadeDotFrac: full dots at the band start, none at the end, area-linear between', () => {
+  const b = { u0: 0, u1: 400, uStart: 200 };
+  assert.equal(fadeDotFrac(0, b), 1);
+  assert.equal(fadeDotFrac(200, b), 1);
+  assert.equal(fadeDotFrac(400, b), 0);
+  assert.equal(fadeDotFrac(500, b), 0);
+  const mid = fadeDotFrac(300, b);
+  assert.ok(Math.abs(mid * mid - 0.5) < 1e-9); // radius² tracks coverage
 });
 
 test('mixHex interpolates channels', () => {

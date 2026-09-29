@@ -2126,6 +2126,19 @@ function syncInspector() {
     $('ins-split-row').hidden = sel.type !== 'image' && sel.type !== 'pattern';
     const hasFxUI = sel.type === 'image' || sel.type === 'text';
     $('ins-fx-section').hidden = !hasFxUI;
+    // halftone fade works on anything drawable — stripes (fill) and textures
+    // (pattern) are its headline use, not just logos
+    const hasFadeUI = hasFxUI || sel.type === 'fill' || sel.type === 'pattern';
+    $('ins-fade-section').hidden = !hasFadeUI;
+    if (hasFadeUI) {
+      const fx = sel.fx || {};
+      $('ins-fade-amt').value = fx.fade || 0;
+      $('ins-fade-amt-val').textContent = (fx.fade || 0) + '%';
+      $('ins-fade-angle').value = fx.fadeAngle || 0;
+      $('ins-fade-angle-val').textContent = (fx.fadeAngle || 0) + '°';
+      $('ins-fade-cell').value = fx.fadeCell ?? 14;
+      $('ins-fade-style').value = fx.fadeStyle === 'lines' ? 'lines' : 'dots';
+    }
     if (hasFxUI) {
       const fx = sel.fx || {};
       $('ins-fx-stroke').value = fx.strokeW || 0;
@@ -2931,15 +2944,16 @@ $('ins-fill-midpos').addEventListener('input', () => {
 // an all-zero fx collapses back to null so untouched layers stay lean
 function setFx(patch) {
   const sel = selectedLayer();
-  if (!sel || (sel.type !== 'image' && sel.type !== 'text')) return;
+  if (!sel || !['image', 'text', 'fill', 'pattern'].includes(sel.type)) return;
   sel.fx = {
     strokeW: 0, strokeColor: '#000000',
     shadow: 0, shadowDX: 8, shadowDY: 8, shadowColor: '#000000',
     glow: 0, glowColor: '#ffffff',
     neon: 0, neonColor: '#39ff14',
+    fade: 0, fadeAngle: 0, fadeCell: 14, fadeStyle: 'dots',
     ...(sel.fx || {}), ...patch,
   };
-  if (!sel.fx.strokeW && !sel.fx.shadow && !sel.fx.glow && !sel.fx.neon) sel.fx = null;
+  if (!sel.fx.strokeW && !sel.fx.shadow && !sel.fx.glow && !sel.fx.neon && !sel.fx.fade) sel.fx = null;
   syncInspector();
   markDirty();
 }
@@ -2951,6 +2965,10 @@ $('ins-fx-glow').addEventListener('input', () => setFx({ glow: parseInt($('ins-f
 $('ins-fx-glow-color').addEventListener('input', () => setFx({ glowColor: $('ins-fx-glow-color').value }));
 $('ins-fx-neon').addEventListener('input', () => setFx({ neon: parseInt($('ins-fx-neon').value, 10) || 0 }));
 $('ins-fx-neon-color').addEventListener('input', () => setFx({ neonColor: $('ins-fx-neon-color').value }));
+$('ins-fade-amt').addEventListener('input', () => setFx({ fade: parseInt($('ins-fade-amt').value, 10) || 0 }));
+$('ins-fade-angle').addEventListener('input', () => setFx({ fadeAngle: parseInt($('ins-fade-angle').value, 10) || 0 }));
+$('ins-fade-cell').addEventListener('input', () => setFx({ fadeCell: parseInt($('ins-fade-cell').value, 10) || 14 }));
+$('ins-fade-style').addEventListener('change', () => setFx({ fadeStyle: $('ins-fade-style').value }));
 for (const [id, key] of [['ins-fx-sdx', 'shadowDX'], ['ins-fx-sdy', 'shadowDY']]) {
   $(id).addEventListener('input', () => {
     const v = parseInt($(id).value, 10);

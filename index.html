@@ -23,7 +23,7 @@
       <path d="M16 22 L24 8 H26 L18 22 Z" fill="#e8e6e1"/>
     </svg>
     <span class="brand-name">CLEARCOAT</span>
-    <span class="brand-sub">livery workbench <span id="app-version">v0.62</span></span>
+    <span class="brand-sub">livery workbench <span id="app-version">v0.63</span></span>
   </div>
 
   <input id="project-name" class="project-name" type="text" value="untitled livery" spellcheck="false" aria-label="Project name">
@@ -371,6 +371,28 @@
           <label for="ins-fx-neon" title="Tube-light halo: additive colored bloom + white-hot core — paint only, baked into the color map">Neon</label>
           <input id="ins-fx-neon" type="range" min="0" max="60" value="0">
           <input id="ins-fx-neon-color" type="color" value="#39ff14" title="Neon color" aria-label="Neon color">
+        </div>
+      </div>
+
+      <div id="ins-fade-section" hidden>
+        <h3 class="sub-title">Halftone fade</h3>
+        <div class="slider-row">
+          <label for="ins-fade-amt" title="Dissolve this layer into a screen of dots along one direction — the classic livery speed fade. Amount = how much of the layer turns into dots. Changes the silhouette, so paint and spec map fade together">Fade</label>
+          <input id="ins-fade-amt" type="range" min="0" max="100" value="0">
+          <span class="mono" id="ins-fade-amt-val">0%</span>
+        </div>
+        <div class="slider-row">
+          <label for="ins-fade-angle" title="Direction the layer fades toward: 0° right, 90° down, 180° left, 270° up">Angle</label>
+          <input id="ins-fade-angle" type="range" min="0" max="359" value="0">
+          <span class="mono" id="ins-fade-angle-val">0°</span>
+        </div>
+        <div class="slider-row">
+          <label for="ins-fade-cell" title="Dot pitch in template pixels — small for a fine screen, large for bold comic-book dots">Dots</label>
+          <input id="ins-fade-cell" type="range" min="4" max="64" value="14">
+          <select id="ins-fade-style" title="Dot screen or bars across the fade">
+            <option value="dots">Dots</option>
+            <option value="lines">Bars</option>
+          </select>
         </div>
       </div>
 

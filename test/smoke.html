@@ -126,6 +126,38 @@ try {
   let minMet = 255, maxMet = 0;
   for (let i = 0; i < gd.length; i += 4) { minMet = Math.min(minMet, gd[i]); maxMet = Math.max(maxMet, gd[i]); }
   ok('glitter-chips-vary', maxMet - minMet > 30); // chips spike metallic over the base
+
+  // halftone fade: a full-width red stripe fading to the right over its last half
+  {
+    const fd = createDoc(); fd.baseColor = '#000000';
+    const stripe = createFillLayer('#ff0000');
+    stripe.rx = 0; stripe.ry = 900; stripe.rw = SIZE; stripe.rh = 200;
+    stripe.material = 'chrome'; // must differ from the base coat for the spec check to mean anything
+    stripe.fx = { strokeW: 0, shadow: 0, glow: 0, neon: 0, fade: 50, fadeAngle: 0, fadeCell: 16, fadeStyle: 'dots' };
+    fd.layers.push(stripe);
+    const fp = renderPaint(fd).getContext('2d');
+    const red = (x, y) => fp.getImageData(x, y, 1, 1).data[0];
+    // solid half untouched; dots near the band start mostly red; end fully gone
+    ok('fade-solid-region', red(300, 1000) === 255 && red(900, 950) === 255);
+    let hits = 0, total = 0;
+    for (let x = 1100; x < 1300; x += 3) for (let y = 920; y < 1080; y += 3) { total++; if (red(x, y) > 128) hits++; }
+    const early = hits / total;
+    hits = 0; total = 0;
+    for (let x = 1800; x < 2000; x += 3) for (let y = 920; y < 1080; y += 3) { total++; if (red(x, y) > 128) hits++; }
+    const late = hits / total;
+    ok('fade-dots-thin-out', early > 0.55 && early < 1 && late > 0 && late < 0.25);
+    ok('fade-end-empty', red(2040, 1000) === 0 && red(2040, 950) === 0);
+    // the silhouette carries into the spec map (fill layers write spec by material)
+    const sp = renderSpec(fd).getContext('2d');
+    const specAt = (x, y) => sp.getImageData(x, y, 1, 1).data;
+    ok('fade-spec-follows', JSON.stringify(specAt(300, 1000)) !== JSON.stringify(specAt(2040, 1000)));
+    // bars style also renders and thins
+    stripe.fx.fadeStyle = 'lines';
+    const fp2 = renderPaint(fd).getContext('2d');
+    let h2 = 0, t2 = 0;
+    for (let x = 1800; x < 2000; x += 2) { t2++; if (fp2.getImageData(x, 1000, 1, 1).data[0] > 128) h2++; }
+    ok('fade-bars-thin', h2 / t2 > 0 && h2 / t2 < 0.3);
+  }
 } catch (err) {
   lines.push('THROW ' + err.message);
 }
