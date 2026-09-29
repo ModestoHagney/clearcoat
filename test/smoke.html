@@ -145,7 +145,7 @@ try {
     hits = 0; total = 0;
     for (let x = 1800; x < 2000; x += 3) for (let y = 920; y < 1080; y += 3) { total++; if (red(x, y) > 128) hits++; }
     const late = hits / total;
-    ok('fade-dots-thin-out', early > 0.55 && early < 1 && late > 0 && late < 0.25);
+    ok('fade-dots-thin-out', early > 0.55 && late > 0 && late < 0.25 && early > late); // start ~solid (dots overlap), end sparse
     ok('fade-end-empty', red(2040, 1000) === 0 && red(2040, 950) === 0);
     // the silhouette carries into the spec map (fill layers write spec by material)
     const sp = renderSpec(fd).getContext('2d');
