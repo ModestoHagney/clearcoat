@@ -473,6 +473,7 @@ function rotateHandlePos(layer) {
 
 let regionsView = false;
 let annotateMode = false;
+let pieceLayerMode = false; // armed: the next click on a region makes a layer of it
 
 function drawRegionOverlay() {
   vctx.save();
@@ -638,6 +639,7 @@ let wandMode = false;
 function setWandMode(on) {
   wandMode = on;
   if (on && annotateMode) setAnnotateMode(false); // the two modes never coexist
+  if (on && pieceLayerMode) setPieceLayerMode(false);
   $('btn-wand').classList.toggle('active', on);
   $('wand-tol-row').hidden = !on;
   viewport.classList.toggle('wand', on || annotateMode);
@@ -678,7 +680,7 @@ function lassoEditLayer(layer) {
 
 function setLassoMode(on) {
   lassoMode = on;
-  if (on) { if (wandMode) setWandMode(false); if (annotateMode) setAnnotateMode(false); }
+  if (on) { if (wandMode) setWandMode(false); if (annotateMode) setAnnotateMode(false); if (pieceLayerMode) setPieceLayerMode(false); }
   lassoPts = [];
   lassoDragIdx = null;
   lassoEditingId = null;
@@ -993,6 +995,11 @@ $('ins-split-colors').addEventListener('click', () => {
 viewport.addEventListener('pointerdown', (e) => {
   viewport.setPointerCapture(e.pointerId);
   const sx = e.offsetX, sy = e.offsetY;
+
+  if (pieceLayerMode && e.button === 0 && !spaceHeld) {
+    pieceLayerAt(screenToDoc(sx, sy));
+    return;
+  }
 
   if (annotateMode && e.button === 0 && !spaceHeld) {
     const p = screenToDoc(sx, sy);
@@ -2814,6 +2821,7 @@ $('btn-regions-view').addEventListener('click', () => setRegionsView(!regionsVie
 function setAnnotateMode(on) {
   annotateMode = on;
   if (on && wandMode) setWandMode(false); // the two modes never coexist
+  if (on && pieceLayerMode) setPieceLayerMode(false);
   $('btn-annotate').classList.toggle('active', on);
   viewport.classList.toggle('wand', on || wandMode);
   if (on) {
@@ -2943,6 +2951,47 @@ async function addPieceColors() {
   status(`Piece colors ${old ? 'updated' : 'added as a layer'} — hide it with its eye icon before saving your real paint.`, 'ok');
 }
 $('btn-piece-colors').addEventListener('click', addPieceColors);
+
+// ---------- piece → layer ----------
+// Click a region to get a paint layer in exactly its shape. It is built the
+// way a lasso layer is (a white mask of the outline, colored by a full Tint
+// wash), and keeps the outline, so Tint recolors it and Edit shape re-shapes it.
+
+function setPieceLayerMode(on) {
+  pieceLayerMode = on;
+  if (on) {
+    if (wandMode) setWandMode(false);
+    if (lassoMode) setLassoMode(false);
+    if (annotateMode) setAnnotateMode(false);
+    setRegionsView(true);
+    status('Piece → layer: click a region to make a layer in its shape. Esc to cancel.');
+  }
+  $('btn-piece-layer').classList.toggle('active', on);
+  viewport.classList.toggle('wand', on || wandMode || lassoMode || annotateMode);
+}
+$('btn-piece-layer').addEventListener('click', () => setPieceLayerMode(!pieceLayerMode));
+
+async function pieceLayerAt(p) {
+  const region = doc.regionMap && regionAt(doc.regionMap, p.x, p.y);
+  if (!region) { status('No region there — click inside one of the outlined regions.', 'warn'); return; }
+  const pts = regionOutline(region).map(q => ({ x: q.x, y: q.y }));
+  const mask = lassoMask(pts);
+  if (!mask) { status(`"${region.name}" is too small to make a layer from.`, 'err'); return; }
+  setPieceLayerMode(false);
+  try {
+    const layer = createImageLayer(await loadImage(mask.src), mask.src, region.name);
+    layer.x = SIZE / 2; layer.y = SIZE / 2; layer.scale = 1;
+    // the mask is white — a 100% tint wash paints it; orange so it shows on any base coat
+    layer.matParams = { ...defaultParams(layer.material), tint: '#ff4d00', tintAmt: 100 };
+    layer.lassoPts = pts;
+    doc.layers.push(layer);
+    selectLayer(layer.id);
+    markDirty();
+    status(`Layer "${region.name}" added — recolor it with Tint, pick a finish, or press Edit shape to adjust its outline.`, 'ok');
+  } catch (err) {
+    status('Could not build that layer: ' + (err.message || 'unknown error'), 'err');
+  }
+}
 
 // ---------- add image ----------
 
@@ -4381,6 +4430,7 @@ window.addEventListener('keydown', (e) => {
     if (!mapsModal.hidden) { closeMapsModal(); return; }
     if (!libraryModal.hidden) { closeLibrary(); return; }
     if (!textureModal.hidden) { closeTextures(); return; }
+    if (pieceLayerMode) { setPieceLayerMode(false); return; }
     if (annotateMode) { setAnnotateMode(false); return; }
     if (lassoMode) { setLassoMode(false); status('Lasso cancelled.'); return; }
     if (wandMode) { setWandMode(false); return; }
