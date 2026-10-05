@@ -20,7 +20,7 @@ import { LIBRARY, libraryItemToLayerSource } from './library.js';
 import { TEXTURES, TEX_CATS, texThumb, texFull } from './textures.js';
 import { wandSelect } from './wand.js';
 import { lassoMask, lassoBounds, CLOSE_RADIUS } from './lasso.js';
-import { parseRegionMap, createRegionMap, regionAt, regionById, mirrorPoint, mirrorLayerPlacement, uniqueRegionId, piecesRegionMap } from './regions.js';
+import { parseRegionMap, createRegionMap, regionAt, regionById, mirrorPoint, mirrorLayerPlacement, uniqueRegionId, piecesRegionMap, renameRegion, regionOutline, labelPoint } from './regions.js';
 import { initAdvisor } from './advisor.js';
 
 // ---------- state ----------
@@ -480,9 +480,7 @@ function drawRegionOverlay() {
   vctx.font = '11px "IBM Plex Mono", monospace';
   for (const r of doc.regionMap.regions) {
     // an outlined region draws its real shape, labelled at its first corner
-    const pts = (r.points || [
-      { x: r.x, y: r.y }, { x: r.x + r.w, y: r.y }, { x: r.x + r.w, y: r.y + r.h }, { x: r.x, y: r.y + r.h },
-    ]).map(q => docToScreen(q.x, q.y));
+    const pts = regionOutline(r).map(q => docToScreen(q.x, q.y));
     const a = pts[0];
     vctx.beginPath();
     vctx.moveTo(a.x, a.y);
@@ -2843,9 +2841,9 @@ async function finishAnnotate(d) {
       fields: [{ key: 'name', label: 'Region name', value: hit.name }],
     });
     if (ans && ans.name && ans.name.trim()) {
-      hit.name = ans.name.trim();
+      renameRegion(doc.regionMap, hit, ans.name.trim());
       scheduleAutosave();
-      status(`Region renamed to "${hit.name}".`, 'ok');
+      status(`Region renamed to "${hit.name}" (${hit.id}).`, 'ok');
     }
     requestRender();
     return;
@@ -2882,6 +2880,69 @@ async function finishAnnotate(d) {
   requestRender();
   status(`Region "${region.name}" added as ${region.id}${mirrorNote}.`, 'ok');
 }
+
+// ---------- piece colors ----------
+// A paint layer that fills every region in its own color with its name on it.
+// Being a normal layer it shows on the sheet, saves to iRacing like any other
+// (so the colors land on the real car), and switches off with its eye icon.
+
+// ponytail: the layer is found again by name, so renaming it means the next
+// click adds a second one — give layers a persisted kind if that bites.
+const PIECE_LAYER = 'Piece colors';
+
+async function addPieceColors() {
+  const map = doc.regionMap;
+  if (!map || !map.regions.length) return;
+  const c = document.createElement('canvas');
+  c.width = c.height = SIZE;
+  const ctx = c.getContext('2d');
+  ctx.lineJoin = 'round';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  map.regions.forEach((r, i) => {
+    const pts = regionOutline(r);
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let k = 1; k < pts.length; k++) ctx.lineTo(pts[k].x, pts[k].y);
+    ctx.closePath();
+    // golden-angle hue steps keep neighbours in the list far apart in color
+    ctx.fillStyle = `hsl(${(i * 137.5) % 360} 70% ${i % 2 ? 62 : 46}%)`;
+    ctx.fill();
+    ctx.strokeStyle = '#101114';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+  });
+  // names go on last, each kept clear of the later regions drawn over its own
+  map.regions.forEach((r, i) => {
+    const p = labelPoint(r, map.regions.slice(i + 1));
+    let size = Math.max(14, Math.min(64, p.room * 0.7));
+    ctx.font = `700 ${size}px "IBM Plex Mono", monospace`;
+    const fit = (p.room * 1.7) / ctx.measureText(r.name).width;
+    if (fit < 1) { size = Math.max(11, size * fit); ctx.font = `700 ${size}px "IBM Plex Mono", monospace`; }
+    ctx.lineWidth = size / 4;
+    ctx.strokeStyle = '#101114';
+    ctx.strokeText(r.name, p.x, p.y);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(r.name, p.x, p.y);
+  });
+  const src = c.toDataURL('image/png');
+  const img = await loadImage(src);
+  const old = doc.layers.find(l => l.type === 'image' && l.name === PIECE_LAYER);
+  if (old) {
+    old.img = img;
+    old.src = src;
+    selectLayer(old.id);
+  } else {
+    const layer = createImageLayer(img, src, PIECE_LAYER);
+    layer.scale = 1;
+    layer.locked = true; // a full-sheet layer would otherwise swallow every click
+    doc.layers.push(layer);
+    selectLayer(layer.id);
+  }
+  markDirty();
+  status(`Piece colors ${old ? 'updated' : 'added as a layer'} — hide it with its eye icon before saving your real paint.`, 'ok');
+}
+$('btn-piece-colors').addEventListener('click', addPieceColors);
 
 // ---------- add image ----------
 

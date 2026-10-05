@@ -109,6 +109,52 @@ export function uniqueRegionId(name, map) {
   return id;
 }
 
+// Rename a region. Its id follows the new name (see uniqueRegionId), and a
+// mirror partner pointing at the old id is repointed.
+export function renameRegion(map, region, name) {
+  const others = map.regions.filter(r => r !== region);
+  const id = uniqueRegionId(name, { regions: others });
+  for (const r of others) if (r.mirror === region.id) r.mirror = id;
+  region.id = id;
+  region.name = name;
+  return region;
+}
+
+// the region's shape as corners: its outline, or the four corners of its box
+export function regionOutline(r) {
+  return r.points || [
+    { x: r.x, y: r.y }, { x: r.x + r.w, y: r.y }, { x: r.x + r.w, y: r.y + r.h }, { x: r.x, y: r.y + r.h },
+  ];
+}
+
+// distance from (x, y) to the segment a-b
+function segDist(a, b, x, y) {
+  const dx = b.x - a.x, dy = b.y - a.y, len2 = dx * dx + dy * dy;
+  const t = len2 ? Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / len2)) : 0;
+  return Math.hypot(x - a.x - t * dx, y - a.y - t * dy);
+}
+
+// A point well inside the region to hang a label on, and how much room it has
+// there (px to the nearest edge). Points inside any `avoid` region are skipped,
+// so a label keeps clear of smaller regions sitting on top of this one.
+// ponytail: best of a 24x24 grid over the box, not the true widest point —
+// swap in a proper pole-of-inaccessibility search if labels land badly.
+export function labelPoint(r, avoid = []) {
+  const pts = regionOutline(r);
+  const N = 24;
+  let best = { x: r.x + r.w / 2, y: r.y + r.h / 2, room: 0 };
+  for (let j = 0; j < N; j++) {
+    for (let i = 0; i < N; i++) {
+      const x = r.x + (i + 0.5) * r.w / N, y = r.y + (j + 0.5) * r.h / N;
+      if (!pointInPolygon(pts, x, y) || regionAt({ regions: avoid }, x, y)) continue;
+      let room = Infinity;
+      for (let k = 0, m = pts.length - 1; k < pts.length; m = k++) room = Math.min(room, segDist(pts[m], pts[k], x, y));
+      if (room > best.room) best = { x, y, room };
+    }
+  }
+  return best;
+}
+
 // ---------- piece detection ----------
 // A template's wireframe draws every piece of the sheet as its own connected
 // network of lines, with clear space between pieces. So each connected network
@@ -155,12 +201,9 @@ export function simplifyOutline(pts, tol) {
   while (stack.length) {
     const [a, b] = stack.pop();
     const A = pts[a], B = pts[b % n];
-    const dx = B.x - A.x, dy = B.y - A.y, len2 = dx * dx + dy * dy;
     let idx = -1, max = tol;
     for (let i = a + 1; i < b; i++) {
-      const q = pts[i];
-      const t = len2 ? Math.max(0, Math.min(1, ((q.x - A.x) * dx + (q.y - A.y) * dy) / len2)) : 0;
-      const d = Math.hypot(q.x - A.x - t * dx, q.y - A.y - t * dy);
+      const d = segDist(A, B, pts[i].x, pts[i].y);
       if (d > max) { max = d; idx = i; }
     }
     if (idx !== -1) { keep[idx] = 1; stack.push([a, idx], [idx, b]); }

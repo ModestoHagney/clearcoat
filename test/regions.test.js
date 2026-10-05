@@ -13,6 +13,9 @@ import {
   detectPieces,
   piecesRegionMap,
   simplifyOutline,
+  renameRegion,
+  labelPoint,
+  pointInPolygon,
 } from '../js/regions.js';
 
 // Convenience builder: a valid raw map with two mirrored door rectangles.
@@ -412,4 +415,34 @@ test('simplifyOutline drops points on a straight run and keeps real corners', ()
   for (let x = 100; x > 0; x -= 5) ring.push({ x, y: 100 });
   for (let y = 100; y > 0; y -= 5) ring.push({ x: 0, y });
   assert.deepEqual(simplifyOutline(ring, 1), [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 }]);
+});
+
+// ---------------------------------------------------------------- renameRegion / labelPoint
+
+test('renameRegion makes the id follow the name and repoints the mirror partner', () => {
+  const map = parseRegionMap(rawMap());
+  renameRegion(map, regionById(map, 'door_l'), 'Driver Door');
+  assert.deepEqual(map.regions.map(r => [r.id, r.name, r.mirror]), [
+    ['driver_door', 'Driver Door', 'door_r'],
+    ['door_r', 'Right Door', 'driver_door'],
+  ]);
+  parseRegionMap(map); // still a valid map: no dangling mirror
+});
+
+test('renameRegion avoids another region\'s id but not its own', () => {
+  const map = piecesRegionMap('test car', [L_SHAPE, L_SHAPE, L_SHAPE]);
+  renameRegion(map, map.regions[0], 'Roof');
+  renameRegion(map, map.regions[1], 'Roof');
+  renameRegion(map, map.regions[0], 'Roof'); // renaming to its current name is a no-op
+  assert.deepEqual(map.regions.map(r => r.id), ['roof', 'roof_2', 'piece_3']);
+});
+
+test('labelPoint lands inside the shape and keeps off regions drawn over it', () => {
+  const [l] = parseRegionMap(rawMap({ regions: [{ id: 'l', x: 0, y: 0, w: 100, h: 100, points: L_SHAPE }] })).regions;
+  const p = labelPoint(l);
+  assert.ok(pointInPolygon(L_SHAPE, p.x, p.y));
+  assert.ok(p.room > 15); // the widest part of the L, not a corner
+  const over = { id: 'over', x: 0, y: 40, w: 100, h: 60 }; // covers the L's foot
+  const q = labelPoint(l, [over]);
+  assert.ok(q.y < 40 && pointInPolygon(L_SHAPE, q.x, q.y));
 });

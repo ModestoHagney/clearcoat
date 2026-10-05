@@ -36,7 +36,10 @@ exported by Clearcoat itself:
    (the warning-colored button in the viewport HUD). Drag rectangles over
    the panels, name them, and record mirror partners as prompted. If you
    loaded an official PSD, Clearcoat has already outlined the sheet's pieces
-   as "Piece 1…N" — click one in Annotate mode to give it a real name.
+   as "Piece 1…N" — click one in Annotate mode to give it a real name (its
+   id follows: "Left Door" becomes `left_door`). Not sure which piece is
+   which? **Piece colors** adds a color-coded, labelled layer you can save
+   to iRacing and look at on the car.
 2. Click **Export map** in the Template panel to download the JSON.
 3. Rename the file to `<car-folder-name>.json`, where `<car-folder-name>`
    is the car's subfolder name under your iRacing `paints` directory
