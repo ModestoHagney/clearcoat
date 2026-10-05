@@ -20,7 +20,7 @@ import { LIBRARY, libraryItemToLayerSource } from './library.js';
 import { TEXTURES, TEX_CATS, texThumb, texFull } from './textures.js';
 import { wandSelect } from './wand.js';
 import { lassoMask, lassoBounds, CLOSE_RADIUS } from './lasso.js';
-import { parseRegionMap, createRegionMap, regionAt, regionById, mirrorPoint, mirrorLayerPlacement, uniqueRegionId, piecesRegionMap, renameRegion, regionOutline, labelPoint } from './regions.js';
+import { parseRegionMap, createRegionMap, regionAt, regionById, mirrorPoint, mirrorLayerPlacement, uniqueRegionId, piecesRegionMap, renameRegion, regionOutline, labelPoint, snapToOutline, matchPoint, linkPoints, linkLength } from './regions.js';
 import { initAdvisor } from './advisor.js';
 
 // ---------- state ----------
@@ -305,7 +305,7 @@ function draw() {
   vctx.restore();
 
   // region map overlay — screen space, forced on while annotating
-  if ((regionsView || annotateMode) && doc.regionMap) drawRegionOverlay();
+  if ((regionsView || annotateMode || linkMode) && doc.regionMap) { drawRegionOverlay(); drawSeamLinks(); }
 
   // annotate / marquee drag — live rectangle preview
   if (drag && (drag.mode === 'annotate' || drag.mode === 'marquee')) {
@@ -474,6 +474,9 @@ function rotateHandlePos(layer) {
 let regionsView = false;
 let annotateMode = false;
 let pieceLayerMode = false; // armed: the next click on a region makes a layer of it
+let linkMode = false;       // clicking edge ends to link two regions' edges
+let linkClicks = [];        // ends clicked so far for the link being made: { region, x, y }
+let seamHover = null;       // matchPoint() result under the pointer, for the marker
 
 function drawRegionOverlay() {
   vctx.save();
@@ -496,6 +499,61 @@ function drawRegionOverlay() {
     vctx.fillRect(a.x, a.y, vctx.measureText(label).width + 8, 17);
     vctx.fillStyle = '#2dd6c1';
     vctx.fillText(label, a.x + 4, a.y + 12);
+  }
+  vctx.restore();
+}
+
+// seam links: each linked pair of stretches in one color, a dot on the end
+// that meets the other's dotted end, plus the link being made and the marker
+// showing where the spot under the pointer lands on the other piece
+function drawSeamLinks() {
+  const map = doc.regionMap;
+  const dot = (q, r, fill) => {
+    vctx.beginPath();
+    vctx.arc(q.x, q.y, r, 0, Math.PI * 2);
+    vctx.fillStyle = fill;
+    vctx.fill();
+    vctx.strokeStyle = 'rgba(0,0,0,.7)'; vctx.lineWidth = 1; vctx.stroke();
+  };
+  vctx.save();
+  vctx.lineCap = 'round';
+  vctx.lineJoin = 'round';
+  (map.links || []).forEach((link, i) => {
+    const color = `hsl(${(i * 137.5 + 40) % 360} 95% 62%)`;
+    for (const side of ['a', 'b']) {
+      const pts = linkPoints(map, link, side).map(q => docToScreen(q.x, q.y));
+      if (!pts.length) continue;
+      vctx.beginPath();
+      vctx.moveTo(pts[0].x, pts[0].y);
+      for (let k = 1; k < pts.length; k++) vctx.lineTo(pts[k].x, pts[k].y);
+      vctx.strokeStyle = 'rgba(0,0,0,.6)'; vctx.lineWidth = 7; vctx.stroke();
+      vctx.strokeStyle = color; vctx.lineWidth = 4; vctx.stroke();
+      dot(pts[0], 5, color);
+    }
+  });
+  vctx.font = '700 11px "IBM Plex Mono", monospace';
+  vctx.textAlign = 'center';
+  vctx.textBaseline = 'middle';
+  linkClicks.forEach((c, k) => {
+    const q = docToScreen(c.x, c.y);
+    dot(q, 8, '#ff4d00');
+    vctx.fillStyle = '#fff';
+    vctx.fillText(String(k % 2 + 1), q.x, q.y + 0.5);
+  });
+  if (seamHover) {
+    const a = docToScreen(seamHover.at.x, seamHover.at.y), b = docToScreen(seamHover.partner.x, seamHover.partner.y);
+    vctx.beginPath();
+    vctx.moveTo(a.x, a.y);
+    vctx.lineTo(b.x, b.y);
+    vctx.setLineDash([3, 5]);
+    vctx.strokeStyle = 'rgba(255,255,255,.45)'; vctx.lineWidth = 1; vctx.stroke();
+    vctx.setLineDash([]);
+    for (const q of [a, b]) {
+      vctx.beginPath();
+      vctx.arc(q.x, q.y, 9, 0, Math.PI * 2);
+      vctx.strokeStyle = 'rgba(0,0,0,.7)'; vctx.lineWidth = 5; vctx.stroke();
+      vctx.strokeStyle = '#fff'; vctx.lineWidth = 2; vctx.stroke();
+    }
   }
   vctx.restore();
 }
@@ -640,6 +698,7 @@ function setWandMode(on) {
   wandMode = on;
   if (on && annotateMode) setAnnotateMode(false); // the two modes never coexist
   if (on && pieceLayerMode) setPieceLayerMode(false);
+  if (on && linkMode) setLinkMode(false);
   $('btn-wand').classList.toggle('active', on);
   $('wand-tol-row').hidden = !on;
   viewport.classList.toggle('wand', on || annotateMode);
@@ -680,7 +739,7 @@ function lassoEditLayer(layer) {
 
 function setLassoMode(on) {
   lassoMode = on;
-  if (on) { if (wandMode) setWandMode(false); if (annotateMode) setAnnotateMode(false); if (pieceLayerMode) setPieceLayerMode(false); }
+  if (on) { if (wandMode) setWandMode(false); if (annotateMode) setAnnotateMode(false); if (pieceLayerMode) setPieceLayerMode(false); if (linkMode) setLinkMode(false); }
   lassoPts = [];
   lassoDragIdx = null;
   lassoEditingId = null;
@@ -1001,6 +1060,11 @@ viewport.addEventListener('pointerdown', (e) => {
     return;
   }
 
+  if (linkMode && e.button === 0 && !spaceHeld) {
+    linkClick(screenToDoc(sx, sy), e.altKey);
+    return;
+  }
+
   if (annotateMode && e.button === 0 && !spaceHeld) {
     const p = screenToDoc(sx, sy);
     drag = { mode: 'annotate', startP: p, curP: p };
@@ -1159,6 +1223,10 @@ viewport.addEventListener('pointermove', (e) => {
   const p = screenToDoc(sx, sy);
   const region = doc.regionMap ? regionAt(doc.regionMap, p.x, p.y) : null;
   $('status-pos').textContent = `${Math.round(p.x)}, ${Math.round(p.y)}` + (region ? ` — ${region.name}` : '');
+
+  // seam marker: near a linked edge, show where that spot lands on the other piece
+  const hover = (regionsView || linkMode) && doc.regionMap ? matchPoint(doc.regionMap, p.x, p.y, 10 / view.zoom) : null;
+  if (hover || seamHover) { seamHover = hover; requestRender(); }
 
   if (lassoMode && lassoDragIdx !== null) {
     lassoPts[lassoDragIdx] = { x: p.x, y: p.y };
@@ -2822,6 +2890,7 @@ function setAnnotateMode(on) {
   annotateMode = on;
   if (on && wandMode) setWandMode(false); // the two modes never coexist
   if (on && pieceLayerMode) setPieceLayerMode(false);
+  if (on && linkMode) setLinkMode(false);
   $('btn-annotate').classList.toggle('active', on);
   viewport.classList.toggle('wand', on || wandMode);
   if (on) {
@@ -2897,6 +2966,9 @@ async function finishAnnotate(d) {
 // ponytail: the layer is found again by name, so renaming it means the next
 // click adds a second one — give layers a persisted kind if that bites.
 const PIECE_LAYER = 'Piece colors';
+// band colors for linked edges: strong, unlike each other, and in an order that
+// reads differently backwards, so a link made the wrong way round shows up
+const BAND_COLORS = ['#ffffff', '#e6194b', '#ffe119', '#0082c8', '#101114', '#f58231'];
 
 async function addPieceColors() {
   const map = doc.regionMap;
@@ -2907,18 +2979,43 @@ async function addPieceColors() {
   ctx.lineJoin = 'round';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  map.regions.forEach((r, i) => {
-    const pts = regionOutline(r);
+  const trace = (pts) => {
     ctx.beginPath();
     ctx.moveTo(pts[0].x, pts[0].y);
     for (let k = 1; k < pts.length; k++) ctx.lineTo(pts[k].x, pts[k].y);
     ctx.closePath();
+  };
+  map.regions.forEach((r, i) => {
+    trace(regionOutline(r));
     // golden-angle hue steps keep neighbours in the list far apart in color
     ctx.fillStyle = `hsl(${(i * 137.5) % 360} 70% ${i % 2 ? 62 : 46}%)`;
     ctx.fill();
     ctx.strokeStyle = '#101114';
     ctx.lineWidth = 3;
     ctx.stroke();
+  });
+  // linked edges: the same run of color bands down both sides of each link, so
+  // on the car the same colors should face each other across the seam
+  (map.links || []).forEach((link, i) => {
+    const n = Math.max(3, Math.min(16, Math.round(linkLength(map, link) / 48)));
+    for (const side of ['a', 'b']) {
+      const r = regionById(map, link[side].region);
+      if (!r) continue;
+      ctx.save();
+      trace(regionOutline(r));
+      ctx.clip(); // keep the band inside its own piece
+      ctx.lineCap = 'butt';
+      ctx.lineWidth = 44; // half falls outside the outline and is clipped away
+      for (let k = 0; k < n; k++) {
+        const pts = linkPoints(map, link, side, k / n, (k + 1) / n, 3);
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let j = 1; j < pts.length; j++) ctx.lineTo(pts[j].x, pts[j].y);
+        ctx.strokeStyle = BAND_COLORS[(k + i) % BAND_COLORS.length];
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
   });
   // names go on last, each kept clear of the later regions drawn over its own
   map.regions.forEach((r, i) => {
@@ -2963,11 +3060,12 @@ function setPieceLayerMode(on) {
     if (wandMode) setWandMode(false);
     if (lassoMode) setLassoMode(false);
     if (annotateMode) setAnnotateMode(false);
+    if (linkMode) setLinkMode(false);
     setRegionsView(true);
     status('Piece → layer: click a region to make a layer in its shape. Esc to cancel.');
   }
   $('btn-piece-layer').classList.toggle('active', on);
-  viewport.classList.toggle('wand', on || wandMode || lassoMode || annotateMode);
+  viewport.classList.toggle('wand', on || wandMode || lassoMode || annotateMode || linkMode);
 }
 $('btn-piece-layer').addEventListener('click', () => setPieceLayerMode(!pieceLayerMode));
 
@@ -2991,6 +3089,102 @@ async function pieceLayerAt(p) {
   } catch (err) {
     status('Could not build that layer: ' + (err.message || 'unknown error'), 'err');
   }
+}
+
+// ---------- link edges ----------
+// Tell Clearcoat which edges meet on the car: click the two ends of the shared
+// stretch on one region, then the two ends it meets on the other, in the same
+// order. Links live in the region map (see regions.js) — nothing is baked.
+
+function setLinkMode(on) {
+  linkMode = on;
+  linkClicks = [];
+  if (on) {
+    if (wandMode) setWandMode(false);
+    if (lassoMode) setLassoMode(false);
+    if (annotateMode) setAnnotateMode(false);
+    if (pieceLayerMode) setPieceLayerMode(false);
+    setRegionsView(true);
+    status('Link edges: click the two ends of a shared stretch on one region, then the two ends it meets on the other, in the same order. Backspace undoes, Alt+click removes a link, Esc exits.');
+  }
+  $('btn-link-edges').classList.toggle('active', on);
+  viewport.classList.toggle('wand', on || wandMode || lassoMode || annotateMode || pieceLayerMode);
+  requestRender();
+}
+$('btn-link-edges').addEventListener('click', () => setLinkMode(!linkMode));
+
+// the outline spot a click means: an existing link end or a corner when one
+// is close, otherwise the nearest spot on the edge. `only` limits the search
+// to one region (the second end of a stretch stays on the first end's region).
+function linkSnap(p, only) {
+  const map = doc.regionMap, reach = 14 / view.zoom;
+  let best = null;
+  for (const r of map.regions) {
+    if (only && r.id !== only) continue;
+    const q = snapToOutline(regionOutline(r), p.x, p.y, 10 / view.zoom);
+    if (q.d <= reach && (!best || q.d < best.d)) best = { region: r.id, x: q.x, y: q.y, d: q.d };
+  }
+  if (!best) return null;
+  for (const l of map.links || []) {
+    for (const end of [l.a.from, l.a.to, l.b.from, l.b.to]) {
+      if (Math.hypot(end.x - best.x, end.y - best.y) <= 10 / view.zoom) return { region: best.region, x: end.x, y: end.y };
+    }
+  }
+  return { region: best.region, x: best.x, y: best.y };
+}
+
+function linkClick(p, remove) {
+  const map = doc.regionMap;
+  if (!map) return;
+  if (remove) {
+    const hit = matchPoint(map, p.x, p.y, 12 / view.zoom);
+    if (!hit) { status('No link there to remove.', 'warn'); return; }
+    map.links.splice(hit.index, 1);
+    seamHover = null;
+    scheduleAutosave();
+    requestRender();
+    status(`Link removed — ${map.links.length} left.`, 'ok');
+    return;
+  }
+  const n = linkClicks.length;
+  const snap = linkSnap(p, n % 2 ? linkClicks[n - 1].region : null);
+  if (!snap) {
+    status(n % 2 ? 'Click the other end on the same region\'s edge.' : 'Click closer to a region\'s edge.', 'warn');
+    return;
+  }
+  if (n % 2 && Math.hypot(snap.x - linkClicks[n - 1].x, snap.y - linkClicks[n - 1].y) < 2) {
+    status('The two ends of a stretch need to be apart.', 'warn');
+    return;
+  }
+  linkClicks.push(snap);
+  if (linkClicks.length < 4) {
+    status([
+      'End 1 set — click the other end of the stretch, on the same region.',
+      'Stretch set — now click the spot on the other region that meets end 1.',
+      'Click the spot that meets end 2.',
+    ][n]);
+    requestRender();
+    return;
+  }
+  const [a1, a2, b1, b2] = linkClicks;
+  const pt = (c) => ({ x: Math.round(c.x * 10) / 10, y: Math.round(c.y * 10) / 10 });
+  (map.links || (map.links = [])).push({
+    a: { region: a1.region, from: pt(a1), to: pt(a2) },
+    b: { region: b1.region, from: pt(b1), to: pt(b2) },
+  });
+  linkClicks = [];
+  scheduleAutosave();
+  requestRender();
+  const name = (id) => (regionById(map, id) || { name: id }).name;
+  status(`Linked ${name(a1.region)} ⇄ ${name(b1.region)} (${map.links.length} link${map.links.length === 1 ? '' : 's'}). Click Piece colors to see it on the car, or carry on linking.`, 'ok');
+}
+
+// Backspace in link mode: take back the last click, or the last finished link
+function linkUndo() {
+  const map = doc.regionMap;
+  if (linkClicks.length) linkClicks.pop();
+  else if (map && map.links && map.links.length) { map.links.pop(); seamHover = null; scheduleAutosave(); status(`Last link removed — ${map.links.length} left.`, 'ok'); }
+  requestRender();
 }
 
 // ---------- add image ----------
@@ -4422,6 +4616,7 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); redo(); return; }
+  if (linkMode && e.key === 'Backspace') { e.preventDefault(); linkUndo(); return; }
   if (e.key === 'Delete' || e.key === 'Backspace') { deleteSelected(); return; }
   if (e.key === 'Escape') {
     if (!askModal.hidden) { closeAsk(null); return; }
@@ -4431,6 +4626,11 @@ window.addEventListener('keydown', (e) => {
     if (!libraryModal.hidden) { closeLibrary(); return; }
     if (!textureModal.hidden) { closeTextures(); return; }
     if (pieceLayerMode) { setPieceLayerMode(false); return; }
+    if (linkMode) {
+      if (linkClicks.length) { linkClicks = []; status('Link cancelled — click the first end of an edge.'); requestRender(); }
+      else setLinkMode(false);
+      return;
+    }
     if (annotateMode) { setAnnotateMode(false); return; }
     if (lassoMode) { setLassoMode(false); status('Lasso cancelled.'); return; }
     if (wandMode) { setWandMode(false); return; }

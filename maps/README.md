@@ -29,6 +29,19 @@ exported by Clearcoat itself:
   are the outline's bounding box. Versions of Clearcoat that predate outlines
   ignore `points` and use the box.
 - `mirror` is optional and must reference another region's `id`.
+- A map may also carry a top-level `links` list, recording which edges meet
+  on the car even when the regions sit far apart or turned on the sheet:
+
+  ```json
+  "links": [
+    { "a": { "region": "left_side",   "from": { "x": 1890, "y": 520 }, "to": { "x": 1930, "y": 760 } },
+      "b": { "region": "rear_bumper", "from": { "x": 40,   "y": 300 }, "to": { "x": 60,   "y": 80 } } }
+  ]
+  ```
+
+  Each side is a stretch of that region's edge. `a.from` meets `b.from` and
+  `a.to` meets `b.to`. An edge that meets two regions carries two links.
+  Versions of Clearcoat that predate links ignore them.
 
 ## Contributing a map
 
@@ -40,6 +53,10 @@ exported by Clearcoat itself:
    id follows: "Left Door" becomes `left_door`). Not sure which piece is
    which? **Piece colors** adds a color-coded, labelled layer you can save
    to iRacing and look at on the car.
+   **Link edges** records which edges meet: click the two ends of a shared
+   stretch on one region, then the two ends it meets on the other. Linked
+   edges show the same color bands in **Piece colors**, so on the car the
+   same colors should face each other across the seam.
 2. Click **Export map** in the Template panel to download the JSON.
 3. Rename the file to `<car-folder-name>.json`, where `<car-folder-name>`
    is the car's subfolder name under your iRacing `paints` directory

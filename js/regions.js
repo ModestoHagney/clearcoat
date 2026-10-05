@@ -2,7 +2,8 @@
 // relationships ("Left Door mirrors Right Door"). Pure data helpers; all
 // coordinates are in 2048-sheet space. Every region has a rectangle (x, y, w,
 // h); one may also carry "points", an outline of its real shape, in which case
-// the rectangle is that outline's bounding box.
+// the rectangle is that outline's bounding box. A map may also carry "links":
+// pairs of edge stretches that meet on the car (see the seam links section).
 
 export const REGIONS_FORMAT = 'clearcoat-regions/1';
 
@@ -44,11 +45,26 @@ export function parseRegionMap(data) {
   for (const r of regions) {
     if (r.mirror && !seen.has(r.mirror)) throw new Error(`region "${r.id}" mirrors unknown id "${r.mirror}"`);
   }
-  return {
+  const map = {
     format: REGIONS_FORMAT,
     car: typeof data.car === 'string' && data.car ? data.car : 'unknown car',
     regions,
   };
+  if (data.links !== undefined) {
+    if (!Array.isArray(data.links)) throw new Error('"links" is not an array');
+    const pt = (q) => q && Number.isFinite(q.x) && Number.isFinite(q.y);
+    map.links = data.links.map((l, i) => {
+      const out = {};
+      for (const side of ['a', 'b']) {
+        const e = l && l[side];
+        if (!e || !pt(e.from) || !pt(e.to)) throw new Error(`link ${i} has a bad "${side}" end`);
+        if (!seen.has(e.region)) throw new Error(`link ${i} joins unknown region "${e.region}"`);
+        out[side] = { region: e.region, from: { x: e.from.x, y: e.from.y }, to: { x: e.to.x, y: e.to.y } };
+      }
+      return out;
+    });
+  }
+  return map;
 }
 
 export function regionById(map, id) {
@@ -115,6 +131,7 @@ export function renameRegion(map, region, name) {
   const others = map.regions.filter(r => r !== region);
   const id = uniqueRegionId(name, { regions: others });
   for (const r of others) if (r.mirror === region.id) r.mirror = id;
+  for (const l of map.links || []) for (const side of ['a', 'b']) if (l[side].region === region.id) l[side].region = id;
   region.id = id;
   region.name = name;
   return region;
@@ -255,4 +272,109 @@ export function piecesRegionMap(car, outlines) {
     });
   });
   return map;
+}
+
+// ---------- seam links ----------
+// A link says "this stretch of one region's edge meets that stretch of
+// another's on the car": { a: { region, from, to }, b: { region, from, to } }.
+// a.from meets b.from and a.to meets b.to; in between, equal fractions of the
+// two stretches are taken to meet. Where the regions sit on the sheet, and how
+// they are turned, does not matter. A long edge that meets two regions simply
+// carries two links.
+
+// distance along the outline to each corner, plus the full way round
+function arcs(pts) {
+  const cum = [0];
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length];
+    cum.push(cum[i] + Math.hypot(b.x - a.x, b.y - a.y));
+  }
+  return cum;
+}
+
+function atArc(pts, cum, s) {
+  const L = cum[pts.length];
+  s = ((s % L) + L) % L;
+  let i = 0;
+  while (i < pts.length - 1 && cum[i + 1] < s) i++;
+  const a = pts[i], b = pts[(i + 1) % pts.length], seg = cum[i + 1] - cum[i];
+  const t = seg ? (s - cum[i]) / seg : 0;
+  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+}
+
+// The spot on the outline nearest (x, y): { x, y, s (distance along the
+// outline), d (distance from the given point) }. A corner within `corner` px
+// wins over the bare edge, so a click near a corner lands exactly on it.
+export function snapToOutline(pts, x, y, corner = 0) {
+  const cum = arcs(pts);
+  let best = { d: Infinity };
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length];
+    const dx = b.x - a.x, dy = b.y - a.y, len2 = dx * dx + dy * dy;
+    const t = len2 ? Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / len2)) : 0;
+    const px = a.x + t * dx, py = a.y + t * dy, d = Math.hypot(x - px, y - py);
+    if (d < best.d) best = { x: px, y: py, s: cum[i] + t * Math.sqrt(len2), d };
+  }
+  let near = corner;
+  for (let i = 0; i < pts.length; i++) {
+    const d = Math.hypot(x - pts[i].x, y - pts[i].y);
+    if (d <= near) { near = d; best = { x: pts[i].x, y: pts[i].y, s: cum[i], d }; }
+  }
+  return best;
+}
+
+// One side of a link as a run along its region's outline: where it starts,
+// how long it is and which way round it goes. Null if the region is gone.
+// ponytail: of the two ways round between the ends it takes the shorter, so a
+// stretch covering more than half an outline needs splitting into two links.
+function linkStretch(map, link, side) {
+  const region = regionById(map, link[side].region);
+  if (!region) return null;
+  const pts = regionOutline(region), cum = arcs(pts), L = cum[pts.length];
+  const s0 = snapToOutline(pts, link[side].from.x, link[side].from.y).s;
+  const s1 = snapToOutline(pts, link[side].to.x, link[side].to.y).s;
+  const fwd = (s1 - s0 + L) % L;
+  return fwd <= L / 2 ? { pts, cum, L, start: s0, len: fwd, dir: 1 } : { pts, cum, L, start: s0, len: L - fwd, dir: -1 };
+}
+
+// points along one side of a link from fraction t0 to t1 of its stretch,
+// about every `step` px — for drawing it
+export function linkPoints(map, link, side, t0 = 0, t1 = 1, step = 6) {
+  const st = linkStretch(map, link, side);
+  if (!st) return [];
+  const n = Math.max(1, Math.ceil(Math.abs(t1 - t0) * st.len / step));
+  const out = [];
+  for (let k = 0; k <= n; k++) out.push(atArc(st.pts, st.cum, st.start + st.dir * st.len * (t0 + (t1 - t0) * k / n)));
+  return out;
+}
+
+// length in px of the longer side of a link
+export function linkLength(map, link) {
+  const a = linkStretch(map, link, 'a'), b = linkStretch(map, link, 'b');
+  return Math.max(a ? a.len : 0, b ? b.len : 0);
+}
+
+// Where does the spot at (x, y) meet the other piece? If (x, y) is within
+// maxDist of a linked stretch, returns { index, side, t, at, partner } — `at`
+// is the spot on that stretch, `partner` the spot it meets on the other side.
+export function matchPoint(map, x, y, maxDist) {
+  let best = null;
+  (map.links || []).forEach((link, index) => {
+    for (const side of ['a', 'b']) {
+      const st = linkStretch(map, link, side);
+      if (!st) continue;
+      const p = snapToOutline(st.pts, x, y);
+      if (p.d > maxDist || (best && p.d >= best.d)) continue;
+      const along = st.dir === 1 ? (p.s - st.start + st.L) % st.L : (st.start - p.s + st.L) % st.L;
+      if (along > st.len + 1e-6) continue;
+      const other = linkStretch(map, link, side === 'a' ? 'b' : 'a');
+      if (!other) continue;
+      const t = st.len ? along / st.len : 0;
+      best = {
+        index, side, t, d: p.d, at: { x: p.x, y: p.y },
+        partner: atArc(other.pts, other.cum, other.start + other.dir * other.len * t),
+      };
+    }
+  });
+  return best;
 }

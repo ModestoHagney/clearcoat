@@ -16,6 +16,10 @@ import {
   renameRegion,
   labelPoint,
   pointInPolygon,
+  snapToOutline,
+  matchPoint,
+  linkPoints,
+  linkLength,
 } from '../js/regions.js';
 
 // Convenience builder: a valid raw map with two mirrored door rectangles.
@@ -445,4 +449,64 @@ test('labelPoint lands inside the shape and keeps off regions drawn over it', ()
   const over = { id: 'over', x: 0, y: 40, w: 100, h: 60 }; // covers the L's foot
   const q = labelPoint(l, [over]);
   assert.ok(q.y < 40 && pointInPolygon(L_SHAPE, q.x, q.y));
+});
+
+// ---------------------------------------------------------------- seam links
+
+// Two 100px squares. Square A's right edge (top to bottom) meets square B's
+// top edge (right to left) — as if B were turned a quarter and moved away.
+function linkedMap() {
+  return parseRegionMap(rawMap({
+    regions: [
+      { id: 'a', x: 0, y: 0, w: 100, h: 100 },
+      { id: 'b', x: 500, y: 300, w: 100, h: 100 },
+    ],
+    links: [{
+      a: { region: 'a', from: { x: 100, y: 0 }, to: { x: 100, y: 100 } },
+      b: { region: 'b', from: { x: 600, y: 300 }, to: { x: 500, y: 300 } },
+    }],
+  }));
+}
+
+test('snapToOutline lands on the edge, and on a corner when one is close', () => {
+  const sq = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 }];
+  const edge = snapToOutline(sq, 104, 40, 8);
+  assert.deepEqual([edge.x, edge.y, edge.s], [100, 40, 140]);
+  const corner = snapToOutline(sq, 97, 5, 8);
+  assert.deepEqual([corner.x, corner.y, corner.s], [100, 0, 100]);
+});
+
+test('matchPoint carries a spot across a link to a turned, far-away region', () => {
+  const map = linkedMap();
+  const m = matchPoint(map, 102, 25, 5); // a quarter of the way down A's right edge
+  assert.equal(m.side, 'a');
+  assert.ok(Math.abs(m.t - 0.25) < 1e-9);
+  assert.deepEqual(m.at, { x: 100, y: 25 });
+  assert.deepEqual(m.partner, { x: 575, y: 300 }); // a quarter of the way along B's top edge, from the right
+  const back = matchPoint(map, 575, 298, 5); // and the same link read from B's side
+  assert.deepEqual(back.partner, { x: 100, y: 25 });
+});
+
+test('matchPoint ignores spots off the linked stretch or too far from it', () => {
+  const map = linkedMap();
+  assert.equal(matchPoint(map, 50, 0, 5), null);   // A's top edge is not linked
+  assert.equal(matchPoint(map, 130, 50, 5), null); // too far from the edge
+});
+
+test('linkPoints follows the stretch end to end, on both sides', () => {
+  const map = linkedMap();
+  const a = linkPoints(map, map.links[0], 'a'), b = linkPoints(map, map.links[0], 'b');
+  assert.deepEqual([a[0], a[a.length - 1]], [{ x: 100, y: 0 }, { x: 100, y: 100 }]);
+  assert.deepEqual([b[0], b[b.length - 1]], [{ x: 600, y: 300 }, { x: 500, y: 300 }]);
+  assert.equal(linkLength(map, map.links[0]), 100);
+});
+
+test('links survive parsing and follow a renamed region; bad links are rejected', () => {
+  const map = linkedMap();
+  renameRegion(map, regionById(map, 'b'), 'Rear Bumper');
+  assert.equal(map.links[0].b.region, 'rear_bumper');
+  assert.deepEqual(parseRegionMap(map).links, map.links);
+  assert.throws(() => parseRegionMap({ ...map, links: [{ a: map.links[0].a, b: { ...map.links[0].b, region: 'nope' } }] }), /unknown region "nope"/);
+  assert.throws(() => parseRegionMap({ ...map, links: [{ a: map.links[0].a }] }), /bad "b" end/);
+  assert.equal(parseRegionMap(rawMap()).links, undefined); // maps without links stay as they were
 });
