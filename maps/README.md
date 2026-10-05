@@ -23,14 +23,20 @@ exported by Clearcoat itself:
 }
 ```
 
-- All coordinates are in 2048-sheet space; rectangles only (v1).
+- All coordinates are in 2048-sheet space.
+- `points` is optional: an outline of the region's real shape, as a list of
+  `{ "x": …, "y": … }` corners (three or more). When present, `x`/`y`/`w`/`h`
+  are the outline's bounding box. Versions of Clearcoat that predate outlines
+  ignore `points` and use the box.
 - `mirror` is optional and must reference another region's `id`.
 
 ## Contributing a map
 
 1. In Clearcoat, load your car's template and switch on **Annotate** mode
    (the warning-colored button in the viewport HUD). Drag rectangles over
-   the panels, name them, and record mirror partners as prompted.
+   the panels, name them, and record mirror partners as prompted. If you
+   loaded an official PSD, Clearcoat has already outlined the sheet's pieces
+   as "Piece 1…N" — click one in Annotate mode to give it a real name.
 2. Click **Export map** in the Template panel to download the JSON.
 3. Rename the file to `<car-folder-name>.json`, where `<car-folder-name>`
    is the car's subfolder name under your iRacing `paints` directory

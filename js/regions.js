@@ -1,6 +1,8 @@
-// Clearcoat region maps — labeled rectangles over the 2048 UV sheet with
-// mirror relationships ("Left Door mirrors Right Door"). Pure data helpers;
-// all coordinates are in 2048-sheet space, rectangles only (v1).
+// Clearcoat region maps — labeled areas over the 2048 UV sheet with mirror
+// relationships ("Left Door mirrors Right Door"). Pure data helpers; all
+// coordinates are in 2048-sheet space. Every region has a rectangle (x, y, w,
+// h); one may also carry "points", an outline of its real shape, in which case
+// the rectangle is that outline's bounding box.
 
 export const REGIONS_FORMAT = 'clearcoat-regions/1';
 
@@ -30,6 +32,13 @@ export function parseRegionMap(data) {
       x: r.x, y: r.y, w: r.w, h: r.h,
     };
     if (typeof r.mirror === 'string' && r.mirror) out.mirror = r.mirror;
+    if (r.points !== undefined) {
+      if (!Array.isArray(r.points) || r.points.length < 3
+          || !r.points.every(q => q && Number.isFinite(q.x) && Number.isFinite(q.y))) {
+        throw new Error(`region "${r.id}" has a bad "points" outline`);
+      }
+      out.points = r.points.map(q => ({ x: q.x, y: q.y }));
+    }
     return out;
   });
   for (const r of regions) {
@@ -46,12 +55,23 @@ export function regionById(map, id) {
   return map.regions.find(r => r.id === id) || null;
 }
 
-// topmost-last: later entries win where rectangles overlap
+// even-odd test: is (x, y) inside the closed outline?
+export function pointInPolygon(pts, x, y) {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const a = pts[i], b = pts[j];
+    if ((a.y > y) !== (b.y > y) && x < (b.x - a.x) * (y - a.y) / (b.y - a.y) + a.x) inside = !inside;
+  }
+  return inside;
+}
+
+// topmost-last: later entries win where regions overlap
 export function regionAt(map, x, y) {
   const rs = map.regions;
   for (let i = rs.length - 1; i >= 0; i--) {
     const r = rs[i];
-    if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return r;
+    if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h
+        && (!r.points || pointInPolygon(r.points, x, y))) return r;
   }
   return null;
 }
@@ -87,4 +107,109 @@ export function uniqueRegionId(name, map) {
   let id = base, n = 2;
   while (map.regions.some(r => r.id === id)) id = base + '_' + (n++);
   return id;
+}
+
+// ---------- piece detection ----------
+// A template's wireframe draws every piece of the sheet as its own connected
+// network of lines, with clear space between pieces. So each connected network
+// is one piece, and the outer edge of the network is the piece's outline.
+
+function polygonArea(pts) {
+  let a = 0;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) a += pts[j].x * pts[i].y - pts[i].x * pts[j].y;
+  return Math.abs(a) / 2;
+}
+
+// Walk the outer edge of the 8-connected blob whose first pixel in scan order
+// is (x0, y0), along pixel edges with the blob on the right. Returns the
+// corners, clockwise on screen.
+function traceOutline(mask, w, h, x0, y0) {
+  const at = (x, y) => x >= 0 && y >= 0 && x < w && y < h && mask[y * w + x] > 0;
+  const DX = [1, 0, -1, 0], DY = [0, 1, 0, -1]; // E S W N
+  const RX = [0, -1, -1, 0], RY = [0, 0, -1, -1]; // pixel ahead-right of a corner, per heading
+  const pts = [];
+  let x = x0, y = y0, d = 0;
+  do {
+    x += DX[d]; y += DY[d];
+    const l = (d + 3) % 4; // ahead-left is ahead-right of the heading one turn left
+    const nd = at(x + RX[l], y + RY[l]) ? l : at(x + RX[d], y + RY[d]) ? d : (d + 1) % 4;
+    if (nd !== d) pts.push({ x, y });
+    d = nd;
+  } while (x !== x0 || y !== y0 || d !== 0);
+  return pts;
+}
+
+// Douglas-Peucker on a closed ring: drop corners that sit within `tol` pixels
+// of the line between the corners kept either side.
+export function simplifyOutline(pts, tol) {
+  const n = pts.length;
+  if (n < 4 || tol <= 0) return pts;
+  let far = 1, best = -1;
+  for (let i = 1; i < n; i++) {
+    const d = (pts[i].x - pts[0].x) ** 2 + (pts[i].y - pts[0].y) ** 2;
+    if (d > best) { best = d; far = i; }
+  }
+  const keep = new Uint8Array(n);
+  keep[0] = keep[far] = 1;
+  const stack = [[0, far], [far, n]]; // index n is pts[0] again, closing the ring
+  while (stack.length) {
+    const [a, b] = stack.pop();
+    const A = pts[a], B = pts[b % n];
+    const dx = B.x - A.x, dy = B.y - A.y, len2 = dx * dx + dy * dy;
+    let idx = -1, max = tol;
+    for (let i = a + 1; i < b; i++) {
+      const q = pts[i];
+      const t = len2 ? Math.max(0, Math.min(1, ((q.x - A.x) * dx + (q.y - A.y) * dy) / len2)) : 0;
+      const d = Math.hypot(q.x - A.x - t * dx, q.y - A.y - t * dy);
+      if (d > max) { max = d; idx = i; }
+    }
+    if (idx !== -1) { keep[idx] = 1; stack.push([a, idx], [idx, b]); }
+  }
+  return pts.filter((_, i) => keep[i]);
+}
+
+// mask: w*h bytes, non-zero where the wireframe has a line. Returns one
+// outline (array of { x, y }) per piece, largest first.
+// minArea drops specks; tolerance is how far (px) a simplified outline may
+// stray from the traced one — raise it for fewer points, lower for a closer fit.
+export function detectPieces(mask, w, h, { minArea = 600, tolerance = 2 } = {}) {
+  const seen = new Uint8Array(w * h);
+  const stack = new Int32Array(w * h);
+  const found = [];
+  for (let p0 = 0; p0 < w * h; p0++) {
+    if (!mask[p0] || seen[p0]) continue;
+    // flood the whole network so it is traced once, from its first pixel
+    let n = 0;
+    stack[n++] = p0; seen[p0] = 1;
+    while (n) {
+      const p = stack[--n], x = p % w, y = (p - x) / w;
+      for (let ny = Math.max(0, y - 1); ny <= Math.min(h - 1, y + 1); ny++) {
+        for (let nx = Math.max(0, x - 1); nx <= Math.min(w - 1, x + 1); nx++) {
+          const q = ny * w + nx;
+          if (mask[q] && !seen[q]) { seen[q] = 1; stack[n++] = q; }
+        }
+      }
+    }
+    const x0 = p0 % w;
+    const pts = simplifyOutline(traceOutline(mask, w, h, x0, (p0 - x0) / w), tolerance);
+    const area = polygonArea(pts);
+    if (pts.length >= 3 && area >= minArea) found.push({ pts, area });
+  }
+  return found.sort((a, b) => b.area - a.area).map(f => f.pts);
+}
+
+// a region map with one outlined region per detected piece, "Piece 1" being
+// the largest — small pieces come last so they win the hover inside big ones
+export function piecesRegionMap(car, outlines) {
+  const map = createRegionMap(car);
+  outlines.forEach((outline, i) => {
+    const points = outline.map(q => ({ x: Math.round(q.x), y: Math.round(q.y) }));
+    const xs = points.map(q => q.x), ys = points.map(q => q.y);
+    const x = Math.min(...xs), y = Math.min(...ys);
+    map.regions.push({
+      id: `piece_${i + 1}`, name: `Piece ${i + 1}`,
+      x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y, points,
+    });
+  });
+  return map;
 }

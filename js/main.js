@@ -20,7 +20,7 @@ import { LIBRARY, libraryItemToLayerSource } from './library.js';
 import { TEXTURES, TEX_CATS, texThumb, texFull } from './textures.js';
 import { wandSelect } from './wand.js';
 import { lassoMask, lassoBounds, CLOSE_RADIUS } from './lasso.js';
-import { parseRegionMap, createRegionMap, regionAt, regionById, mirrorPoint, mirrorLayerPlacement, uniqueRegionId } from './regions.js';
+import { parseRegionMap, createRegionMap, regionAt, regionById, mirrorPoint, mirrorLayerPlacement, uniqueRegionId, piecesRegionMap } from './regions.js';
 import { initAdvisor } from './advisor.js';
 
 // ---------- state ----------
@@ -479,12 +479,19 @@ function drawRegionOverlay() {
   vctx.lineWidth = 1;
   vctx.font = '11px "IBM Plex Mono", monospace';
   for (const r of doc.regionMap.regions) {
-    const a = docToScreen(r.x, r.y);
-    const b = docToScreen(r.x + r.w, r.y + r.h);
+    // an outlined region draws its real shape, labelled at its first corner
+    const pts = (r.points || [
+      { x: r.x, y: r.y }, { x: r.x + r.w, y: r.y }, { x: r.x + r.w, y: r.y + r.h }, { x: r.x, y: r.y + r.h },
+    ]).map(q => docToScreen(q.x, q.y));
+    const a = pts[0];
+    vctx.beginPath();
+    vctx.moveTo(a.x, a.y);
+    for (let i = 1; i < pts.length; i++) vctx.lineTo(pts[i].x, pts[i].y);
+    vctx.closePath();
     vctx.fillStyle = 'rgba(45, 214, 193, .07)';
-    vctx.fillRect(a.x, a.y, b.x - a.x, b.y - a.y);
+    vctx.fill();
     vctx.strokeStyle = 'rgba(45, 214, 193, .75)';
-    vctx.strokeRect(a.x, a.y, b.x - a.x, b.y - a.y);
+    vctx.stroke();
     const label = r.name + (r.mirror ? ' ⇄' : '');
     vctx.fillStyle = 'rgba(13, 14, 17, .75)'; // backing so labels read over any paint
     vctx.fillRect(a.x, a.y, vctx.measureText(label).width + 8, 17);
@@ -2587,11 +2594,20 @@ $('file-template').addEventListener('change', async (e) => {
     let src;
     if (/\.psd$/i.test(file.name)) {
       status('Reading PSD — extracting wireframe…');
-      const { src: psdSrc, usedWireframe } = await psdToTemplate(await file.arrayBuffer());
+      const { src: psdSrc, usedWireframe, pieces } = await psdToTemplate(await file.arrayBuffer());
       src = psdSrc;
-      status(usedWireframe
+      let found = '';
+      if (pieces.length && doc.regionMap) {
+        // never replace a map the user loaded or drew
+        found = ` Found ${pieces.length} pieces — clear the current region map and load the PSD again to use them.`;
+      } else if (pieces.length) {
+        applyRegionMap(piecesRegionMap(file.name.replace(/\.psd$/i, ''), pieces));
+        setRegionsView(true);
+        found = ` Found ${pieces.length} pieces — shown as regions. Rename one with Annotate: click it.`;
+      }
+      status((usedWireframe
         ? 'Wireframe extracted from PSD.'
-        : 'PSD loaded (no wireframe layers found — using flattened composite).', 'ok');
+        : 'PSD loaded (no wireframe layers found — using flattened composite).') + found, 'ok');
     } else {
       src = await fileToDataURL(file);
       status('Template loaded — shown as a multiply overlay.', 'ok');
@@ -2804,7 +2820,7 @@ function setAnnotateMode(on) {
   viewport.classList.toggle('wand', on || wandMode);
   if (on) {
     setRegionsView(true);
-    status('Annotate: drag a rectangle over a panel, then name it. Esc to exit.');
+    status('Annotate: drag a rectangle over a panel, then name it. Click a region to rename it. Esc to exit.');
   } else {
     if (!doc.regionMap && regionsView) setRegionsView(false); // nothing to overlay
     requestRender();
@@ -2819,6 +2835,21 @@ async function finishAnnotate(d) {
   const x1 = cl(Math.min(d.startP.x, d.curP.x)), y1 = cl(Math.min(d.startP.y, d.curP.y));
   const x2 = cl(Math.max(d.startP.x, d.curP.x)), y2 = cl(Math.max(d.startP.y, d.curP.y));
   const w = Math.round(x2 - x1), h = Math.round(y2 - y1);
+  // a click rather than a drag, on an existing region → rename it
+  const hit = doc.regionMap && w < 4 && h < 4 ? regionAt(doc.regionMap, d.startP.x, d.startP.y) : null;
+  if (hit) {
+    const ans = await askDialog({
+      title: 'Rename region', okLabel: 'Rename',
+      fields: [{ key: 'name', label: 'Region name', value: hit.name }],
+    });
+    if (ans && ans.name && ans.name.trim()) {
+      hit.name = ans.name.trim();
+      scheduleAutosave();
+      status(`Region renamed to "${hit.name}".`, 'ok');
+    }
+    requestRender();
+    return;
+  }
   if (w < 24 || h < 24) { requestRender(); status('Region too small — drag a rectangle at least 24px on each side.', 'err'); return; }
   const fields = [];
   if (!doc.regionMap) {

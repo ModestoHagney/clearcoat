@@ -3,6 +3,9 @@
 // and lazy-loaded only when a .psd is actually opened (keeps the core app load lean,
 // with zero runtime CDN dependencies).
 
+import { SIZE } from './engine.js';
+import { detectPieces } from './regions.js';
+
 let agPsdPromise = null;
 
 function loadAgPsd() {
@@ -49,7 +52,26 @@ function drawLayers(ctx, entries) {
   ctx.globalAlpha = 1;
 }
 
-// Returns { src (PNG dataURL), usedWireframe (bool) }
+// Outlines of the sheet's pieces, read from the wireframe layers and scaled to
+// 2048-sheet space (see detectPieces). Empty when the wireframe does not split
+// into separate pieces, e.g. linework flattened onto an opaque background.
+function wirePieces(psd, wires) {
+  const c = document.createElement('canvas');
+  c.width = psd.width;
+  c.height = psd.height;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  // full strength, whatever the layer's opacity — only the line shapes matter
+  for (const { layer } of wires) ctx.drawImage(layer.canvas, layer.left || 0, layer.top || 0);
+  const px = ctx.getImageData(0, 0, c.width, c.height).data;
+  const mask = new Uint8Array(c.width * c.height);
+  for (let i = 0; i < mask.length; i++) mask[i] = px[i * 4 + 3] > 127 ? 1 : 0;
+  const pieces = detectPieces(mask, c.width, c.height);
+  if (pieces.length < 2) return [];
+  const kx = SIZE / c.width, ky = SIZE / c.height;
+  return pieces.map(pts => pts.map(q => ({ x: q.x * kx, y: q.y * ky })));
+}
+
+// Returns { src (PNG dataURL), usedWireframe (bool), pieces (outlines, may be empty) }
 export async function psdToTemplate(arrayBuffer) {
   const agPsd = await loadAgPsd();
   const psd = agPsd.readPsd(arrayBuffer);
@@ -68,7 +90,7 @@ export async function psdToTemplate(arrayBuffer) {
 
   if (wires.length) {
     drawLayers(ctx, wires);
-    return { src: out.toDataURL('image/png'), usedWireframe: true };
+    return { src: out.toDataURL('image/png'), usedWireframe: true, pieces: wirePieces(psd, wires) };
   }
   // no wireframe-named layers — fall back to the flattened composite
   if (psd.canvas) {
@@ -76,5 +98,5 @@ export async function psdToTemplate(arrayBuffer) {
   } else {
     drawLayers(ctx, entries.filter(e => !e.hidden));
   }
-  return { src: out.toDataURL('image/png'), usedWireframe: false };
+  return { src: out.toDataURL('image/png'), usedWireframe: false, pieces: [] };
 }

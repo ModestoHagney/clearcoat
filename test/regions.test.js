@@ -10,6 +10,9 @@ import {
   mirrorPairAt,
   mirrorLayerPlacement,
   uniqueRegionId,
+  detectPieces,
+  piecesRegionMap,
+  simplifyOutline,
 } from '../js/regions.js';
 
 // Convenience builder: a valid raw map with two mirrored door rectangles.
@@ -325,4 +328,88 @@ test('uniqueRegionId falls back to "region" for empty or all-symbol names', () =
     regions: [{ id: 'region', x: 0, y: 0, w: 1, h: 1 }],
   }));
   assert.equal(uniqueRegionId('***', map2), 'region_2');
+});
+
+// ---------------------------------------------------------------- outlined regions
+
+// An L: the full 100x100 box minus its top-right quarter.
+const L_SHAPE = [
+  { x: 0, y: 0 }, { x: 50, y: 0 }, { x: 50, y: 50 }, { x: 100, y: 50 }, { x: 100, y: 100 }, { x: 0, y: 100 },
+];
+
+test('parseRegionMap keeps a valid outline and rejects a bad one', () => {
+  const ok = parseRegionMap(rawMap({ regions: [{ id: 'l', x: 0, y: 0, w: 100, h: 100, points: L_SHAPE }] }));
+  assert.deepEqual(ok.regions[0].points, L_SHAPE);
+  assert.notEqual(ok.regions[0].points, L_SHAPE); // copied, not shared
+  for (const points of [[], L_SHAPE.slice(0, 2), [{ x: 0, y: 0 }, { x: 1 }, { x: 2, y: 2 }], 'nope']) {
+    assert.throws(
+      () => parseRegionMap(rawMap({ regions: [{ id: 'l', x: 0, y: 0, w: 100, h: 100, points }] })),
+      /bad "points"/,
+    );
+  }
+});
+
+test('regionAt follows the outline, not the bounding box', () => {
+  const map = parseRegionMap(rawMap({
+    regions: [
+      { id: 'under', x: 0, y: 0, w: 100, h: 100 },
+      { id: 'l', x: 0, y: 0, w: 100, h: 100, points: L_SHAPE },
+    ],
+  }));
+  assert.equal(regionAt(map, 25, 25).id, 'l');
+  assert.equal(regionAt(map, 75, 75).id, 'l');
+  assert.equal(regionAt(map, 75, 25).id, 'under'); // inside l's box, outside its shape
+});
+
+// ---------------------------------------------------------------- detectPieces
+
+// Draw the outline of a w×h box plus a grid line every `step` px, the way a
+// wireframe draws one piece as a mesh.
+function drawMesh(mask, W, x0, y0, w, h, step) {
+  for (let y = y0; y < y0 + h; y++) {
+    for (let x = x0; x < x0 + w; x++) {
+      const edge = x === x0 || y === y0 || x === x0 + w - 1 || y === y0 + h - 1;
+      if (edge || (x - x0) % step === 0 || (y - y0) % step === 0) mask[y * W + x] = 1;
+    }
+  }
+}
+
+test('detectPieces finds one outline per separate mesh, largest first', () => {
+  const W = 200, H = 120;
+  const mask = new Uint8Array(W * H);
+  drawMesh(mask, W, 10, 10, 41, 31, 10);   // small piece
+  drawMesh(mask, W, 80, 20, 101, 81, 20);  // large piece
+  mask[5 * W + 190] = 1;                   // a stray speck
+  const pieces = detectPieces(mask, W, H);
+  assert.equal(pieces.length, 2);
+  const map = piecesRegionMap('test car', pieces);
+  assert.deepEqual(map.regions.map(r => [r.id, r.name, r.x, r.y, r.w, r.h]), [
+    ['piece_1', 'Piece 1', 80, 20, 101, 81],
+    ['piece_2', 'Piece 2', 10, 10, 41, 31],
+  ]);
+  assert.equal(map.regions[0].points.length, 4); // a box simplifies to its corners
+  parseRegionMap(map); // what detection produces must load as a map
+});
+
+test('detectPieces traces a diagonal line network and a concave shape', () => {
+  const W = 60, H = 60;
+  const mask = new Uint8Array(W * H);
+  // an L drawn with 1px lines, including a diagonal that only touches corner to corner
+  for (let i = 10; i <= 50; i++) { mask[10 * W + i] = 1; mask[i * W + 10] = 1; mask[50 * W + i] = 1; }
+  for (let i = 10; i <= 30; i++) { mask[i * W + 50] = 1; mask[30 * W + (20 + i)] = 1; }
+  for (let i = 30; i <= 50; i++) mask[i * W + 50] = 1;
+  for (let i = 0; i <= 40; i++) mask[(10 + i) * W + (10 + i)] = 1; // diagonal
+  const [outline] = detectPieces(mask, W, H, { minArea: 100 });
+  const map = parseRegionMap(piecesRegionMap('test car', [outline]));
+  assert.equal(regionAt(map, 30, 30).id, 'piece_1');
+  assert.equal(regionAt(map, 5, 5), null);
+});
+
+test('simplifyOutline drops points on a straight run and keeps real corners', () => {
+  const ring = [];
+  for (let x = 0; x < 100; x += 5) ring.push({ x, y: 0 });
+  for (let y = 0; y < 100; y += 5) ring.push({ x: 100, y });
+  for (let x = 100; x > 0; x -= 5) ring.push({ x, y: 100 });
+  for (let y = 100; y > 0; y -= 5) ring.push({ x: 0, y });
+  assert.deepEqual(simplifyOutline(ring, 1), [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 }]);
 });
