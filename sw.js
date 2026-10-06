@@ -36,6 +36,8 @@ const PRECACHE = [
   './js/layout.js',
   './js/zones.js',
   './js/patterns.js',
+  './js/brief.js',
+  './samples/opmo-sample.brief.json',
   './js/vendor/ag-psd.min.js',
   // driver-facing livery brief form (standalone page)
   './brief.html',

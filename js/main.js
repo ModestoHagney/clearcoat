@@ -30,6 +30,9 @@ import { initAdvisor } from './advisor.js';
 // driver variants + sponsor row (see the "driver variants / sponsor row" block near the end)
 import { applyVariant, newDriver, exportableDrivers, validCustidStr, hasVariables } from './variants.js';
 import { measureOptical, layoutRow, cornersRect } from './layout.js';
+// BRIEF: brief → livery generator (see the "Brief → livery" block at the end)
+import * as briefLib from './brief.js';
+// /BRIEF
 
 // ---------- state ----------
 
@@ -1553,6 +1556,9 @@ wrap.addEventListener('drop', async (e) => {
   dragDepth = 0;
   $('drop-cue').hidden = true;
   for (const file of e.dataTransfer.files) {
+    // BRIEF: a dropped .brief.json opens the candidates panel
+    if (/\.brief\.json$/i.test(file.name)) { await openBriefFile(file); continue; }
+    // /BRIEF
     if (file.type.startsWith('image/')) await addImageLayerFromFile(file);
   }
 });
@@ -4817,7 +4823,7 @@ $('file-tga').addEventListener('change', async (e) => {
 // Delete removing layers behind the Projects modal). Esc still passes
 // through — the Escape branch below is what closes them.
 function anyModalOpen() {
-  return ['help-modal', 'projects-modal', 'maps-modal', 'library-modal', 'texture-modal', 'carpattern-modal', 'advisor-modal', 'ask-modal']
+  return ['help-modal', 'projects-modal', 'maps-modal', 'library-modal', 'texture-modal', 'carpattern-modal', 'brief-modal' /* BRIEF */, 'advisor-modal', 'ask-modal']
     .some(id => { const el = document.getElementById(id); return el && !el.hidden; });
 }
 
@@ -4838,6 +4844,7 @@ window.addEventListener('keydown', (e) => {
     if (!askModal.hidden) { closeAsk(null); return; }
     if (!$('help-modal').hidden) { $('help-modal').hidden = true; return; }
     if (!projectsModal.hidden) { closeProjects(); return; }
+    if (!$('brief-modal').hidden) { closeBrief(); return; } // BRIEF
     if (!mapsModal.hidden) { closeMapsModal(); return; }
     if (!libraryModal.hidden) { closeLibrary(); return; }
     if (!textureModal.hidden) { closeTextures(); return; }
@@ -5363,3 +5370,221 @@ if ('serviceWorker' in navigator) {
     } catch { /* blocked or unsupported — the app works fine without it */ }
   });
 }
+
+// ---------- BRIEF → livery (js/brief.js) ----------
+// BRIEF BEGIN
+// A driver's .brief.json → three panel-correct candidates in a dialog. All
+// the planning/building logic is in brief.js; this block is file handling,
+// the cards, and the one-undo-step swap into the live doc.
+
+// The pattern catalogue (patterns.js) is built separately and may not be
+// present yet — wire it when it is. The carpattern layer type self-wires in
+// brief.js from engine.js's exports.
+import('./patterns.js')
+  .then(m => briefLib.wireAdapter({ loadCatalog: m.loadCatalog, getPattern: m.getPattern, patternRank: m.patternRank }))
+  .catch(() => { /* no catalogue module yet — candidates use a plain base coat */ });
+
+const briefModal = $('brief-modal');
+let briefState = null; // { brief, seed, catalog, plans, docs, assets, busy, gen }
+
+function briefCarSlug() {
+  return doc.patternCar || briefLib.slugCar(doc.regionMap && doc.regionMap.car);
+}
+
+async function openBriefFile(file) {
+  try {
+    const brief = briefLib.parseBrief(await file.text());
+    await showBrief(brief);
+  } catch (err) {
+    status('Could not read that brief: ' + (err.message || 'unknown error'), 'err');
+  }
+}
+
+$('btn-brief').addEventListener('click', () => $('file-brief').click());
+$('brief-load').addEventListener('click', () => $('file-brief').click());
+$('file-brief').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (file) await openBriefFile(file);
+});
+$('brief-sample').addEventListener('click', async (e) => {
+  e.preventDefault();
+  try {
+    const res = await fetch('samples/opmo-sample.brief.json');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    await showBrief(briefLib.parseBrief(await res.text()));
+  } catch (err) {
+    status('Could not load the sample brief: ' + (err.message || 'unknown error'), 'err');
+  }
+});
+$('brief-close').addEventListener('click', closeBrief);
+briefModal.addEventListener('click', (e) => { if (e.target === briefModal) closeBrief(); });
+$('brief-regen').addEventListener('click', () => {
+  if (!briefState || briefState.busy) return;
+  briefState.seed++;
+  generateBriefCandidates();
+});
+
+function closeBrief() { briefModal.hidden = true; }
+
+async function showBrief(brief) {
+  briefState = { brief, seed: 0, catalog: null, plans: [], docs: [], assets: null, busy: false, gen: 0 };
+  renderBriefMeta(brief);
+  $('brief-cards').innerHTML = '';
+  $('brief-warn').hidden = true;
+  briefModal.hidden = false;
+  try { briefState.catalog = await briefLib.adapter.loadCatalog(briefCarSlug()); } catch { briefState.catalog = null; }
+  renderBriefWarnings();
+  await generateBriefCandidates();
+}
+
+function renderBriefMeta(brief) {
+  const pal = briefLib.resolvePalette(brief);
+  const el = $('brief-meta');
+  el.innerHTML = '';
+  const item = (k, v) => {
+    const d = document.createElement('div');
+    const kk = document.createElement('span'); kk.className = 'k'; kk.textContent = k;
+    d.appendChild(kk);
+    if (typeof v === 'string') d.appendChild(document.createTextNode(v || '—')); else d.appendChild(v);
+    el.appendChild(d);
+    return d;
+  };
+  const drv = [brief.driver.name, brief.driver.number && '#' + brief.driver.number, brief.driver.custid && `(ID ${brief.driver.custid})`]
+    .filter(Boolean).join(' ');
+  item('Driver', drv);
+  item('Team', brief.team);
+  item('Car', brief.car);
+  const sw = document.createElement('span'); sw.className = 'brief-swatches';
+  for (const c of [pal.primary, pal.secondary, pal.accent]) {
+    const i = document.createElement('i'); i.style.background = c; i.title = c; sw.appendChild(i);
+  }
+  const palWrap = document.createElement('span');
+  palWrap.append(sw, document.createTextNode(` ${brief.palette.mood ? brief.palette.mood + ' · ' : ''}${brief.style} · ${brief.finish}`));
+  item('Look', palWrap);
+  item('Logos', brief.logos.length ? brief.logos.map(l => l.name).join(', ') : 'none');
+  if (brief.notes) item('Notes', brief.notes).classList.add('notes');
+}
+
+function renderBriefWarnings() {
+  const st = briefState;
+  const el = $('brief-warn');
+  const warns = st ? briefLib.briefWarnings(st.brief, { regionMap: doc.regionMap, catalog: st.catalog, patternCar: doc.patternCar }) : [];
+  el.innerHTML = '';
+  for (const w of warns) { const p = document.createElement('p'); p.textContent = w; el.appendChild(p); }
+  el.hidden = !warns.length;
+}
+
+// logos + pattern rasters the plans need; a logo that fails to load is
+// skipped rather than failing the whole brief
+async function briefAssets(brief, plans, catalog) {
+  const logoImages = [];
+  for (const logo of brief.logos) {
+    try { logoImages.push(await loadImage(logo.src)); } catch { logoImages.push(null); }
+  }
+  const patternImages = {};
+  for (const id of new Set(plans.map(p => p.patternId).filter(Boolean))) {
+    try {
+      const pat = briefLib.adapter.getPattern(catalog, id);
+      const src = pat && (pat.blob instanceof Blob ? URL.createObjectURL(pat.blob) : pat.src);
+      if (src) patternImages[id] = await loadImage(src);
+    } catch { /* no raster — the plan falls back to a plain base */ }
+  }
+  return { regionMap: doc.regionMap, logoImages, patternImages, patternCar: doc.patternCar || null };
+}
+
+// the live doc's template context rides along so zones and wireframe stay put
+function carryTemplate(built) {
+  built.template = doc.template;
+  built.paintMask = doc.paintMask;
+  built.templateOpacity = doc.templateOpacity;
+  built.templateColor = doc.templateColor;
+  built.templateBold = doc.templateBold;
+  built.target = doc.target;
+  return built;
+}
+
+function briefCard(plan, i) {
+  const card = document.createElement('div');
+  card.className = 'brief-card';
+  card.dataset.index = i;
+  const preview = document.createElement('div'); preview.className = 'preview';
+  const c = document.createElement('canvas'); c.width = c.height = 384;
+  const spin = document.createElement('div'); spin.className = 'spinner'; spin.textContent = 'rendering…';
+  preview.append(c, spin);
+  const title = document.createElement('div'); title.className = 'title';
+  const t = document.createElement('span'); t.textContent = `Candidate ${i + 1}`;
+  const meta = document.createElement('span'); meta.className = 'meta';
+  meta.textContent = (plan.patternId ? `pattern ${plan.patternId}` : 'plain base') + ` · ${plan.finish}`;
+  title.append(t, meta);
+  const use = document.createElement('button');
+  use.className = 'sm-btn accent use'; use.textContent = 'Use this'; use.disabled = true;
+  use.title = 'Replace the canvas with this candidate (one undo step)';
+  use.addEventListener('click', () => useBriefCandidate(i));
+  card.append(preview, title, use);
+  return card;
+}
+
+async function generateBriefCandidates() {
+  const st = briefState;
+  if (!st) return;
+  const gen = ++st.gen;
+  st.busy = true;
+  $('brief-regen').disabled = true;
+  const cards = $('brief-cards');
+  cards.innerHTML = '';
+  st.plans = briefLib.planCandidates(st.brief, st.catalog, doc.regionMap, 3, { seed: st.seed });
+  st.docs = [];
+  const els = st.plans.map((plan, i) => { const el = briefCard(plan, i); cards.appendChild(el); return el; });
+  st.assets = await briefAssets(st.brief, st.plans, st.catalog);
+  for (let i = 0; i < st.plans.length; i++) {
+    if (gen !== st.gen) return; // a newer run took over
+    await new Promise(r => setTimeout(r, 0)); // let the spinner paint
+    const el = els[i];
+    try {
+      const built = carryTemplate(briefLib.buildDoc(st.plans[i], st.brief, st.assets));
+      st.docs[i] = built;
+      const src = renderPaint(built);
+      const c = el.querySelector('canvas');
+      const cctx = c.getContext('2d');
+      cctx.drawImage(src, 0, 0, c.width, c.height);
+      // the wireframe over the paint, as in the viewport, so panels read
+      const ov = templateOverlay(built);
+      if (ov) {
+        cctx.save();
+        cctx.globalAlpha = Math.min(1, built.templateOpacity * 0.8);
+        cctx.globalCompositeOperation = ov.multiply ? 'multiply' : 'source-over';
+        cctx.drawImage(ov.img, 0, 0, c.width, c.height);
+        cctx.restore();
+      }
+      el.querySelector('.spinner').remove();
+      el.classList.add('ready');
+      el.querySelector('.use').disabled = false;
+    } catch (err) {
+      el.querySelector('.spinner').textContent = 'Failed: ' + (err.message || 'render error');
+    }
+  }
+  // the engine's shared paint canvas now holds the last candidate
+  dirty = true;
+  requestRender();
+  st.busy = false;
+  $('brief-regen').disabled = false;
+}
+
+function useBriefCandidate(i) {
+  const st = briefState;
+  if (!st || !st.docs[i]) return;
+  if (doc.layers.length && !confirm('Replace the current livery with this candidate? Undo brings the current one back.')) return;
+  // build afresh so the preview doc and the live doc never share layer objects
+  const fresh = carryTemplate(briefLib.buildDoc(st.plans[i], st.brief, st.assets));
+  // keep drivers already in the table that the brief doesn't cover
+  const have = new Set(fresh.drivers.map(d => d.custid));
+  for (const d of (doc.drivers || [])) if (!have.has(d.custid)) fresh.drivers.push(d);
+  fresh.name = doc.name && doc.name !== 'untitled livery' ? doc.name : fresh.name;
+  doc = fresh;
+  afterDocLoad(); // syncDocUI + markDirty + ONE history snapshot (no history reset — undo returns to the old doc)
+  closeBrief();
+  const drv = fresh.drivers.length ? ` Driver row for ID ${fresh.drivers[0].custid} is ready in the Drivers panel.` : '';
+  status(`Candidate ${i + 1} is on the canvas — ${fresh.layers.length} layers.${drv}`, 'ok');
+}
+// BRIEF END
