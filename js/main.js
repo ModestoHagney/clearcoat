@@ -22,6 +22,9 @@ import { wandSelect } from './wand.js';
 import { lassoMask, lassoBounds, CLOSE_RADIUS } from './lasso.js';
 import { parseRegionMap, createRegionMap, regionAt, regionById, mirrorPoint, mirrorLayerPlacement, uniqueRegionId } from './regions.js';
 import { initAdvisor } from './advisor.js';
+// driver variants + sponsor row (see the "driver variants / sponsor row" block near the end)
+import { applyVariant, newDriver, exportableDrivers, validCustidStr, hasVariables } from './variants.js';
+import { measureOptical, layoutRow, cornersRect } from './layout.js';
 
 // ---------- state ----------
 
@@ -258,12 +261,15 @@ function draw() {
   vctx.clearRect(0, 0, w, h);
 
   let composite;
+  // driver variants: while previewing a driver, the composite comes from a
+  // variant copy of the doc — the live doc, selection and undo are untouched
+  const rdoc = previewRenderDoc();
   if (shineView) {
     const frame = lightSweepFrame(
-      renderPaint(doc), renderSpec(doc),
+      renderPaint(rdoc), renderSpec(rdoc),
       (performance.now() - shineStart) / 1000, dirty,
     );
-    composite = frame || renderPaint(doc); // WebGL unavailable → plain paint
+    composite = frame || renderPaint(rdoc); // WebGL unavailable → plain paint
     compositeCache = null; // shine touched both singletons — re-render next time
   } else if (drag && dragPaintCache && !specView) {
     // live layer drag: static slabs pre-rendered, only moving layers redraw
@@ -272,7 +278,7 @@ function draw() {
   } else {
     const mode = specView ? 'spec' : 'paint';
     if (dirty || !compositeCache || compositeCacheMode !== mode) {
-      compositeCache = specView ? renderSpec(doc) : renderPaint(doc);
+      compositeCache = specView ? renderSpec(rdoc) : renderPaint(rdoc);
       compositeCacheMode = mode;
     }
     composite = compositeCache;
@@ -2121,6 +2127,7 @@ function syncInspector() {
       $('ins-text-italic').checked = sel.italic;
       $('ins-text-curve').value = sel.curve || 0;
       $('ins-text-curve-val').textContent = (sel.curve || 0) + '°';
+      $('ins-text-variable').value = sel.variable || ''; // driver variants
     }
     // effects: raster layers only (image + text)
     $('ins-split-row').hidden = sel.type !== 'image' && sel.type !== 'pattern';
@@ -2185,6 +2192,7 @@ function syncInspector() {
       : 'Mirror Clone needs a region map — load one from the Template panel, or draw your own with Annotate.';
     $('ins-group').disabled = selectedIds.size < 2;
     $('ins-ungroup').disabled = !selectedLayers().some(l => l.groupId);
+    syncRowButton(); // sponsor row
   }
   if (isBase) syncBaseColorFields();
   syncMaterialGrid();
@@ -3465,6 +3473,7 @@ function syncDocUI() {
   rebuildLayerList();
   syncInspector();
   syncRegionUI();
+  syncDriversUI(); // driver variants
 }
 
 // ---------- projects (browser library) ----------
@@ -4374,6 +4383,300 @@ window.addEventListener('keydown', (e) => {
 window.addEventListener('keyup', (e) => { if (e.code === 'Space') spaceHeld = false; });
 
 window.addEventListener('resize', requestRender);
+
+// ═══════════ driver variants (variants.js) + sponsor row (layout.js) ═══════════
+// Everything for both features lives between these markers, apart from the
+// import line at the top, one line in draw() (previewRenderDoc), one line
+// each in syncInspector (ins-text-variable, syncRowButton) and syncDocUI.
+
+// ---------- driver variants ----------
+// Previewing a driver never replaces `doc`: draw() asks previewRenderDoc()
+// for the doc to composite, and gets a throwaway applyVariant() copy that is
+// rebuilt whenever the master changes (dirty) or is swapped out (undo/open).
+let variantPreview = null; // { driverId, base, vdoc } | null
+
+function previewRenderDoc() {
+  if (!variantPreview) return doc;
+  const drv = (doc.drivers || []).find(d => d.id === variantPreview.driverId);
+  if (!drv) { variantPreview = null; syncDriversUI(); return doc; }
+  if (variantPreview.base !== doc || dirty || !variantPreview.vdoc) {
+    variantPreview.vdoc = applyVariant(doc, drv);
+    variantPreview.base = doc;
+  }
+  return variantPreview.vdoc;
+}
+
+function setPreviewDriver(id) {
+  const drv = id ? (doc.drivers || []).find(d => d.id === id) : null;
+  variantPreview = drv ? { driverId: drv.id, base: null, vdoc: null } : null;
+  dirty = true;           // force a re-composite without touching autosave/undo
+  requestRender();
+  syncDriversUI();
+  if (drv) {
+    status(`Previewing ${drv.name || 'driver'}${drv.number ? ' #' + drv.number : ''} — the master design is unchanged. Click Show master to go back.`);
+  } else {
+    status('Showing the master design.');
+  }
+}
+
+const previewingDriverId = () => variantPreview ? variantPreview.driverId : null;
+
+function driverInput(value, cls, title, onInput) {
+  const inp = document.createElement('input');
+  inp.type = 'text';
+  inp.value = value;
+  inp.spellcheck = false;
+  if (cls) inp.className = cls;
+  inp.title = title;
+  inp.addEventListener('input', () => { onInput(inp.value); markDirty(); });
+  inp.addEventListener('change', syncDriversUI);
+  return inp;
+}
+
+function syncDriversUI() {
+  const body = $('drivers-body');
+  if (!body) return;
+  if (!Array.isArray(doc.drivers)) doc.drivers = [];
+  const drivers = doc.drivers;
+  const focusKey = document.activeElement && document.activeElement.dataset
+    ? document.activeElement.dataset.dkey : null;
+  body.innerHTML = '';
+  for (const d of drivers) {
+    const tr = document.createElement('tr');
+    tr.dataset.id = d.id;
+    if (previewingDriverId() === d.id) tr.classList.add('previewing');
+
+    const tdOn = document.createElement('td'); tdOn.className = 'dt-on';
+    const on = document.createElement('input');
+    on.type = 'checkbox'; on.checked = d.enabled !== false;
+    on.title = 'Include in Export all drivers';
+    on.addEventListener('change', () => { d.enabled = on.checked; markDirty(); syncDriversUI(); });
+    tdOn.appendChild(on);
+
+    const tdName = document.createElement('td');
+    const name = driverInput(d.name, '', 'Driver name — fills text layers bound to Driver name', v => { d.name = v; });
+    name.placeholder = 'Name'; name.dataset.dkey = d.id + ':name';
+    tdName.appendChild(name);
+
+    const tdNum = document.createElement('td'); tdNum.className = 'dt-num';
+    const num = driverInput(d.number, 'mono', 'Car number — fills text layers bound to Driver number', v => { d.number = v; });
+    num.placeholder = '#'; num.inputMode = 'numeric'; num.dataset.dkey = d.id + ':number';
+    tdNum.appendChild(num);
+
+    const tdCust = document.createElement('td'); tdCust.className = 'dt-cust';
+    const cust = driverInput(d.custid, 'mono' + (d.custid && !validCustidStr(d.custid) ? ' invalid' : ''),
+      'iRacing customer ID — names this driver\'s files (car_<id>.tga + car_spec_<id>.tga)', v => { d.custid = v.trim(); });
+    cust.placeholder = '123456'; cust.inputMode = 'numeric'; cust.dataset.dkey = d.id + ':custid';
+    tdCust.appendChild(cust);
+
+    const tdAct = document.createElement('td'); tdAct.className = 'dt-act';
+    const prev = document.createElement('button');
+    prev.className = 'sm-btn preview';
+    prev.textContent = previewingDriverId() === d.id ? 'Master' : 'Preview';
+    prev.title = previewingDriverId() === d.id
+      ? 'Back to the master design'
+      : 'Show this driver\'s number and name on the canvas (the master is not changed)';
+    prev.addEventListener('click', () => setPreviewDriver(previewingDriverId() === d.id ? null : d.id));
+    const del = document.createElement('button');
+    del.className = 'sm-btn danger icon'; del.textContent = '✕'; del.title = 'Remove this driver';
+    del.addEventListener('click', () => {
+      doc.drivers = doc.drivers.filter(x => x.id !== d.id);
+      if (previewingDriverId() === d.id) { variantPreview = null; dirty = true; requestRender(); }
+      markDirty();
+      syncDriversUI();
+    });
+    tdAct.append(prev, del);
+
+    tr.append(tdOn, tdName, tdNum, tdCust, tdAct);
+    body.appendChild(tr);
+  }
+  if (focusKey) {
+    const el = body.querySelector(`[data-dkey="${focusKey}"]`);
+    if (el) el.focus();
+  }
+  const ready = exportableDrivers(drivers).length;
+  $('drivers-count').textContent = drivers.length ? `${ready} of ${drivers.length} ready` : '';
+  $('drivers-master').hidden = !variantPreview;
+  $('drivers-export').disabled = ready === 0;
+  $('drivers-table').hidden = drivers.length === 0;
+  const hint = $('drivers-hint');
+  if (!drivers.length) {
+    hint.innerHTML = 'Bind text layers to <b>Driver number</b> / <b>Driver name</b> (inspector → Text → Variable), add each driver here, then export once for everyone.';
+  } else if (!hasVariables(doc)) {
+    hint.textContent = 'No text layer is bound to a variable yet — every driver would get the same artwork. Select a text layer and set Variable in the inspector.';
+  } else if (!ready) {
+    hint.textContent = 'Tick a driver and give them a numeric Cust ID to export.';
+  } else {
+    const where = $('btn-save-iracing').disabled ? 'downloaded one by one' : 'written to the linked paints folder';
+    hint.textContent = `Export all drivers renders ${ready} set${ready === 1 ? '' : 's'} of files, ${where}.`;
+  }
+}
+
+$('drivers-add').addEventListener('click', () => {
+  if (!Array.isArray(doc.drivers)) doc.drivers = [];
+  const d = newDriver();
+  doc.drivers.push(d);
+  markDirty();
+  $('drivers-panel').open = true;
+  syncDriversUI();
+  const el = $('drivers-body').querySelector(`[data-dkey="${d.id}:name"]`);
+  if (el) el.focus();
+});
+
+$('drivers-master').addEventListener('click', () => setPreviewDriver(null));
+
+// Render + write every enabled driver through the same export path the single
+// Save/Export buttons use. The master doc is never modified: each driver gets
+// its own applyVariant() copy. The engine's shared render canvases end up
+// holding the last variant, so the viewport is re-composited afterwards.
+async function exportAllDrivers() {
+  const list = exportableDrivers(doc.drivers);
+  if (!list.length) { status('Add a driver with a numeric Cust ID and tick it first.', 'err'); return; }
+  const btn = $('drivers-export');
+  btn.disabled = true;
+  let handle = null;
+  try { handle = await effectivePaintsDir({ requestIfNeeded: false }); } catch { handle = null; }
+  const total = list.length;
+  const written = [];
+  const failed = [];
+  try {
+    for (let i = 0; i < total; i++) {
+      const drv = list[i];
+      const [paintName, specName] = paintFilenames(drv.custid);
+      status(`${i + 1} of ${total}: ${paintName}`);
+      await new Promise(r => setTimeout(r, 0)); // let the status line paint
+      try {
+        const vdoc = applyVariant(doc, drv);
+        const paint = exportPaintCanvas(renderPaint(vdoc));
+        assertExportable(paint);
+        const paintBlob = canvasToTGA(paint);
+        let specBlob = null;
+        if (specName) {
+          const spec = renderSpec(vdoc);
+          assertExportable(spec);
+          specBlob = canvasToTGA(spec, { alpha: true });
+        }
+        if (handle) {
+          await backupOriginals(handle, drv.custid);
+          await persist.writeFileToFolder(handle, paintName, paintBlob);
+          if (specBlob) await persist.writeFileToFolder(handle, specName, specBlob);
+        } else {
+          downloadBlob(paintBlob, paintName);
+          if (specBlob) {
+            await new Promise(r => setTimeout(r, 300)); // back-to-back downloads get dropped
+            downloadBlob(specBlob, specName);
+          }
+        }
+        written.push(paintName);
+      } catch (err) {
+        failed.push(`${drv.name || drv.custid}: ${err.message}`);
+      }
+    }
+  } finally {
+    btn.disabled = false;
+    dirty = true;      // shared render canvases hold the last variant
+    requestRender();
+  }
+  const where = handle ? 'written to the paints folder' : 'downloaded';
+  if (failed.length) {
+    status(`${written.length} of ${total} driver${total === 1 ? '' : 's'} ${where}; failed — ${failed.join('; ')}`, 'err');
+  } else {
+    const dl = handle ? '' : ' If only some files arrived, allow automatic downloads for this site (address-bar icon) and run it again.';
+    status(`${written.length} driver${written.length === 1 ? '' : 's'} ${where}: ${written.join(', ')}.${dl}`, 'ok');
+  }
+}
+$('drivers-export').addEventListener('click', exportAllDrivers);
+
+$('ins-text-variable').addEventListener('change', () => {
+  const sel = selectedLayer();
+  if (!sel || sel.type !== 'text') return;
+  sel.variable = $('ins-text-variable').value || null;
+  markDirty();
+  syncDriversUI();
+});
+
+// ---------- sponsor row ----------
+// Row = 2+ raster layers (image / text) distributed along a line with equal
+// *optical* size. Corner-pinned layers are skipped: a warped quad has no
+// single scale to set.
+function rowCandidates() {
+  return selectedLayers().filter(l =>
+    (l.type === 'image' || l.type === 'text') && l.img && !l.locked && !(l.corners && l.corners.length === 4));
+}
+
+function rowZoneRect() {
+  const first = rowCandidates()[0];
+  if (!first || !doc.regionMap) return null;
+  const r = regionAt(doc.regionMap, first.x, first.y);
+  return r ? { x: r.x, y: r.y, w: r.w, h: r.h, name: r.name || r.id } : null;
+}
+
+function syncRowButton() {
+  const n = rowCandidates().length;
+  $('ins-row').disabled = n < 2;
+  if (n < 2) $('ins-row-panel').hidden = true;
+  if (!$('ins-row-panel').hidden) syncRowPanel();
+}
+
+function syncRowPanel() {
+  const n = rowCandidates().length;
+  const zone = rowZoneRect();
+  const zoneCb = $('ins-row-zone');
+  zoneCb.disabled = !zone;
+  if (!zone) zoneCb.checked = false;
+  zoneCb.parentElement.title = zone
+    ? `Fit the row into the "${zone.name}" zone instead of the selection's own box`
+    : 'Needs a region map with a zone under the first selected layer';
+  $('ins-row-hint').textContent = `${n} layers → ${zoneCb.checked && zone ? `zone "${zone.name}"` : 'the selection\'s box'}. Rotation and skew are reset; sizes match by visible pixels, not canvas size.`;
+}
+
+$('ins-row').addEventListener('click', () => {
+  const panel = $('ins-row-panel');
+  panel.hidden = !panel.hidden;
+  if (!panel.hidden) syncRowPanel();
+});
+$('ins-row-close').addEventListener('click', () => { $('ins-row-panel').hidden = true; });
+for (const id of ['ins-row-dir', 'ins-row-gap', 'ins-row-align', 'ins-row-zone']) {
+  $(id).addEventListener('change', syncRowPanel);
+}
+
+// optical boxes are per-raster, so cache them by img (text layers get a new
+// img on every edit, which naturally invalidates the entry)
+const opticalCache = new WeakMap();
+function opticalBox(img) {
+  let b = opticalCache.get(img);
+  if (!b) { b = measureOptical(img); opticalCache.set(img, b); }
+  return b;
+}
+
+function applyRow() {
+  const layers = rowCandidates();
+  if (layers.length < 2) { status('Select two or more image or text layers first.', 'err'); return; }
+  const direction = $('ins-row-dir').value;
+  // keep the user's current order along the row
+  layers.sort((a, b) => direction === 'vertical' ? a.y - b.y : a.x - b.x);
+  const zone = $('ins-row-zone').checked ? rowZoneRect() : null;
+  const rect = zone || cornersRect(layers.map(layerCorners));
+  if (!rect || rect.w < 1 || rect.h < 1) { status('The selection has no area to lay out in.', 'err'); return; }
+  const items = layers.map(l => {
+    const o = opticalBox(l.img);
+    return { id: l.id, w: l.img.width, h: l.img.height, ox: o.x, oy: o.y, ow: o.w, oh: o.h, flipH: !!l.flipH, flipV: !!l.flipV };
+  });
+  const placed = layoutRow(items, rect, {
+    direction, gap: $('ins-row-gap').value, align: $('ins-row-align').value,
+  });
+  // positions are applied directly — snapping only runs during pointer drags
+  for (const p of placed) {
+    const l = layers.find(x => x.id === p.id);
+    l.x = p.x; l.y = p.y; l.scale = p.scale; l.scaleY = null;
+    l.rotation = 0; l.skewX = 0; l.skewY = 0;
+  }
+  syncInspector();
+  markDirty(); // one settled edit → one undo step
+  status(`Row: ${layers.length} layers lined up ${direction === 'vertical' ? 'top to bottom' : 'left to right'} in ${zone ? `zone "${zone.name}"` : 'the selection box'}.`, 'ok');
+}
+$('ins-row-apply').addEventListener('click', applyRow);
+// ═══════════ /driver variants + sponsor row ═══════════
 
 // ---------- boot ----------
 

@@ -181,6 +181,7 @@ export function createDoc() {
     templateBold: true,         // thicken 1px linework
     customFonts: [],            // { name, data (base64) } — uploaded fonts travel with the project
     regionMap: null,            // parsed clearcoat-regions/1 map (see regions.js)
+    drivers: [],                // driver variants { id, name, number, custid, enabled } (see variants.js)
   };
 }
 
@@ -264,6 +265,7 @@ export function createTextLayer() {
     italic: false,
     letterSpacing: 0,
     curve: 0,          // arc bend in degrees; 0 = straight, + arches up, − arches down
+    variable: null,    // driver variable: null | 'number' | 'name' | 'custom:<key>' (see variants.js)
     fx: null,          // optional layer effects (stroke/shadow/glow)
     x: SIZE / 2,
     y: SIZE / 2,
@@ -1317,6 +1319,9 @@ export function serializeDoc(doc) {
     template: doc.template ? doc.template.src : null,
     customFonts: (doc.customFonts || []).map(f => ({ name: f.name, data: f.data })),
     regionMap: doc.regionMap || null,
+    drivers: (doc.drivers || []).map(d => ({
+      id: d.id, name: d.name, number: d.number, custid: d.custid, enabled: d.enabled !== false,
+    })),
     groups: (doc.groups || []).map(g => ({ id: g.id, name: g.name, collapsed: !!g.collapsed })),
     layers: doc.layers.map(l => ({
       id: l.id, type: l.type, name: l.name,
@@ -1337,6 +1342,7 @@ export function serializeDoc(doc) {
       textColor: l.textColor, outlineColor: l.outlineColor, outlineWidth: l.outlineWidth,
       italic: l.italic, letterSpacing: l.letterSpacing,
       curve: l.curve || 0,
+      variable: l.variable || null,
       x: l.x, y: l.y, scale: l.scale, scaleY: l.scaleY ?? null, rotation: l.rotation,
       skewX: l.skewX || 0, skewY: l.skewY || 0,
       flipH: l.flipH, flipV: l.flipV,
@@ -1419,6 +1425,20 @@ export async function deserializeDoc(data) {
       doc.regionMap = parseRegionMap(data.regionMap);
     } catch { /* bad region map — drop it */ }
   }
+  // driver variants: tolerate junk rows, keep ids unique
+  if (Array.isArray(data.drivers)) {
+    const seen = new Set();
+    for (const d of data.drivers) {
+      if (!d || typeof d !== 'object') continue;
+      let id = typeof d.id === 'string' && d.id ? d.id : null;
+      if (!id || seen.has(id)) id = 'D' + newId();
+      seen.add(id);
+      doc.drivers.push({
+        id, name: String(d.name ?? ''), number: String(d.number ?? ''),
+        custid: String(d.custid ?? '').trim(), enabled: d.enabled !== false,
+      });
+    }
+  }
   // custom fonts must be live before text layers regenerate below
   doc.fontWarnings = [];
   for (const f of (data.customFonts || [])) {
@@ -1473,6 +1493,7 @@ export async function deserializeDoc(data) {
           outlineWidth: l.outlineWidth ?? 0,
           italic: !!l.italic, letterSpacing: l.letterSpacing ?? 0,
           curve: l.curve ?? 0,
+          variable: typeof l.variable === 'string' && l.variable ? l.variable : null,
           fx: normalizeFx(l.fx),
           x: l.x ?? SIZE / 2, y: l.y ?? SIZE / 2,
           scale: l.scale ?? 1, scaleY: Number.isFinite(l.scaleY) ? l.scaleY : null,
