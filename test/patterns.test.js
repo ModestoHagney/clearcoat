@@ -85,17 +85,19 @@ test('patternStats: gradient sheet is mostly mix; mirrored sheet is symmetric', 
 // ---------- patternRank ----------
 
 const S = {
-  plain:    { coverage: 0.04, slot2: 0.02, slot3: 0.02, mix: 0.00, edges: 0.005, symmetry: 0.9 },
-  clean:    { coverage: 0.45, slot2: 0.40, slot3: 0.05, mix: 0.02, edges: 0.02, symmetry: 0.3 },
-  bold:     { coverage: 0.90, slot2: 0.60, slot3: 0.30, mix: 0.03, edges: 0.04, symmetry: 0.2 },
-  jagged:   { coverage: 0.70, slot2: 0.40, slot3: 0.30, mix: 0.02, edges: 0.20, symmetry: 0.0 },
-  classic:  { coverage: 0.50, slot2: 0.45, slot3: 0.05, mix: 0.01, edges: 0.02, symmetry: 0.95 },
-  faded:    { coverage: 0.80, slot2: 0.40, slot3: 0.40, mix: 0.40, edges: 0.01, symmetry: 0.1 },
+  plain:    { coverage: 0.04, slot2: 0.02, slot3: 0.02, mix: 0.00, edges: 0.005, detail: 0.12, symmetry: 0.9 },
+  accent:   { coverage: 0.09, slot2: 0.06, slot3: 0.03, mix: 0.01, edges: 0.04,  detail: 0.45, symmetry: 0.8 },
+  blocks:   { coverage: 0.38, slot2: 0.20, slot3: 0.18, mix: 0.00, edges: 0.017, detail: 0.045, symmetry: 0.6 },
+  clean:    { coverage: 0.30, slot2: 0.25, slot3: 0.05, mix: 0.02, edges: 0.045, detail: 0.16, symmetry: 0.3 },
+  bold:     { coverage: 0.90, slot2: 0.60, slot3: 0.30, mix: 0.03, edges: 0.14,  detail: 0.16, symmetry: 0.2 },
+  jagged:   { coverage: 0.70, slot2: 0.40, slot3: 0.30, mix: 0.02, edges: 0.20,  detail: 0.30, symmetry: 0.0 },
+  classic:  { coverage: 0.50, slot2: 0.45, slot3: 0.05, mix: 0.01, edges: 0.09,  detail: 0.18, symmetry: 0.95 },
+  faded:    { coverage: 0.80, slot2: 0.40, slot3: 0.40, mix: 0.40, edges: 0.01,  detail: 0.04, symmetry: 0.1 },
 };
 const best = (style) => Object.entries(S).sort((a, b) => patternRank(b[1], style) - patternRank(a[1], style))[0][0];
 
 test('patternRank picks the expected pattern for every style', () => {
-  assert.equal(best('minimal'), 'plain');
+  assert.equal(best('minimal'), 'accent'); // a few sharp accents, not an empty sheet
   assert.equal(best('bold'), 'bold');
   assert.equal(best('aggressive'), 'jagged');
   assert.equal(best('gradient'), 'faded');
@@ -103,6 +105,23 @@ test('patternRank picks the expected pattern for every style', () => {
   assert.ok(['clean', 'classic'].includes(best('clean'))); // both are mid-coverage, flat, calm
   assert.ok(patternRank(S.clean, 'clean') > patternRank(S.jagged, 'clean'));
   assert.ok(patternRank(S.clean, 'clean') > patternRank(S.faded, 'clean'));
+});
+
+test('patternRank: flat panel-block schemes lose to real linework for every non-gradient style', () => {
+  for (const st of ['minimal', 'clean', 'bold', 'aggressive', 'classic']) {
+    const better = st === 'minimal' ? S.accent : st === 'bold' ? S.bold : st === 'aggressive' ? S.jagged : st === 'classic' ? S.classic : S.clean;
+    assert.ok(patternRank(better, st) > patternRank(S.blocks, st), st);
+  }
+  assert.equal(patternRank({ coverage: 0.0, edges: 0, detail: 0 }, 'clean'), 0);
+});
+
+test('patternStats reports detail: stripes score higher than a block of the same coverage', () => {
+  const w = 32, h = 32;
+  const mk = (fn) => { const d = new Uint8ClampedArray(w * h * 4); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const i = (y * w + x) * 4; const g = fn(x, y); d[i] = g ? 0 : 255; d[i + 1] = g ? 255 : 0; d[i + 3] = 255; } return d; };
+  const block = patternStats(mk((x) => x < 16), w, h);
+  const stripes = patternStats(mk((x) => (x >> 1) % 2 === 0), w, h);
+  assert.ok(Math.abs(block.coverage - stripes.coverage) < 0.02);
+  assert.ok(stripes.detail > block.detail * 4);
 });
 
 test('patternRank: scores are 0…1, unknown style ranks everything equal, null stats score 0', () => {

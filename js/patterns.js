@@ -141,9 +141,16 @@ export function patternStats(data, w, h) {
     slot3: s3 / N,
     mix: mix / N,
     edges: edges / N,
+    // colour-edge length per NON-BASE pixel: a panel-block scheme (each panel
+    // one flat colour) scores ~0.05-0.1, stripes and swooshes 0.15-0.8. This is
+    // what tells "design" from "two-tone panels" - coverage and edges alone
+    // cannot, because both are mid-range for blocks.
+    detail: edges / Math.max(covered, N * 0.01),
     symmetry: Math.max(-1, Math.min(1, symmetry)),
   };
 }
+
+export const STATS_VERSION = 2; // bump when patternStats gains a field
 
 // ---------- style ranking (pure) ----------
 
@@ -151,21 +158,26 @@ const clamp01 = (v) => Math.max(0, Math.min(1, v || 0));
 const hi = (v) => clamp01(v);
 const lo = (v) => 1 - clamp01(v);
 const mid = (v) => 1 - Math.abs(clamp01(v) - 0.5) * 2;
+const near = (v, t, w) => 1 - Math.min(1, Math.abs(clamp01(v) - t) / w); // 1 at the target, 0 beyond w
 
 // score 0…1 for how well a pattern's stats fit a named style; unknown style
 // (or 'all') ranks every pattern equally
 export function patternRank(stats, style) {
   if (!stats) return 0;
   const cov = clamp01(stats.coverage);
+  if (cov < 0.02 && style && style !== 'all') return 0; // an all-base pattern is no design at all
   const edg = clamp01((stats.edges || 0) * 6);   // ~0.15 edge density is "busy"
   const mx = clamp01((stats.mix || 0) * 3);      // ~0.33 gradient share is "all gradient"
   const sym = clamp01(((stats.symmetry || 0) + 1) / 2);
+  // detail: 0.15 is where a scheme stops being flat panel blocks; 0.3+ is
+  // real linework. Missing (old catalogue) -> neutral 0.5.
+  const det = stats.detail == null ? 0.5 : clamp01(stats.detail / 0.3);
   switch (style) {
-    case 'minimal': return lo(cov) * 0.6 + lo(edg) * 0.4;
-    case 'clean': return mid(cov) * 0.4 + lo(mx) * 0.3 + lo(edg) * 0.3;
-    case 'bold': return hi(cov) * 0.8 + lo(mx) * 0.2;
-    case 'aggressive': return hi(edg) * 0.5 + hi(cov) * 0.5;
-    case 'classic': return mid(cov) * 0.4 + hi(sym) * 0.4 + lo(mx) * 0.2;
+    case 'minimal': return lo(cov) * 0.5 + hi(det) * 0.5;
+    case 'clean': return near(cov, 0.3, 0.25) * 0.4 + lo(mx) * 0.1 + hi(det) * 0.3 + lo(edg) * 0.2;
+    case 'bold': return hi(cov) * 0.6 + hi(det) * 0.2 + lo(mx) * 0.2;
+    case 'aggressive': return hi(edg) * 0.4 + hi(det) * 0.3 + hi(cov) * 0.3;
+    case 'classic': return mid(cov) * 0.3 + hi(sym) * 0.3 + hi(det) * 0.2 + lo(mx) * 0.2;
     case 'gradient': return hi(mx) * 0.8 + hi(cov) * 0.2;
     default: return 1;
   }
@@ -232,7 +244,29 @@ export async function saveCatalog(catalog) {
 export async function loadCatalog(carSlugOrName) {
   if (!carSlugOrName) return null;
   const cat = await loadBlob(key(carSlug(carSlugOrName)));
-  return cat && cat.format === PATTERN_FORMAT && Array.isArray(cat.patterns) ? cat : null;
+  if (!(cat && cat.format === PATTERN_FORMAT && Array.isArray(cat.patterns))) return null;
+  if (await upgradeStats(cat)) await saveCatalog(cat).catch(() => {});
+  return cat;
+}
+
+// Catalogues saved before a stats field existed get it recomputed from their
+// thumbnails (browser only). Returns true when anything changed.
+export async function upgradeStats(cat) {
+  if (typeof document === 'undefined') return false;
+  let changed = false;
+  for (const p of cat.patterns) {
+    if (p.stats && p.stats.detail != null) continue;
+    if (!p.thumb) continue;
+    try {
+      const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = p.thumb; });
+      const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+      const ctx = c.getContext('2d', { willReadFrequently: true }); ctx.drawImage(img, 0, 0);
+      p.stats = patternStats(ctx.getImageData(0, 0, c.width, c.height).data, c.width, c.height);
+      changed = true;
+    } catch { /* leave stats as they were */ }
+  }
+  if (changed) cat.statsVersion = STATS_VERSION;
+  return changed;
 }
 
 export async function deleteCatalog(slug) {

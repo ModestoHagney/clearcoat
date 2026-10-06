@@ -209,15 +209,17 @@ export function resolvePalette(brief) {
 export function defaultRank(stats, style) {
   const s = stats || {};
   const cov = s.coverage ?? 0.5, edges = s.edges ?? 0.5, sym = s.symmetry ?? 0.5, mix = s.mix ?? 0.5;
+  const det = s.detail == null ? 0.5 : Math.min(1, s.detail / 0.3); // linework vs flat panel blocks
   const near = (v, t, w = 0.35) => 1 - Math.min(1, Math.abs(v - t) / w);
+  if (cov < 0.02) return 0;
   switch (style) {
-    case 'minimal':    return 2 * near(cov, 0.12, 0.3) + (1 - edges) + 0.5 * sym;
-    case 'clean':      return 2 * near(cov, 0.3) + (1 - edges) + 0.5 * sym;
-    case 'bold':       return 2 * near(cov, 0.55) + 0.5 * edges + 0.5 * (s.slot2 ?? 0.3);
-    case 'aggressive': return 1.5 * cov + 1.5 * edges + 0.5 * (1 - sym);
-    case 'classic':    return 1.5 * sym + near(cov, 0.35) + (1 - edges) * 0.5;
+    case 'minimal':    return 2 * near(cov, 0.12, 0.3) + det + 0.5 * sym;
+    case 'clean':      return 2 * near(cov, 0.3) + det + 0.5 * sym;
+    case 'bold':       return 2 * near(cov, 0.55) + det + 0.5 * (s.slot2 ?? 0.3);
+    case 'aggressive': return 1.5 * cov + 1.5 * edges + det + 0.5 * (1 - sym);
+    case 'classic':    return 1.5 * sym + near(cov, 0.35) + det;
     case 'gradient':   return 2 * mix + near(cov, 0.5) * 0.5 + (1 - edges) * 0.5;
-    default:           return near(cov, 0.35) + (1 - edges) * 0.5;
+    default:           return near(cov, 0.35) + det * 0.5;
   }
 }
 
