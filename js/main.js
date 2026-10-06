@@ -2609,11 +2609,22 @@ function mirrorLayerCopy(sel) {
     }
   } else if (isRegionLayer(sel)) {
     // mirror both corners of the region rect, then normalize
-    // ponytail: exact only when the mirror line is upright or level, since a
-    // fill/pattern rect cannot turn — a tilted centerline needs these layers
-    // to gain a rotation first.
     const p1 = reflect(sel.rx, sel.ry);
     const p2 = reflect(sel.rx + sel.rw, sel.ry + sel.rh);
+    if (mid) {
+      // ponytail: a fill/pattern rect cannot turn, so the nearer of an upright
+      // or a level flip stands in for the centerline — exact when the line is
+      // one of those, approximate when it is tilted. Give these layers a real
+      // rotation if tilted centerlines turn up.
+      const level = Math.abs(mid.dir.x) > Math.abs(mid.dir.y);
+      copy.flipH = level ? !!sel.flipH : !sel.flipH;
+      copy.flipV = level ? !sel.flipV : !!sel.flipV;
+      copy.rotation = -(sel.rotation || 0);
+      // a pattern tiles from its own origin, which mirrors too
+      const o = reflect(sel.x || 0, sel.y || 0);
+      copy.x = o.x;
+      copy.y = o.y;
+    }
     copy.rx = Math.round(Math.min(p1.x, p2.x));
     copy.ry = Math.round(Math.min(p1.y, p2.y));
     copy.rw = Math.max(1, Math.round(Math.abs(p2.x - p1.x)));

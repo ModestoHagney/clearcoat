@@ -525,8 +525,17 @@ fxTint.width = fxTint.height = SIZE;
 function drawLayerContent(ctx, layer) {
   if (layer.type === 'fill') {
     const rx = layer.rx ?? 0, ry = layer.ry ?? 0, rw = layer.rw ?? SIZE, rh = layer.rh ?? SIZE;
+    ctx.save();
+    if (layer.flipH || layer.flipV) {
+      // flip the shape and its gradient within the layer's own rect, so a
+      // mirrored triangle or stripe really is a mirror image
+      ctx.translate(rx + rw / 2, ry + rh / 2);
+      ctx.scale(layer.flipH ? -1 : 1, layer.flipV ? -1 : 1);
+      ctx.translate(-(rx + rw / 2), -(ry + rh / 2));
+    }
     ctx.fillStyle = fillPaintStyle(ctx, layer, rx, ry, rw, rh);
     ctx.fill(fillShapePath(layer.shape, rx, ry, rw, rh));
+    ctx.restore();
   } else if (layer.type === 'pattern') {
     // tiling fill across a region (seamless textures, e.g. SimTex Pro)
     const pat = ctx.createPattern(layer.img, 'repeat');
