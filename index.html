@@ -88,6 +88,7 @@
         <button class="tpl-color tpl-original" data-tcolor="original" title="Original template colors">org</button>
         <label class="tpl-bold"><input type="checkbox" id="template-bold" checked> Bold</label>
       </div>
+      <label class="tb-check" id="template-unpaintable-row" style="margin-top:6px" hidden title="Tint the template's non-paintable area (the kit's Mask layer — glass, lights, tires) red at 25% so you can see where paint is thrown away. Layers that mostly land there get a warning badge in the layer list."><input type="checkbox" id="template-unpaintable"> Show unpaintable</label>
       <div class="template-row" style="margin-top:8px">
         <button id="btn-load-regions" class="sm-btn wide" title="Load a region map (.json) — labels the sheet's panels for hover labels, the Regions overlay, and one-click Mirror">Load region map…</button>
         <button id="btn-get-map" class="sm-btn" title="Browse community region maps shared on GitHub and load one for your car">Get map…</button>
@@ -96,6 +97,16 @@
       <div class="template-row" id="region-map-info" style="margin-top:6px; align-items:center" hidden>
         <span class="hint" id="region-map-name" style="margin:0; flex:1"></span>
         <button id="btn-export-regions" class="sm-btn" title="Download this region map as JSON — share it so others get labels for the same car">Export map</button>
+      </div>
+      <div class="slider-row" id="region-edit-row" style="margin-top:6px" hidden>
+        <select id="region-pick" class="tune-select" style="flex:1; min-width:0" title="Pick a region to fix how it reads — the PSD inference sets good defaults, but a sideways or upside-down panel can be corrected here" aria-label="Region"></select>
+        <select id="region-rot" class="tune-select" title="How artwork reads in this region: Fit to zone turns the layer by this much. 180° for panels that are mapped upside-down, 90°/270° for sideways text" aria-label="Region rotation">
+          <option value="0">0°</option>
+          <option value="90">90°</option>
+          <option value="180">180°</option>
+          <option value="270">270°</option>
+        </select>
+        <label class="tb-check" id="region-mirrored-wrap" title="Checked: the partner panel is a mirror image, so Mirror Clone flips the copy. Unchecked: the partner is the same panel turned 180°, so Mirror Clone rotates the copy instead"><input type="checkbox" id="region-mirrored"> Mirrored</label>
       </div>
       <p class="hint">Load your car's official iRacing template <b>PSD</b> directly — Clearcoat extracts the wireframe for you. PNG/JPG work too. Shown for reference only, never exported.</p>
       <p class="hint"><a href="https://www.tradingpaints.com/cartemplates" target="_blank" rel="noopener">Get your car's template ↗</a> (or in-sim: My Content → Car Manager → Download Template)</p>
@@ -217,6 +228,7 @@
     <section class="panel-block" id="inspector-layer" hidden>
       <h2 class="panel-title">Layer</h2>
       <input id="ins-name" class="ins-name" type="text" spellcheck="false" aria-label="Layer name">
+      <p class="hint ins-bleed-note" id="ins-bleed" style="margin-top:4px" hidden></p>
 
       <div class="slider-row" id="ins-fill-row" hidden>
         <label for="ins-fill-color">Color</label>
@@ -420,6 +432,7 @@
         <button id="ins-flip-h" class="sm-btn" title="Flip horizontally">Flip H</button>
         <button id="ins-flip-v" class="sm-btn" title="Flip vertically">Flip V</button>
         <button id="ins-mirror" class="sm-btn" title="Mirror Clone (Ctrl+Shift+D) — copy every selected layer onto its partner panel, mirrored. Needs a region map, with each layer's center inside a mirrored region">Mirror Clone</button>
+        <button id="ins-fit-zone" class="sm-btn" title="Fit to zone — scale this layer to sit centred inside the region under it (or the nearest one) with an 8% margin, turned the way that panel reads. Needs a region map; template PSDs create one with the kit's sponsor and number zones">Fit to zone</button>
         <button id="ins-duplicate" class="sm-btn" title="Duplicate layer (Ctrl+D)">Duplicate</button>
         <button id="ins-delete" class="sm-btn danger" title="Delete layer (Del)">Delete</button>
       </div>

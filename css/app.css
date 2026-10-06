@@ -338,6 +338,14 @@ input  { font-family: inherit; }
 .layer-item.in-group.selected { border-left-color: var(--teal); }
 /* Mirror Clone with no region map loaded — live, but flagged as unconfigured */
 .sm-btn.needs-setup { color: var(--ink-faint); border-style: dashed; }
+/* bleed check: layer mostly lands on unpaintable template area */
+.layer-item .lbleed {
+  font-size: 11px;
+  line-height: 1;
+  color: var(--orange);
+  cursor: help;
+}
+.ins-bleed-note { color: var(--orange); }
 
 .layer-item .thumb {
   width: 30px; height: 30px;

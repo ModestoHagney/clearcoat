@@ -20,7 +20,8 @@ import { LIBRARY, libraryItemToLayerSource } from './library.js';
 import { TEXTURES, TEX_CATS, texThumb, texFull } from './textures.js';
 import { wandSelect } from './wand.js';
 import { lassoMask, lassoBounds, CLOSE_RADIUS } from './lasso.js';
-import { parseRegionMap, createRegionMap, regionAt, regionById, mirrorPoint, mirrorLayerPlacement, uniqueRegionId } from './regions.js';
+import { parseRegionMap, createRegionMap, regionAt, regionById, mirrorPoint, mirrorLayerPlacement, uniqueRegionId, mirrorKindOf, mirrorPointKind } from './regions.js';
+import { zonesToRegions, inferDecalPairs, applyOrientation, fitToZone, nearestRegion, offPaintFraction } from './zones.js';
 import { initAdvisor } from './advisor.js';
 
 // ---------- state ----------
@@ -32,6 +33,12 @@ let specView = false;
 let shineView = false;
 let shineStart = 0;
 let dirty = true;             // composite needs re-render
+// bleed check state (see "template zones: fit, hints, bleed" below)
+const BLEED_WARN = 0.2;       // flag a layer when >20% of it lands off-paint
+const BLEED_RES = 512;        // quarter-res sampling keeps the check cheap
+let bleedTimer = null;
+let bleedMask = { mask: null, img: null }; // paint mask downsampled to BLEED_RES
+let bleedScratch = null;
 let studioView = false;       // Studio 3D panel open
 let studioDirty = true;       // studio textures need re-render + re-upload
 let autosaveTimer = null;
@@ -102,6 +109,7 @@ function markDirty() {
   skipNextCapture = false; // a real edit followed an undo/redo — capture it
   requestRender();
   scheduleAutosave();
+  scheduleBleedCheck();
 }
 
 // ---------- undo / redo ----------
@@ -302,6 +310,11 @@ function draw() {
     vctx.drawImage(ov.img, 0, 0, SIZE, SIZE);
     vctx.restore();
   }
+  // unpaintable template area (the kit's Mask layer) — red tint at 25%
+  if (doc.template && doc.paintMask && doc.showUnpaintable && !specView) {
+    const tint = unpaintableTint(doc.paintMask);
+    if (tint) vctx.drawImage(tint, 0, 0, SIZE, SIZE);
+  }
   vctx.restore();
 
   // region map overlay — screen space, forced on while annotating
@@ -481,17 +494,45 @@ function drawRegionOverlay() {
   for (const r of doc.regionMap.regions) {
     const a = docToScreen(r.x, r.y);
     const b = docToScreen(r.x + r.w, r.y + r.h);
-    vctx.fillStyle = 'rgba(45, 214, 193, .07)';
+    // template zones (sponsor / number blocks) read dashed + orange so they
+    // don't blend in with hand-drawn panels
+    const zone = !!r.kind;
+    const col = zone ? '255, 77, 0' : '45, 214, 193';
+    vctx.fillStyle = `rgba(${col}, .07)`;
     vctx.fillRect(a.x, a.y, b.x - a.x, b.y - a.y);
-    vctx.strokeStyle = 'rgba(45, 214, 193, .75)';
+    vctx.strokeStyle = `rgba(${col}, .75)`;
+    vctx.setLineDash(zone ? [5, 3] : []);
     vctx.strokeRect(a.x, a.y, b.x - a.x, b.y - a.y);
-    const label = r.name + (r.mirror ? ' ⇄' : '');
+    vctx.setLineDash([]);
+    const label = (zone ? `${r.kind} · ` : '') + r.name + (r.mirror ? ' ⇄' : '') + (r.rot ? ` ↻${r.rot}°` : '');
     vctx.fillStyle = 'rgba(13, 14, 17, .75)'; // backing so labels read over any paint
     vctx.fillRect(a.x, a.y, vctx.measureText(label).width + 8, 17);
-    vctx.fillStyle = '#2dd6c1';
+    vctx.fillStyle = zone ? '#ff8a50' : '#2dd6c1';
     vctx.fillText(label, a.x + 4, a.y + 12);
   }
   vctx.restore();
+}
+
+// red tint over the mask's unpaintable pixels — cached per mask canvas
+let unpaintCache = { mask: null, canvas: null };
+function unpaintableTint(mask) {
+  if (unpaintCache.mask === mask) return unpaintCache.canvas;
+  let canvas = null;
+  try {
+    const w = mask.width, h = mask.height;
+    canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    const src = mask.getContext('2d').getImageData(0, 0, w, h).data;
+    const img = ctx.createImageData(w, h);
+    const d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+      if (src[i] < 128) { d[i] = 255; d[i + 1] = 40; d[i + 2] = 40; d[i + 3] = 64; }
+    }
+    ctx.putImageData(img, 0, 0);
+  } catch { canvas = null; }
+  unpaintCache = { mask, canvas };
+  return canvas;
 }
 
 // ---------- pointer interaction ----------
@@ -1192,6 +1233,7 @@ viewport.addEventListener('pointermove', (e) => {
       drag.layer.y = ny;
       syncInspector();
       markDirty();
+      hintZoneRot(drag.layer, drag);
       break;
     }
     case 'move-multi': {
@@ -1527,6 +1569,7 @@ async function addImageLayerFromFile(file, asPattern = false) {
     rebuildLayerList();
     markDirty();
     status(asPattern ? `Added tiling pattern "${layer.name}"` : `Added layer "${layer.name}"`, 'ok');
+    if (!asPattern) hintZoneRot(layer, null);
   } catch {
     status('Could not load that image.', 'err');
   }
@@ -1855,7 +1898,17 @@ function rebuildLayerList() {
     down.addEventListener('click', (e) => { e.stopPropagation(); e.shiftKey ? moveLayerToEnd(layer, false) : moveLayer(layer, -1); });
     order.append(up, down);
 
-    li.append(thumb, name, mat, dup, lock, vis, del, order);
+    li.append(thumb, name, mat);
+    // bleed check: most of this layer lands on unpaintable template area
+    const bleed = layerBleed(layer);
+    if (bleed !== null && bleed > BLEED_WARN) {
+      const warn = document.createElement('span');
+      warn.className = 'lbleed';
+      warn.textContent = '⚠';
+      warn.title = `${Math.round(bleed * 100)}% of this layer lands on unpaintable template area`;
+      li.append(warn);
+    }
+    li.append(dup, lock, vis, del, order);
     li.addEventListener('click', (e) => {
       if (e.ctrlKey || e.metaKey) toggleSelect(layer.id);
       else selectLayer(layer.id);
@@ -2179,9 +2232,130 @@ function syncInspector() {
       : 'Mirror Clone needs a region map — load one from the Template panel, or draw your own with Annotate.';
     $('ins-group').disabled = selectedIds.size < 2;
     $('ins-ungroup').disabled = !selectedLayers().some(l => l.groupId);
+    const fitBtn = $('ins-fit-zone');
+    fitBtn.classList.toggle('needs-setup', !doc.regionMap);
+    fitBtn.hidden = !!(sel.corners && sel.corners.length === 4); // a pinned quad has no single frame to fit
+    // bleed check note
+    const bleed = layerBleed(sel);
+    const bleedEl = $('ins-bleed');
+    bleedEl.hidden = !(bleed !== null && bleed > BLEED_WARN);
+    if (!bleedEl.hidden) bleedEl.textContent = `⚠ ${Math.round(bleed * 100)}% of this layer lands on unpaintable template area — it won't show on the car.`;
   }
   if (isBase) syncBaseColorFields();
   syncMaterialGrid();
+}
+
+// ---------- template zones: fit, hints, bleed ----------
+
+// scale the selected layer to sit inside the region under its centre (or the
+// nearest one), centred with an 8% margin, turned the way the zone reads
+function fitSelectedToZone() {
+  const sel = selectedLayer();
+  if (!sel) { status('Select a layer first, then Fit to zone drops it into the nearest region.', 'warn'); return; }
+  if (!doc.regionMap || !doc.regionMap.regions.length) {
+    status('Fit to zone needs a region map — load your car\'s template PSD (it brings the sponsor and number zones) or draw regions with Annotate.', 'err');
+    return;
+  }
+  if (sel.locked) { status(`"${sel.name}" is locked.`, 'warn'); return; }
+  if (sel.corners && sel.corners.length === 4) { status('Corner-pinned layers keep their own quad — unpin first to fit a zone.', 'warn'); return; }
+  const cx = isRegionLayer(sel) ? sel.rx + sel.rw / 2 : sel.x;
+  const cy = isRegionLayer(sel) ? sel.ry + sel.rh / 2 : sel.y;
+  const r = nearestRegion(doc.regionMap, cx, cy);
+  if (!r) return;
+  if (isRegionLayer(sel)) {
+    // fills/patterns are axis-aligned rectangles: inset the region
+    const mx = Math.round(r.w * 0.08), my = Math.round(r.h * 0.08);
+    sel.rx = r.x + mx; sel.ry = r.y + my;
+    sel.rw = Math.max(1, r.w - 2 * mx); sel.rh = Math.max(1, r.h - 2 * my);
+  } else {
+    const f = fitToZone(sel.img.width, sel.img.height, r);
+    sel.x = f.x; sel.y = f.y;
+    sel.scale = f.scale; sel.scaleY = null;
+    sel.rotation = f.rotation; sel.skewX = 0; sel.skewY = 0;
+  }
+  syncInspector();
+  markDirty();
+  status(`"${sel.name}" fitted to ${r.name}` + (r.rot ? ` — turned ${r.rot}° the way that panel reads.` : '.'), 'ok');
+}
+$('ins-fit-zone').addEventListener('click', fitSelectedToZone);
+
+// moving/dropping a layer into a zone that reads rotated: say so once per
+// zone entered, never rotate behind the user's back
+function hintZoneRot(layer, d) {
+  if (!doc.regionMap || isRegionLayer(layer)) return;
+  const r = regionAt(doc.regionMap, layer.x, layer.y);
+  const id = r ? r.id : null;
+  if (d) { if (d.hintRegion === id) return; d.hintRegion = id; }
+  if (!r || !r.rot) return;
+  status(`Zone reads rotated ${r.rot}° — Fit to zone applies it.`);
+}
+
+// Bleed check. Each visible layer is rendered alone at quarter resolution
+// and compared against the paint mask; results cache on the layer under a
+// transform signature and refresh on a debounce after edits settle.
+function bleedSignature(l) {
+  return [l.img && l.img.src ? l.img.src.length : 0, l.x, l.y, l.scale, l.scaleY, l.rotation, l.skewX, l.skewY,
+    l.flipH, l.flipV, l.rx, l.ry, l.rw, l.rh, l.opacity, l.visible,
+    l.corners ? l.corners.map(q => `${q.x},${q.y}`).join(';') : '',
+    l.lassoPts ? l.lassoPts.length : 0, l.fx ? JSON.stringify(l.fx) : ''].join('|');
+}
+
+// cached fraction (null = unknown / not applicable)
+function layerBleed(l) {
+  if (!doc.paintMask || !l || !l.visible) return null;
+  return l._bleed && l._bleed.sig === bleedSignature(l) && l._bleed.mask === doc.paintMask ? l._bleed.frac : null;
+}
+
+function bleedMaskImage() {
+  if (bleedMask.mask === doc.paintMask) return bleedMask.img;
+  let img = null;
+  try {
+    const c = document.createElement('canvas');
+    c.width = c.height = BLEED_RES;
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(doc.paintMask, 0, 0, BLEED_RES, BLEED_RES);
+    img = ctx.getImageData(0, 0, BLEED_RES, BLEED_RES);
+  } catch { img = null; }
+  bleedMask = { mask: doc.paintMask, img };
+  return img;
+}
+
+function runBleedCheck() {
+  bleedTimer = null;
+  if (!doc.paintMask) return;
+  const maskImg = bleedMaskImage();
+  if (!maskImg) return;
+  if (!bleedScratch) {
+    bleedScratch = document.createElement('canvas');
+    bleedScratch.width = bleedScratch.height = BLEED_RES;
+  }
+  const ctx = bleedScratch.getContext('2d', { willReadFrequently: true });
+  let changed = false;
+  for (const l of doc.layers) {
+    if (!l.visible) continue;
+    const sig = bleedSignature(l);
+    if (l._bleed && l._bleed.sig === sig && l._bleed.mask === doc.paintMask) continue;
+    let frac = null;
+    try {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, BLEED_RES, BLEED_RES);
+      ctx.scale(BLEED_RES / SIZE, BLEED_RES / SIZE);
+      drawLayer(ctx, { ...l, opacity: 1 });
+      frac = offPaintFraction(ctx.getImageData(0, 0, BLEED_RES, BLEED_RES), maskImg);
+    } catch { frac = null; }
+    const was = l._bleed ? l._bleed.frac : null;
+    l._bleed = { sig, mask: doc.paintMask, frac };
+    if ((was !== null && was > BLEED_WARN) !== (frac !== null && frac > BLEED_WARN)) changed = true;
+    else if (frac !== null && frac > BLEED_WARN && Math.round(frac * 100) !== Math.round((was || 0) * 100)) changed = true;
+  }
+  if (changed) { rebuildLayerList(); syncInspector(); }
+}
+
+function scheduleBleedCheck() {
+  if (!doc.paintMask) return;
+  clearTimeout(bleedTimer);
+  bleedTimer = setTimeout(runBleedCheck, 350);
 }
 
 // keep swatch, hex field, and RGB fields in agreement (skip whichever the
@@ -2440,6 +2614,10 @@ function mirrorLayerCopy(sel) {
   if (!src.mirror) return { error: `"${src.name}" has no mirror partner in the map.` };
   const dst = regionById(doc.regionMap, src.mirror);
   if (!dst) return { error: `Mirror partner "${src.mirror}" is missing from the map.` };
+  // how the partner panel relates: a left/right or top/bottom reflection
+  // (flip / flipV), the same panel turned 180° (rot180), or a plain copy
+  const kind = mirrorKindOf(src);
+  const reflect = kind === 'flip' || kind === 'flipV';
   const copy = {
     ...sel,
     id: 'L' + Math.random().toString(36).slice(2),
@@ -2453,31 +2631,36 @@ function mirrorLayerCopy(sel) {
     lassoPts: Array.isArray(sel.lassoPts) ? sel.lassoPts.map(q => ({ x: q.x, y: q.y })) : null,
     cornerPan: sel.cornerPan ? { ...sel.cornerPan } : null,
     fx: sel.fx ? { ...sel.fx } : null,
-    flipH: !sel.flipH,
-    // a true mirror image reflects the whole transform, not just the raster
-    rotation: -(sel.rotation || 0),
-    skewX: -(sel.skewX || 0),
-    skewY: -(sel.skewY || 0),
+    flipH: kind === 'flip' ? !sel.flipH : !!sel.flipH,
+    flipV: kind === 'flipV' ? !sel.flipV : !!sel.flipV,
+    // a true mirror image reflects the whole transform, not just the raster;
+    // a 180° twin just turns it
+    rotation: reflect ? -(sel.rotation || 0) : kind === 'rot180' ? ((sel.rotation || 0) + 180) % 360 : (sel.rotation || 0),
+    skewX: reflect ? -(sel.skewX || 0) : (sel.skewX || 0),
+    skewY: reflect ? -(sel.skewY || 0) : (sel.skewY || 0),
   };
   if (copy.corners) {
-    // A pinned layer lives entirely in its corners, so reflect those. Swapping
-    // the left/right pairs afterwards keeps the winding consistent, or the
-    // mirrored quad comes out inside-out.
+    // A pinned layer lives entirely in its corners, so map those. Re-ordering
+    // afterwards keeps TL/TR/BR/BL meaningful (and the winding consistent),
+    // or the mirrored quad comes out inside-out.
     const m = copy.corners.map(q => {
-      const r = mirrorPoint(src, dst, q.x, q.y);
+      const r = mirrorPointKind(src, dst, q.x, q.y, kind);
       return { x: r.x, y: r.y };
     });
-    copy.corners = [m[1], m[0], m[3], m[2]];
+    copy.corners = kind === 'flip' ? [m[1], m[0], m[3], m[2]]
+      : kind === 'flipV' ? [m[3], m[2], m[1], m[0]]
+      : kind === 'rot180' ? [m[2], m[3], m[0], m[1]]
+      : m;
     if (Array.isArray(copy.lassoPts)) {
       copy.lassoPts = copy.lassoPts.map(q => {
-        const r = mirrorPoint(src, dst, q.x, q.y);
+        const r = mirrorPointKind(src, dst, q.x, q.y, kind);
         return { x: r.x, y: r.y };
       });
     }
   } else if (isRegionLayer(sel)) {
     // mirror both corners of the region rect, then normalize
-    const p1 = mirrorPoint(src, dst, sel.rx, sel.ry);
-    const p2 = mirrorPoint(src, dst, sel.rx + sel.rw, sel.ry + sel.rh);
+    const p1 = mirrorPointKind(src, dst, sel.rx, sel.ry, kind);
+    const p2 = mirrorPointKind(src, dst, sel.rx + sel.rw, sel.ry + sel.rh, kind);
     copy.rx = Math.round(Math.min(p1.x, p2.x));
     copy.ry = Math.round(Math.min(p1.y, p2.y));
     copy.rw = Math.max(1, Math.round(Math.abs(p2.x - p1.x)));
@@ -2589,11 +2772,13 @@ $('file-template').addEventListener('change', async (e) => {
   if (!file) return;
   try {
     let src;
+    let intel = null;
     if (/\.psd$/i.test(file.name)) {
       status('Reading PSD — extracting wireframe…');
-      const { src: psdSrc, usedWireframe } = await psdToTemplate(await file.arrayBuffer());
-      src = psdSrc;
-      status(usedWireframe
+      const res = await psdToTemplate(await file.arrayBuffer());
+      src = res.src;
+      intel = res;
+      status(res.usedWireframe
         ? 'Wireframe extracted from PSD.'
         : 'PSD loaded (no wireframe layers found — using flattened composite).', 'ok');
     } else {
@@ -2605,6 +2790,8 @@ $('file-template').addEventListener('change', async (e) => {
     $('template-opacity-row').hidden = false;
     $('template-style-row').hidden = false;
     syncTemplateStyle();
+    if (intel) applyTemplateIntel(intel, file.name.replace(/\.[^.]+$/, ''));
+    $('template-unpaintable-row').hidden = !doc.paintMask;
     markDirty();
   } catch (err) {
     status('Could not load template: ' + (err.message || 'unknown error'), 'err');
@@ -2612,11 +2799,56 @@ $('file-template').addEventListener('change', async (e) => {
 });
 $('btn-clear-template').addEventListener('click', () => {
   doc.template = null;
+  doc.paintMask = null; // the mask belongs to the template
   $('btn-clear-template').hidden = true;
   $('template-opacity-row').hidden = true;
   $('template-style-row').hidden = true;
+  $('template-unpaintable-row').hidden = true;
+  rebuildLayerList(); // bleed badges go with it
+  syncInspector();
   markDirty();
 });
+$('template-unpaintable').addEventListener('change', () => {
+  doc.showUnpaintable = $('template-unpaintable').checked;
+  scheduleAutosave();
+  requestRender();
+});
+
+// What the kit knows, applied to the doc: sponsor/number zones become
+// regions (twins paired, orientation inferred from the stock decals), the
+// Mask layer becomes the paint mask behind the bleed check.
+function applyTemplateIntel({ zones, paintMask, decals }, carName) {
+  doc.paintMask = paintMask || null;
+  bleedMask = { mask: null, img: null };
+  for (const l of doc.layers) l._bleed = null;
+  if (!zones || !zones.length) {
+    if (doc.paintMask) status('Template loaded with its paint mask — the layer list flags artwork that lands off-paint.', 'ok');
+    return;
+  }
+  if (!doc.regionMap) doc.regionMap = createRegionMap(carName || 'template car');
+  // a reload replaces the previous template zones; hand-drawn regions stay
+  const kept = doc.regionMap.regions.filter(r => !r.kind);
+  for (const r of kept) {
+    if (r.mirror && !kept.some(o => o.id === r.mirror)) { delete r.mirror; delete r.mirrorKind; }
+  }
+  // a map that was nothing but the previous kit's zones takes the new kit's name
+  if (!kept.length && carName) doc.regionMap.car = carName;
+  doc.regionMap.regions = kept;
+  const { regions, axis } = zonesToRegions(zones, doc.regionMap);
+  let oriented = 0;
+  if (decals) {
+    try {
+      const img = decals.getContext('2d').getImageData(0, 0, decals.width, decals.height);
+      oriented = applyOrientation(regions, inferDecalPairs(img, { axis }), axis);
+    } catch { /* orientation stays at the geometric default */ }
+  }
+  doc.regionMap.regions.push(...regions);
+  const nS = regions.filter(r => r.kind === 'sponsor').length, nN = regions.filter(r => r.kind === 'number').length;
+  const pairs = regions.filter(r => r.mirror).length / 2;
+  syncRegionUI();
+  if (!regionsView) setRegionsView(true);
+  status(`Template zones mapped: ${nS} sponsor, ${nN} number (${pairs} twin pairs${oriented ? `, ${oriented} oriented from the kit's decals` : ''}). Drop a logo near one and press Fit to zone.`, 'ok');
+}
 
 function syncTemplateStyle() {
   document.querySelectorAll('.tpl-color').forEach(btn => {
@@ -2652,8 +2884,61 @@ function syncRegionUI() {
   }
   $('btn-regions-view').disabled = !map;
   if (!map && regionsView) setRegionsView(false);
+  syncRegionEditRow();
   syncInspector(); // Mirror button availability
 }
+
+// per-region override: how a region reads (rot) and whether its twin is a
+// mirror image or a 180° turn — the PSD inference only sets defaults
+function syncRegionEditRow() {
+  const map = doc.regionMap;
+  const row = $('region-edit-row');
+  row.hidden = !map || !map.regions.length;
+  if (row.hidden) return;
+  const pick = $('region-pick');
+  const prev = pick.value;
+  pick.innerHTML = '';
+  for (const r of map.regions) {
+    const o = document.createElement('option');
+    o.value = r.id;
+    o.textContent = r.name + (r.mirror ? ' ⇄' : '');
+    pick.appendChild(o);
+  }
+  if (map.regions.some(r => r.id === prev)) pick.value = prev;
+  const r = regionById(map, pick.value);
+  $('region-rot').value = String(r && r.rot ? r.rot : 0);
+  $('region-mirrored-wrap').hidden = !(r && r.mirror);
+  $('region-mirrored').checked = !!(r && r.mirror && mirrorKindOf(r) !== 'rot180');
+}
+$('region-pick').addEventListener('change', syncRegionEditRow);
+$('region-rot').addEventListener('change', () => {
+  const r = doc.regionMap && regionById(doc.regionMap, $('region-pick').value);
+  if (!r) return;
+  const rot = parseInt($('region-rot').value, 10) || 0;
+  if (rot) r.rot = rot; else delete r.rot;
+  scheduleAutosave();
+  requestRender();
+  status(`${r.name} now reads ${rot ? `rotated ${rot}°` : 'upright'} — Fit to zone applies it.`, 'ok');
+});
+$('region-mirrored').addEventListener('change', () => {
+  const map = doc.regionMap;
+  const r = map && regionById(map, $('region-pick').value);
+  const m = r && r.mirror ? regionById(map, r.mirror) : null;
+  if (!r || !m) return;
+  let kind;
+  if ($('region-mirrored').checked) {
+    // a reflection: top/bottom when the twins share a column, else left/right
+    kind = Math.abs(r.x - m.x) <= 6 && Math.abs(r.w - m.w) <= 6 ? 'flipV' : 'flip';
+  } else {
+    kind = 'rot180';
+  }
+  r.mirrorKind = m.mirrorKind = kind;
+  scheduleAutosave();
+  requestRender();
+  status(kind === 'rot180'
+    ? `${r.name} ⇄ ${m.name}: twins turned 180° — Mirror Clone rotates the copy.`
+    : `${r.name} ⇄ ${m.name}: mirror-image twins — Mirror Clone flips the copy.`, 'ok');
+});
 
 // shared by the file loader and the community "Get map…" flow — validates,
 // applies to the doc, and syncs everything that watches the region map
@@ -3445,6 +3730,8 @@ function syncDocUI() {
   $('template-opacity').value = Math.round(doc.templateOpacity * 100);
   $('template-opacity-val').textContent = Math.round(doc.templateOpacity * 100) + '%';
   syncTemplateStyle();
+  $('template-unpaintable-row').hidden = !(doc.template && doc.paintMask);
+  $('template-unpaintable').checked = !!doc.showUnpaintable;
   $('basecoat-color').value = doc.baseColor;
   rebuildFontSelect();
   ensureDocFonts();

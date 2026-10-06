@@ -181,7 +181,28 @@ export function createDoc() {
     templateBold: true,         // thicken 1px linework
     customFonts: [],            // { name, data (base64) } — uploaded fonts travel with the project
     regionMap: null,            // parsed clearcoat-regions/1 map (see regions.js)
+    paintMask: null,            // greyscale canvas from the template's Mask layer: paintable = white (zones.js)
+    showUnpaintable: false,     // tint unpaintable template area red in the viewport
   };
+}
+
+// the paint mask travels as a PNG dataURL (greyscale, compresses to a few
+// KB). The canvas never changes after it's made, so the encode is memoized
+// on it — serializeDoc runs on every autosave and history snapshot.
+export function paintMaskToDataURL(mask) {
+  if (typeof mask === 'string') return mask;
+  if (mask._dataURL) return mask._dataURL;
+  try { mask._dataURL = mask.toDataURL('image/png'); } catch { return null; }
+  return mask._dataURL;
+}
+
+// ...and comes back as a canvas so getImageData stays cheap at any size
+export async function paintMaskFromDataURL(src) {
+  const img = await loadImage(src);
+  const c = document.createElement('canvas');
+  c.width = img.width; c.height = img.height;
+  c.getContext('2d').drawImage(img, 0, 0);
+  return c;
 }
 
 export function createImageLayer(img, src, name) {
@@ -1059,6 +1080,8 @@ export function serializeDoc(doc) {
     template: doc.template ? doc.template.src : null,
     customFonts: (doc.customFonts || []).map(f => ({ name: f.name, data: f.data })),
     regionMap: doc.regionMap || null,
+    paintMask: doc.paintMask ? paintMaskToDataURL(doc.paintMask) : null,
+    showUnpaintable: !!doc.showUnpaintable,
     groups: (doc.groups || []).map(g => ({ id: g.id, name: g.name, collapsed: !!g.collapsed })),
     layers: doc.layers.map(l => ({
       id: l.id, type: l.type, name: l.name,
@@ -1159,6 +1182,12 @@ export async function deserializeDoc(data) {
       doc.regionMap = parseRegionMap(data.regionMap);
     } catch { /* bad region map — drop it */ }
   }
+  if (typeof data.paintMask === 'string' && data.paintMask) {
+    try {
+      doc.paintMask = await paintMaskFromDataURL(data.paintMask);
+    } catch { /* mask image failed — bleed checks just switch off */ }
+  }
+  doc.showUnpaintable = !!data.showUnpaintable;
   // custom fonts must be live before text layers regenerate below
   doc.fontWarnings = [];
   for (const f of (data.customFonts || [])) {
