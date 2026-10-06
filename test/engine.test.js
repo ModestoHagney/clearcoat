@@ -32,6 +32,34 @@ const {
   RIP_DEPTH,
 } = await import('../js/engine.js');
 
+// car pattern layers: keyed src + three slot colours + patternCar round-trip
+test('carpattern layer and doc.patternCar survive serialize → deserialize, bad colours normalise', async () => {
+  const doc = createDoc();
+  doc.patternCar = 'dallara_p217';
+  doc.layers.push({
+    id: 'CP1', type: 'carpattern', name: 'car pattern 03', visible: true, opacity: 0.9,
+    material: 'pearl', patternId: 'car_pattern_003', colors: ['#ff8800', 'junk', '#00ccff'],
+    img: { src: 'data:image/png;base64,x' }, src: 'data:image/png;base64,x',
+    x: 1024, y: 1024, scale: 1, rotation: 0, rx: 0, ry: 0, rw: 2048, rh: 2048,
+  });
+  const data = serializeDoc(doc);
+  assert.equal(data.patternCar, 'dallara_p217');
+  assert.equal(data.layers[0].patternId, 'car_pattern_003');
+  assert.deepEqual(data.layers[0].colors, ['#ff8800', 'junk', '#00ccff']);
+  assert.equal(JSON.parse(JSON.stringify(data)).layers[0].text, undefined); // no stray text fields
+  const back = await deserializeDoc(JSON.parse(JSON.stringify(data)));
+  assert.equal(back.patternCar, 'dallara_p217');
+  const l = back.layers[0];
+  assert.equal(l.type, 'carpattern');
+  assert.equal(l.patternId, 'car_pattern_003');
+  assert.deepEqual(l.colors, ['#ff8800', '#1a6cff', '#00ccff']); // slot 2 fell back to the default
+  assert.equal(l.src, 'data:image/png;base64,x');
+  assert.equal(l.material, 'pearl');
+  assert.equal(l.rw, 2048);
+  // a doc without the field stays null
+  assert.equal((await deserializeDoc({ layers: [] })).patternCar, null);
+});
+
 // Layers built by hand (factory functions for image/text need real canvas).
 function fakeTextLayer(overrides = {}) {
   return {
