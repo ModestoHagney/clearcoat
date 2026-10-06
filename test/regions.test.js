@@ -20,6 +20,7 @@ import {
   matchPoint,
   linkPoints,
   linkLength,
+  linkDir,
 } from '../js/regions.js';
 
 // Convenience builder: a valid raw map with two mirrored door rectangles.
@@ -509,4 +510,17 @@ test('links survive parsing and follow a renamed region; bad links are rejected'
   assert.throws(() => parseRegionMap({ ...map, links: [{ a: map.links[0].a, b: { ...map.links[0].b, region: 'nope' } }] }), /unknown region "nope"/);
   assert.throws(() => parseRegionMap({ ...map, links: [{ a: map.links[0].a }] }), /bad "b" end/);
   assert.equal(parseRegionMap(rawMap()).links, undefined); // maps without links stay as they were
+});
+
+test('a link side runs the shorter way by default, and keeps a stored dir past half the outline', () => {
+  const map = linkedMap();
+  const side = map.links[0].a; // A's right edge, top to bottom: the way the corners are listed
+  assert.equal(linkDir(map, map.links[0], 'a'), 1);
+  side.dir = 1;
+  side.to = { x: 0, y: 50 }; // slide the end on round the bottom and half-way up the left edge
+  assert.equal(linkLength(map, { a: side, b: side }), 250); // 100 right + 100 bottom + 50 left, not the 150 short way
+  delete side.dir;
+  assert.equal(linkLength(map, { a: side, b: side }), 150);
+  side.dir = -1;
+  assert.equal(parseRegionMap(map).links[0].a.dir, -1); // dir survives a save and load
 });

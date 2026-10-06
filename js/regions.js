@@ -60,6 +60,7 @@ export function parseRegionMap(data) {
         if (!e || !pt(e.from) || !pt(e.to)) throw new Error(`link ${i} has a bad "${side}" end`);
         if (!seen.has(e.region)) throw new Error(`link ${i} joins unknown region "${e.region}"`);
         out[side] = { region: e.region, from: { x: e.from.x, y: e.from.y }, to: { x: e.to.x, y: e.to.y } };
+        if (e.dir === 1 || e.dir === -1) out[side].dir = e.dir;
       }
       return out;
     });
@@ -280,7 +281,9 @@ export function piecesRegionMap(car, outlines) {
 // a.from meets b.from and a.to meets b.to; in between, equal fractions of the
 // two stretches are taken to meet. Where the regions sit on the sheet, and how
 // they are turned, does not matter. A long edge that meets two regions simply
-// carries two links.
+// carries two links. A side may also say which way round the outline it runs
+// from `from` to `to` (dir: 1 = the order the corners are listed, -1 = the
+// other way); without it, the shorter way is meant.
 
 // distance along the outline to each corner, plus the full way round
 function arcs(pts) {
@@ -325,8 +328,6 @@ export function snapToOutline(pts, x, y, corner = 0) {
 
 // One side of a link as a run along its region's outline: where it starts,
 // how long it is and which way round it goes. Null if the region is gone.
-// ponytail: of the two ways round between the ends it takes the shorter, so a
-// stretch covering more than half an outline needs splitting into two links.
 function linkStretch(map, link, side) {
   const region = regionById(map, link[side].region);
   if (!region) return null;
@@ -334,7 +335,16 @@ function linkStretch(map, link, side) {
   const s0 = snapToOutline(pts, link[side].from.x, link[side].from.y).s;
   const s1 = snapToOutline(pts, link[side].to.x, link[side].to.y).s;
   const fwd = (s1 - s0 + L) % L;
-  return fwd <= L / 2 ? { pts, cum, L, start: s0, len: fwd, dir: 1 } : { pts, cum, L, start: s0, len: L - fwd, dir: -1 };
+  const dir = link[side].dir || (fwd <= L / 2 ? 1 : -1);
+  return { pts, cum, L, start: s0, len: dir === 1 ? fwd : (L - fwd) % L, dir };
+}
+
+// Which way round its outline a link side currently runs (1 or -1). Storing
+// this on the side as `dir` keeps it running that way while an end is moved,
+// even once the stretch grows past half the outline.
+export function linkDir(map, link, side) {
+  const st = linkStretch(map, link, side);
+  return st ? st.dir : 1;
 }
 
 // points along one side of a link from fraction t0 to t1 of its stretch,

@@ -41,6 +41,8 @@ exported by Clearcoat itself:
 
   Each side is a stretch of that region's edge. `a.from` meets `b.from` and
   `a.to` meets `b.to`. An edge that meets two regions carries two links.
+  A side may add `"dir": 1` or `-1` to say which way round the outline it
+  runs; without it the shorter way is meant.
   Versions of Clearcoat that predate links ignore them.
 
 ## Contributing a map
@@ -54,7 +56,8 @@ exported by Clearcoat itself:
    which? **Piece colors** adds a color-coded, labelled layer you can save
    to iRacing and look at on the car.
    **Link edges** records which edges meet: click the two ends of a shared
-   stretch on one region, then the two ends it meets on the other. Linked
+   stretch on one region, then the two ends it meets on the other (drag an
+   end dot afterwards to adjust it). Linked
    edges show the same color bands in **Piece colors**, so on the car the
    same colors should face each other across the seam.
 2. Click **Export map** in the Template panel to download the JSON.

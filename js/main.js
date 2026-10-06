@@ -20,7 +20,7 @@ import { LIBRARY, libraryItemToLayerSource } from './library.js';
 import { TEXTURES, TEX_CATS, texThumb, texFull } from './textures.js';
 import { wandSelect } from './wand.js';
 import { lassoMask, lassoBounds, CLOSE_RADIUS } from './lasso.js';
-import { parseRegionMap, createRegionMap, regionAt, regionById, mirrorPoint, mirrorLayerPlacement, uniqueRegionId, piecesRegionMap, renameRegion, regionOutline, labelPoint, snapToOutline, matchPoint, linkPoints, linkLength } from './regions.js';
+import { parseRegionMap, createRegionMap, regionAt, regionById, mirrorPoint, mirrorLayerPlacement, uniqueRegionId, piecesRegionMap, renameRegion, regionOutline, labelPoint, snapToOutline, matchPoint, linkPoints, linkLength, linkDir } from './regions.js';
 import { initAdvisor } from './advisor.js';
 
 // ---------- state ----------
@@ -477,6 +477,7 @@ let pieceLayerMode = false; // armed: the next click on a region makes a layer o
 let linkMode = false;       // clicking edge ends to link two regions' edges
 let linkClicks = [];        // ends clicked so far for the link being made: { region, x, y }
 let seamHover = null;       // matchPoint() result under the pointer, for the marker
+let linkDrag = null;        // a link end being slid along its edge: { region, ends, sx, sy, moved }
 
 function drawRegionOverlay() {
   vctx.save();
@@ -529,6 +530,7 @@ function drawSeamLinks() {
       vctx.strokeStyle = 'rgba(0,0,0,.6)'; vctx.lineWidth = 7; vctx.stroke();
       vctx.strokeStyle = color; vctx.lineWidth = 4; vctx.stroke();
       dot(pts[0], 5, color);
+      dot(pts[pts.length - 1], 3.5, color); // both ends can be dragged; the big dots meet each other
     }
   });
   vctx.font = '700 11px "IBM Plex Mono", monospace';
@@ -1061,7 +1063,11 @@ viewport.addEventListener('pointerdown', (e) => {
   }
 
   if (linkMode && e.button === 0 && !spaceHeld) {
-    linkClick(screenToDoc(sx, sy), e.altKey);
+    // press on a link's end: a drag slides it along the edge, a plain click
+    // still counts as a click there (to start the next link from that spot)
+    const grab = !e.altKey && !linkClicks.length ? linkEndAt(sx, sy) : null;
+    if (grab) linkDrag = { ...grab, sx, sy, moved: false };
+    else linkClick(screenToDoc(sx, sy), e.altKey);
     return;
   }
 
@@ -1227,6 +1233,19 @@ viewport.addEventListener('pointermove', (e) => {
   // seam marker: near a linked edge, show where that spot lands on the other piece
   const hover = (regionsView || linkMode) && doc.regionMap ? matchPoint(doc.regionMap, p.x, p.y, 10 / view.zoom) : null;
   if (hover || seamHover) { seamHover = hover; requestRender(); }
+
+  if (linkDrag) {
+    if (!linkDrag.moved && Math.hypot(sx - linkDrag.sx, sy - linkDrag.sy) < 4) return;
+    linkDrag.moved = true;
+    const snap = linkSnap(p, linkDrag.region, Infinity, linkDrag.ends);
+    // an end may not land on the other end of its own stretch
+    const clash = snap && doc.regionMap.links.some(l => [l.a, l.b].some(sd =>
+      (linkDrag.ends.includes(sd.from) ? [sd.to] : linkDrag.ends.includes(sd.to) ? [sd.from] : [])
+        .some(o => Math.hypot(o.x - snap.x, o.y - snap.y) < 2)));
+    if (snap && !clash) for (const end of linkDrag.ends) { end.x = snap.x; end.y = snap.y; }
+    requestRender();
+    return;
+  }
 
   if (lassoMode && lassoDragIdx !== null) {
     lassoPts[lassoDragIdx] = { x: p.x, y: p.y };
@@ -1452,6 +1471,17 @@ viewport.addEventListener('pointermove', (e) => {
 
 window.addEventListener('pointerup', () => {
   if (lassoDragIdx !== null) { lassoDragIdx = null; draw(); }
+  if (linkDrag) {
+    const d = linkDrag;
+    linkDrag = null;
+    if (!d.moved) linkClick(screenToDoc(d.sx, d.sy), false);
+    else {
+      for (const end of d.ends) { end.x = Math.round(end.x * 10) / 10; end.y = Math.round(end.y * 10) / 10; }
+      scheduleAutosave();
+      syncPieceColors();
+      status('Link end moved.', 'ok');
+    }
+  }
   if (drag && drag.mode === 'annotate') finishAnnotate(drag);
   if (drag && drag.mode === 'marquee') finishMarquee(drag);
   drag = null;
@@ -2970,7 +3000,7 @@ const PIECE_LAYER = 'Piece colors';
 // reads differently backwards, so a link made the wrong way round shows up
 const BAND_COLORS = ['#ffffff', '#e6194b', '#ffe119', '#0082c8', '#101114', '#f58231'];
 
-async function addPieceColors() {
+async function addPieceColors(quiet = false) {
   const map = doc.regionMap;
   if (!map || !map.regions.length) return;
   const c = document.createElement('canvas');
@@ -3036,7 +3066,7 @@ async function addPieceColors() {
   if (old) {
     old.img = img;
     old.src = src;
-    selectLayer(old.id);
+    if (!quiet) selectLayer(old.id);
   } else {
     const layer = createImageLayer(img, src, PIECE_LAYER);
     layer.scale = 1;
@@ -3045,9 +3075,9 @@ async function addPieceColors() {
     selectLayer(layer.id);
   }
   markDirty();
-  status(`Piece colors ${old ? 'updated' : 'added as a layer'} — hide it with its eye icon before saving your real paint.`, 'ok');
+  if (!quiet) status(`Piece colors ${old ? 'updated' : 'added as a layer'} — hide it with its eye icon before saving your real paint.`, 'ok');
 }
-$('btn-piece-colors').addEventListener('click', addPieceColors);
+$('btn-piece-colors').addEventListener('click', () => addPieceColors());
 
 // ---------- piece → layer ----------
 // Click a region to get a paint layer in exactly its shape. It is built the
@@ -3105,7 +3135,7 @@ function setLinkMode(on) {
     if (annotateMode) setAnnotateMode(false);
     if (pieceLayerMode) setPieceLayerMode(false);
     setRegionsView(true);
-    status('Link edges: click the two ends of a shared stretch on one region, then the two ends it meets on the other, in the same order. Backspace undoes, Alt+click removes a link, Esc exits.');
+    status('Link edges: click the two ends of a shared stretch on one region, then the two ends it meets on the other, in the same order. Drag an end dot to adjust. Backspace undoes, Alt+click removes a link, Esc exits.');
   }
   $('btn-link-edges').classList.toggle('active', on);
   viewport.classList.toggle('wand', on || wandMode || lassoMode || annotateMode || pieceLayerMode);
@@ -3116,8 +3146,8 @@ $('btn-link-edges').addEventListener('click', () => setLinkMode(!linkMode));
 // the outline spot a click means: an existing link end or a corner when one
 // is close, otherwise the nearest spot on the edge. `only` limits the search
 // to one region (the second end of a stretch stays on the first end's region).
-function linkSnap(p, only) {
-  const map = doc.regionMap, reach = 14 / view.zoom;
+function linkSnap(p, only, reach = 14 / view.zoom, skip = []) {
+  const map = doc.regionMap;
   let best = null;
   for (const r of map.regions) {
     if (only && r.id !== only) continue;
@@ -3126,11 +3156,47 @@ function linkSnap(p, only) {
   }
   if (!best) return null;
   for (const l of map.links || []) {
-    for (const end of [l.a.from, l.a.to, l.b.from, l.b.to]) {
-      if (Math.hypot(end.x - best.x, end.y - best.y) <= 10 / view.zoom) return { region: best.region, x: end.x, y: end.y };
+    for (const sd of [l.a, l.b]) {
+      if (sd.region !== best.region) continue; // only ends that sit on this same edge
+      for (const end of [sd.from, sd.to]) {
+        if (skip.includes(end)) continue;
+        if (Math.hypot(end.x - best.x, end.y - best.y) <= 10 / view.zoom) return { region: best.region, x: end.x, y: end.y };
+      }
     }
   }
   return { region: best.region, x: best.x, y: best.y };
+}
+
+// The link end under the pointer, with every other end sharing that spot on
+// the same region — where two links butt up on one edge they move together.
+function linkEndAt(sx, sy) {
+  const map = doc.regionMap, links = (map && map.links) || [];
+  for (const l of links) {
+    for (const sd of [l.a, l.b]) {
+      for (const end of [sd.from, sd.to]) {
+        const q = docToScreen(end.x, end.y);
+        if (Math.hypot(q.x - sx, q.y - sy) > 9) continue;
+        const ends = [];
+        for (const l2 of links) {
+          for (const side of ['a', 'b']) {
+            const s2 = l2[side];
+            if (s2.region !== sd.region) continue;
+            const hit = [s2.from, s2.to].filter(e => Math.hypot(e.x - end.x, e.y - end.y) < 0.6);
+            // pin which way round the stretch runs, or it would flip to the
+            // short way the moment it is dragged past half the outline
+            if (hit.length) { s2.dir = linkDir(map, l2, side); ends.push(...hit); }
+          }
+        }
+        return { region: sd.region, ends };
+      }
+    }
+  }
+  return null;
+}
+
+// keep the Piece colors layer's bands in step with the links, if it is there
+function syncPieceColors() {
+  if (doc.layers.some(l => l.type === 'image' && l.name === PIECE_LAYER)) addPieceColors(true);
 }
 
 function linkClick(p, remove) {
@@ -3142,6 +3208,7 @@ function linkClick(p, remove) {
     map.links.splice(hit.index, 1);
     seamHover = null;
     scheduleAutosave();
+    syncPieceColors();
     requestRender();
     status(`Link removed — ${map.links.length} left.`, 'ok');
     return;
@@ -3168,22 +3235,24 @@ function linkClick(p, remove) {
   }
   const [a1, a2, b1, b2] = linkClicks;
   const pt = (c) => ({ x: Math.round(c.x * 10) / 10, y: Math.round(c.y * 10) / 10 });
-  (map.links || (map.links = [])).push({
+  const link = {
     a: { region: a1.region, from: pt(a1), to: pt(a2) },
     b: { region: b1.region, from: pt(b1), to: pt(b2) },
-  });
+  };
+  (map.links || (map.links = [])).push(link);
   linkClicks = [];
   scheduleAutosave();
+  syncPieceColors();
   requestRender();
   const name = (id) => (regionById(map, id) || { name: id }).name;
-  status(`Linked ${name(a1.region)} ⇄ ${name(b1.region)} (${map.links.length} link${map.links.length === 1 ? '' : 's'}). Click Piece colors to see it on the car, or carry on linking.`, 'ok');
+  status(`Linked ${name(a1.region)} ⇄ ${name(b1.region)} (${map.links.length} link${map.links.length === 1 ? '' : 's'}). Drag an end dot to adjust it; Piece colors shows it on the car.`, 'ok');
 }
 
 // Backspace in link mode: take back the last click, or the last finished link
 function linkUndo() {
   const map = doc.regionMap;
   if (linkClicks.length) linkClicks.pop();
-  else if (map && map.links && map.links.length) { map.links.pop(); seamHover = null; scheduleAutosave(); status(`Last link removed — ${map.links.length} left.`, 'ok'); }
+  else if (map && map.links && map.links.length) { map.links.pop(); seamHover = null; scheduleAutosave(); syncPieceColors(); status(`Last link removed — ${map.links.length} left.`, 'ok'); }
   requestRender();
 }
 
