@@ -20,7 +20,7 @@ import { LIBRARY, libraryItemToLayerSource } from './library.js';
 import { TEXTURES, TEX_CATS, texThumb, texFull } from './textures.js';
 import { wandSelect } from './wand.js';
 import { lassoMask, lassoBounds, CLOSE_RADIUS } from './lasso.js';
-import { parseRegionMap, createRegionMap, regionAt, regionById, mirrorPoint, centerLine, mirrorAcross, uniqueRegionId, piecesRegionMap, renameRegion, setMirror, regionOutline, labelPoint, snapToOutline, matchPoint, linkPoints, linkLength, linkDir } from './regions.js';
+import { parseRegionMap, createRegionMap, regionAt, regionById, mirrorPoint, centerLine, mirrorAcross, uniqueRegionId, piecesRegionMap, renameRegion, setMirror, trimShape, regionOutline, labelPoint, snapToOutline, matchPoint, linkPoints, linkLength, linkDir } from './regions.js';
 import { initAdvisor } from './advisor.js';
 
 // ---------- state ----------
@@ -475,7 +475,8 @@ let regionsView = false;
 let annotateMode = false;
 // the armed region-map tool, one at a time: 'layer' (next click on a region
 // makes a layer of it), 'link' (clicking edge ends to link two regions' edges)
-// or 'center' (clicking two twin corners to set a region's centerline)
+// 'center' (clicking two twin corners to set a region's centerline) or 'trim'
+// (next click on a region trims the selected layer to it)
 let regionTool = null;
 let centerClick = null;     // first twin corner clicked for a centerline: { region, x, y }
 let linkClicks = [];        // ends clicked so far for the link being made: { region, x, y }
@@ -1075,6 +1076,11 @@ viewport.addEventListener('pointerdown', (e) => {
 
   if (regionTool === 'layer' && e.button === 0 && !spaceHeld) {
     pieceLayerAt(screenToDoc(sx, sy));
+    return;
+  }
+
+  if (regionTool === 'trim' && e.button === 0 && !spaceHeld) {
+    trimAt(screenToDoc(sx, sy));
     return;
   }
 
@@ -2197,6 +2203,7 @@ function syncInspector() {
     $('ins-opacity-val').textContent = Math.round(sel.opacity * 100) + '%';
     $('ins-spec-only').checked = !!sel.specOnly;
     $('ins-lasso-row').hidden = !(sel.lassoPts && sel.lassoPts.length >= 3);
+    $('ins-trim').textContent = sel.clip ? 'Remove trim' : 'Trim to piece';
     // pattern and fill layers qualify too - they get baked to an image on the
     // way in, because a tiling fill has no single quad to warp.
     const warpable = !!sel.img || isRegionLayer(sel);
@@ -2560,8 +2567,11 @@ $('ins-flip-v').addEventListener('click', () => { const s = selectedLayer(); if 
 // the layer doesn't sit in a region that has a mirror partner
 function mirrorLayerCopy(sel) {
   if (!doc.regionMap) return { error: 'No region map loaded.' };
-  const cx = isRegionLayer(sel) ? sel.rx + sel.rw / 2 : sel.x;
-  const cy = isRegionLayer(sel) ? sel.ry + sel.rh / 2 : sel.y;
+  // a trimmed layer belongs to the region it is trimmed to, wherever its own
+  // centre is (a texture's box is the whole sheet by default)
+  const at = sel.clip && sel.clipAt;
+  const cx = at ? at.x : isRegionLayer(sel) ? sel.rx + sel.rw / 2 : sel.x;
+  const cy = at ? at.y : isRegionLayer(sel) ? sel.ry + sel.rh / 2 : sel.y;
   const src = regionAt(doc.regionMap, cx, cy);
   if (!src) return { error: `"${sel.name}" is not inside a mapped region.` };
   // a region with a mirror partner mirrors onto the partner; one with a
@@ -2584,6 +2594,10 @@ function mirrorLayerCopy(sel) {
     lassoPts: Array.isArray(sel.lassoPts) ? sel.lassoPts.map(q => ({ x: q.x, y: q.y })) : null,
     cornerPan: sel.cornerPan ? { ...sel.cornerPan } : null,
     fx: sel.fx ? { ...sel.fx } : null,
+    // a trimmed layer's copy is trimmed to the matching place: the other half
+    // across a centerline, or the whole partner region
+    clip: !sel.clip ? null : mid ? sel.clip.map(q => reflect(q.x, q.y)) : trimShape(dst, 0, 0),
+    clipAt: at ? reflect(at.x, at.y) : null,
     flipH: !sel.flipH,
     // a true mirror image reflects the whole transform, not just the raster
     // (a mirror across a tilted centerline is the upright mirror plus a turn
@@ -2615,7 +2629,7 @@ function mirrorLayerCopy(sel) {
     copy.ry = Math.round(Math.min(...ys));
     copy.rw = Math.max(1, Math.round(Math.max(...xs) - Math.min(...xs)));
     copy.rh = Math.max(1, Math.round(Math.max(...ys) - Math.min(...ys)));
-    if (mid && sel.type === 'pattern') {
+    if (sel.type === 'pattern') {
       // the tiling can turn even though its box cannot, so the flip and turn
       // set above mirror it exactly — once the point it tiles from mirrors too
       const o = reflect(sel.x || 0, sel.y || 0);
@@ -3159,6 +3173,7 @@ $('btn-piece-colors').addEventListener('click', () => addPieceColors());
 const REGION_TOOLS = {
   layer: { btn: 'btn-piece-layer', hint: 'Piece → layer: click a region to make a layer in its shape. Esc to cancel.' },
   link: { btn: 'btn-link-edges', hint: 'Link edges: click the two ends of a shared stretch on one region, then the two ends it meets on the other, in the same order. Drag an end dot to adjust. Backspace undoes, Alt+click removes a link, Esc exits.' },
+  trim: { btn: 'ins-trim', hint: 'Trim to piece: click the region this layer should show in — on a region with a centerline, click the half you want. Esc to cancel.' },
   center: { btn: 'btn-centerline', hint: 'Centerline: on a region that spans the middle of the car, click a corner and then its twin on the other side. Alt+click a region to remove its line, Esc exits.' },
 };
 
@@ -3179,7 +3194,40 @@ function setRegionTool(tool) {
   viewport.classList.toggle('wand', !!tool || wandMode || lassoMode || annotateMode);
   requestRender();
 }
-for (const t in REGION_TOOLS) $(REGION_TOOLS[t].btn).addEventListener('click', () => setRegionTool(regionTool === t ? null : t));
+for (const t in REGION_TOOLS) {
+  $(REGION_TOOLS[t].btn).addEventListener('click', () => {
+    if (t === 'trim' && regionTool !== 'trim') {
+      const sel = selectedLayer();
+      if (!sel) return;
+      if (sel.clip) { // already trimmed: the button takes the trim off
+        sel.clip = null;
+        sel.clipAt = null;
+        markDirty();
+        syncInspector();
+        requestRender();
+        status(`Trim removed from "${sel.name}" — it shows in full again.`, 'ok');
+        return;
+      }
+      if (!doc.regionMap) { status('Trim needs a region map — load a PSD template, or a map, first.', 'warn'); return; }
+    }
+    setRegionTool(regionTool === t ? null : t);
+  });
+}
+
+// trim tool: the clicked region (or half of it) becomes the selected layer's window
+function trimAt(p) {
+  const sel = selectedLayer();
+  const r = doc.regionMap && regionAt(doc.regionMap, p.x, p.y);
+  if (!sel) { setRegionTool(null); return; }
+  if (!r) { status('No region there — click inside one of the outlined regions.', 'warn'); return; }
+  sel.clip = trimShape(r, p.x, p.y);
+  sel.clipAt = { x: Math.round(p.x), y: Math.round(p.y) }; // the spot picked: says which region (and half) this is
+  setRegionTool(null);
+  markDirty();
+  syncInspector();
+  requestRender();
+  status(`"${sel.name}" trimmed to ${r.name}${r.center ? ' (this half)' : ''} — move or scale it and it stays inside. Click Remove trim to show it all again.`, 'ok');
+}
 
 async function pieceLayerAt(p) {
   const region = doc.regionMap && regionAt(doc.regionMap, p.x, p.y);

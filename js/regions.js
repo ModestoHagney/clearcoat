@@ -161,6 +161,57 @@ export function mirrorAcross(r, x, y) {
   return { x: c.mid.x + 2 * along * c.dir.x - vx, y: c.mid.y + 2 * along * c.dir.y - vy };
 }
 
+// ---------- trimming ----------
+
+// Push an outline outwards by d px (each corner along the average of its two
+// edges' outward directions). Good for the few px of bleed a trim needs; not a
+// general polygon offset.
+export function growOutline(pts, d) {
+  let area = 0;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) area += pts[j].x * pts[i].y - pts[i].x * pts[j].y;
+  const sign = area > 0 ? 1 : -1; // which side of an edge is outside
+  const n = pts.length;
+  return pts.map((p, i) => {
+    const a = pts[(i + n - 1) % n], b = pts[(i + 1) % n];
+    const e1 = norm(p.x - a.x, p.y - a.y), e2 = norm(b.x - p.x, b.y - p.y);
+    // outward normals of the two edges meeting here, averaged
+    const m = norm(sign * (e1.y + e2.y), -sign * (e1.x + e2.x));
+    return { x: p.x + m.x * d, y: p.y + m.y * d };
+  });
+}
+function norm(x, y) {
+  const l = Math.hypot(x, y);
+  return l ? { x: x / l, y: y / l } : { x: 0, y: 0 };
+}
+
+// The window a layer is trimmed to when the user picks the spot (x, y) in a
+// region: the region's outline — or, when it has a centerline, the half of it
+// on that spot's side — grown by `bleed` px. The bleed keeps paint under the
+// very edge of the piece (the sim blends a little across piece edges) and lets
+// the two halves of a centre piece overlap by a hair instead of leaving a seam.
+export function trimShape(r, x, y, bleed = 3) {
+  let pts = regionOutline(r);
+  const c = centerLine(r);
+  if (c) {
+    // keep the side of the centerline that (x, y) is on
+    const nx = -c.dir.y, ny = c.dir.x;
+    const side = (q) => (q.x - c.mid.x) * nx + (q.y - c.mid.y) * ny;
+    const keep = side({ x, y }) >= 0 ? 1 : -1;
+    const out = [];
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i], q = pts[(i + 1) % pts.length];
+      const sp = side(p) * keep, sq = side(q) * keep;
+      if (sp >= 0) out.push(p);
+      if ((sp >= 0) !== (sq >= 0)) {
+        const t = sp / (sp - sq);
+        out.push({ x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t });
+      }
+    }
+    if (out.length >= 3) pts = out;
+  }
+  return growOutline(pts, bleed).map(q => ({ x: Math.round(q.x * 10) / 10, y: Math.round(q.y * 10) / 10 }));
+}
+
 // slug a display name into an id that doesn't collide with the map's regions
 export function uniqueRegionId(name, map) {
   const base = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'region';

@@ -24,6 +24,8 @@ import {
   centerLine,
   mirrorAcross,
   setMirror,
+  trimShape,
+  growOutline,
 } from '../js/regions.js';
 
 // Convenience builder: a valid raw map with two mirrored door rectangles.
@@ -577,4 +579,28 @@ test('setMirror pairs both ways, releases old partners, and unpairs', () => {
   setMirror(map, a, 'a');  // a region cannot mirror itself — that is what a centerline is for
   assert.equal(a.mirror, undefined);
   parseRegionMap(map);
+});
+
+// ---------------------------------------------------------------- trimming
+
+const boxOf = (pts) => [Math.min(...pts.map(q => q.x)), Math.min(...pts.map(q => q.y)), Math.max(...pts.map(q => q.x)), Math.max(...pts.map(q => q.y))];
+
+test('growOutline pushes every side out, whichever way round the outline is listed', () => {
+  const sq = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 }];
+  for (const pts of [sq, [...sq].reverse()]) {
+    const [x0, y0, x1, y1] = boxOf(growOutline(pts, 2));
+    assert.ok(x0 < -1 && y0 < -1 && x1 > 101 && y1 > 101, JSON.stringify([x0, y0, x1, y1]));
+  }
+});
+
+test('trimShape is the whole region, or the clicked half when it has a centerline', () => {
+  const plain = { id: 'door', x: 0, y: 0, w: 200, h: 100 };
+  assert.deepEqual(boxOf(trimShape(plain, 50, 50, 0)), [0, 0, 200, 100]);
+  // twin corners top-left and bottom-left: the centerline is the level line y=50
+  const roof = { ...plain, id: 'roof', center: { a: { x: 0, y: 0 }, b: { x: 0, y: 100 } } };
+  assert.deepEqual(boxOf(trimShape(roof, 150, 20, 0)), [0, 0, 200, 50]);
+  assert.deepEqual(boxOf(trimShape(roof, 150, 80, 0)), [0, 50, 200, 100]);
+  // with bleed the two halves overlap a little, so no seam shows between them
+  const top = boxOf(trimShape(roof, 150, 20)), bottom = boxOf(trimShape(roof, 150, 80));
+  assert.ok(top[3] > 50 && bottom[1] < 50);
 });

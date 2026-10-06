@@ -658,6 +658,16 @@ export function drawLayer(ctx, layer, forSpec = false) {
         : 0)))
     : 0;
   ctx.save();
+  if (layer.clip && layer.clip.length >= 3) {
+    // trim: a window fixed on the sheet. The layer keeps all of its artwork
+    // and can still be moved or scaled underneath; only what falls inside
+    // shows, in the paint and the spec map alike.
+    ctx.beginPath();
+    ctx.moveTo(layer.clip[0].x, layer.clip[0].y);
+    for (let i = 1; i < layer.clip.length; i++) ctx.lineTo(layer.clip[i].x, layer.clip[i].y);
+    ctx.closePath();
+    ctx.clip();
+  }
   ctx.globalAlpha = layer.opacity;
   ctx.globalCompositeOperation = (BLEND_MODES[layer.blend] || BLEND_MODES.normal).op;
   if (!doStroke && !doShadow && !doGlow && !neonAmt && !doFade) {
@@ -1092,6 +1102,9 @@ export function serializeDoc(doc) {
       skewX: l.skewX || 0, skewY: l.skewY || 0,
       flipH: l.flipH, flipV: l.flipV,
       rx: l.rx, ry: l.ry, rw: l.rw, rh: l.rh,
+      // trim window (see drawLayer), absolute doc space
+      clip: Array.isArray(l.clip) ? l.clip.map(q => ({ x: q.x, y: q.y })) : null,
+      clipAt: l.clipAt ? { x: l.clipAt.x, y: l.clipAt.y } : null,
       // the traced outline, so a lasso layer can be re-shaped after a reload
       lassoPts: Array.isArray(l.lassoPts) ? l.lassoPts.map(q => ({ x: q.x, y: q.y })) : null,
       // corner-pin quad, absolute doc space
@@ -1269,6 +1282,16 @@ export async function deserializeDoc(data) {
           : null,
       });
     } catch { /* skip broken layer */ }
+  }
+  // trim windows apply to every layer type, so they are restored in one place
+  const loaded = new Map(doc.layers.map(l => [l.id, l]));
+  for (const l of (data.layers || [])) {
+    if (!l || !loaded.has(l.id) || !Array.isArray(l.clip)) continue;
+    const clip = l.clip.filter(q => q && Number.isFinite(q.x) && Number.isFinite(q.y)).map(q => ({ x: q.x, y: q.y }));
+    if (clip.length < 3) continue;
+    loaded.get(l.id).clip = clip;
+    const at = l.clipAt;
+    if (at && Number.isFinite(at.x) && Number.isFinite(at.y)) loaded.get(l.id).clipAt = { x: at.x, y: at.y };
   }
   // groups are restored after the layers so broken/skipped layers can't leave
   // a group pointing at nothing: re-attach by id, then keep only groups that
