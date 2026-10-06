@@ -23,7 +23,7 @@
       <path d="M16 22 L24 8 H26 L18 22 Z" fill="#e8e6e1"/>
     </svg>
     <span class="brand-name">CLEARCOAT</span>
-    <span class="brand-sub">livery workbench <span id="app-version">v0.63</span></span>
+    <span class="brand-sub">livery workbench <span id="app-version">v0.64</span></span>
   </div>
 
   <input id="project-name" class="project-name" type="text" value="untitled livery" spellcheck="false" aria-label="Project name">
@@ -385,6 +385,16 @@
           <label for="ins-fade-angle" title="Direction the layer fades toward: 0° right, 90° down, 180° left, 270° up">Angle</label>
           <input id="ins-fade-angle" type="range" min="0" max="359" value="0">
           <span class="mono" id="ins-fade-angle-val">0°</span>
+        </div>
+        <div class="slider-row" id="ins-fade-dir-row">
+          <label title="Which way the dots run. Templates differ: some lay the car out nose-left, some nose-right, so pick the side the fade should end on. Flip turns the current angle around, whatever it is">From</label>
+          <div class="fade-dir" role="group" aria-label="Fade direction">
+            <button type="button" class="sm-btn icon fade-dir-btn" data-angle="180" title="Solid on the right, dots toward the left (180°)">&larr;</button>
+            <button type="button" class="sm-btn icon fade-dir-btn" data-angle="0" title="Solid on the left, dots toward the right (0°)">&rarr;</button>
+            <button type="button" class="sm-btn icon fade-dir-btn" data-angle="270" title="Solid at the bottom, dots toward the top (270°)">&uarr;</button>
+            <button type="button" class="sm-btn icon fade-dir-btn" data-angle="90" title="Solid at the top, dots toward the bottom (90°)">&darr;</button>
+            <button type="button" class="sm-btn" id="ins-fade-flip" title="Reverse the fade: the dots swap to the other side (adds 180° to the angle)">Flip</button>
+          </div>
         </div>
         <div class="slider-row">
           <label for="ins-fade-cell" title="Dot pitch in template pixels — small for a fine screen, large for bold comic-book dots">Dots</label>

@@ -2136,6 +2136,10 @@ function syncInspector() {
       $('ins-fade-amt-val').textContent = (fx.fade || 0) + '%';
       $('ins-fade-angle').value = fx.fadeAngle || 0;
       $('ins-fade-angle-val').textContent = (fx.fadeAngle || 0) + '°';
+      // light up the cardinal button that matches the current angle (if any)
+      for (const b of document.querySelectorAll('.fade-dir-btn')) {
+        b.classList.toggle('active', parseInt(b.dataset.angle, 10) === ((fx.fadeAngle || 0) % 360));
+      }
       $('ins-fade-cell').value = fx.fadeCell ?? 14;
       $('ins-fade-style').value = fx.fadeStyle === 'lines' ? 'lines' : 'dots';
     }
@@ -2967,6 +2971,15 @@ $('ins-fx-neon').addEventListener('input', () => setFx({ neon: parseInt($('ins-f
 $('ins-fx-neon-color').addEventListener('input', () => setFx({ neonColor: $('ins-fx-neon-color').value }));
 $('ins-fade-amt').addEventListener('input', () => setFx({ fade: parseInt($('ins-fade-amt').value, 10) || 0 }));
 $('ins-fade-angle').addEventListener('input', () => setFx({ fadeAngle: parseInt($('ins-fade-angle').value, 10) || 0 }));
+// one-click direction: templates lay cars out nose-left or nose-right, so the
+// side the dots run toward is the first thing to get right
+for (const b of document.querySelectorAll('.fade-dir-btn')) {
+  b.addEventListener('click', () => setFx({ fadeAngle: parseInt(b.dataset.angle, 10) || 0 }));
+}
+$('ins-fade-flip').addEventListener('click', () => {
+  const sel = selectedLayer(); if (!sel) return;
+  setFx({ fadeAngle: (((sel.fx?.fadeAngle || 0) + 180) % 360) });
+});
 $('ins-fade-cell').addEventListener('input', () => setFx({ fadeCell: parseInt($('ins-fade-cell').value, 10) || 14 }));
 $('ins-fade-style').addEventListener('change', () => setFx({ fadeStyle: $('ins-fade-style').value }));
 for (const [id, key] of [['ins-fx-sdx', 'shadowDX'], ['ins-fx-sdy', 'shadowDY']]) {

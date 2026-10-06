@@ -211,6 +211,9 @@ input  { font-family: inherit; }
 .sm-btn.icon { padding: 5px 8px; }
 .sm-btn.danger:hover { color: var(--danger); border-color: var(--danger); }
 .sm-btn.active { color: var(--ink); border-color: var(--orange); }
+.fade-dir { display: flex; gap: 4px; flex: 1; }
+.fade-dir .sm-btn.icon { min-width: 30px; font-size: 13px; line-height: 1; }
+.fade-dir #ins-fade-flip { margin-left: auto; }
 .btn-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
 
 .template-row { display: flex; gap: 6px; }
