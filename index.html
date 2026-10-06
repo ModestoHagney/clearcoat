@@ -33,6 +33,9 @@
     <button id="btn-redo" class="tb-btn" title="Redo (Ctrl+Shift+Z / Ctrl+Y)" disabled>↷</button>
     <button id="btn-new" class="tb-btn" title="New project">New</button>
     <button id="btn-open" class="tb-btn" title="Open a .clearcoat.json project">Open</button>
+    <!-- BRIEF: start from a driver brief (js/brief.js) -->
+    <button id="btn-brief" class="tb-btn" title="Start from a driver brief (.brief.json) — three panel-correct livery candidates, no AI">Brief</button>
+    <!-- /BRIEF -->
     <button id="btn-save" class="tb-btn" title="Download project as .clearcoat.json">Save</button>
     <button id="btn-projects" class="tb-btn" title="Browse projects saved in this browser">Projects</button>
     <span id="current-project-label" class="current-project mono" title="The browser project autosave follows">unsaved</span>
@@ -657,6 +660,27 @@
   </div>
 </div>
 
+<!-- BRIEF: candidates panel (js/brief.js + the "Brief → livery" block in main.js) -->
+<div id="brief-modal" hidden>
+  <div class="library-panel brief-panel">
+    <h2 class="panel-title">Brief → livery
+      <span class="title-actions">
+        <button id="brief-load" class="sm-btn" title="Open another .brief.json">Open brief…</button>
+        <button id="brief-close" class="sm-btn icon" title="Close (Esc)">✕</button>
+      </span>
+    </h2>
+    <div id="brief-meta" class="brief-meta"></div>
+    <div id="brief-warn" class="brief-warn" hidden></div>
+    <div id="brief-cards" class="brief-cards"></div>
+    <div class="btn-row brief-actions">
+      <button id="brief-regen" class="sm-btn" title="Another set of patterns for the same brief">Regenerate</button>
+      <span class="brief-spacer"></span>
+      <a id="brief-sample" href="#" class="brief-link">Load sample</a>
+    </div>
+  </div>
+</div>
+<!-- /BRIEF -->
+
 <div id="library-modal" hidden>
   <div class="library-panel">
     <h2 class="panel-title">Graphics library
@@ -682,6 +706,8 @@
 <input type="file" id="file-tga" accept=".tga" hidden>
 <input type="file" id="file-template" accept=".psd,image/png,image/jpeg,image/webp,image/vnd.adobe.photoshop" hidden>
 <input type="file" id="file-project" accept=".json,application/json" hidden>
+<input type="file" id="file-brief" accept=".json,application/json" hidden> <!-- BRIEF -->
+
 <input type="file" id="file-regions" accept=".json,application/json" hidden>
 <input type="file" id="file-font" accept=".ttf,.otf,.woff,.woff2" hidden>
 
