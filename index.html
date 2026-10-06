@@ -397,12 +397,21 @@
           </div>
         </div>
         <div class="slider-row">
-          <label for="ins-fade-cell" title="Dot pitch in template pixels — small for a fine screen, large for bold comic-book dots">Dots</label>
+          <label for="ins-fade-cell" title="Pitch in template pixels: dot spacing, bar spacing, scanline spacing, glitch strip height, or how fine the torn edge is — small for a fine screen, large for bold comic-book dots">Pitch</label>
           <input id="ins-fade-cell" type="range" min="4" max="64" value="14">
-          <select id="ins-fade-style" title="Dot screen or bars across the fade">
+          <select id="ins-fade-style" title="How the layer dissolves: Dots = halftone screen, Bars = stripes across the fade, Rip = torn-paper edge with shreds, Scanlines = CRT lines along the fade, Glitch = sliced and shifted rows with an RGB split">
             <option value="dots">Dots</option>
             <option value="lines">Bars</option>
+            <option value="rip">Rip</option>
+            <option value="scan">Scanlines</option>
+            <option value="glitch">Glitch</option>
           </select>
+          <button type="button" class="sm-btn icon" id="ins-fade-reseed" title="Reseed: roll a new random tear / glitch pattern (the current one is saved with the project)" aria-label="Reseed" hidden>&#x1F3B2;</button>
+        </div>
+        <div class="slider-row" id="ins-fade-split-row" hidden>
+          <label for="ins-fade-split" title="RGB split: draws the red and blue channels offset in opposite directions inside the glitched band — paint only, the spec map ignores it">Split</label>
+          <input id="ins-fade-split" type="range" min="0" max="12" value="4">
+          <span class="mono" id="ins-fade-split-val">4px</span>
         </div>
       </div>
 

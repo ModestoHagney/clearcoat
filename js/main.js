@@ -2141,7 +2141,13 @@ function syncInspector() {
         b.classList.toggle('active', parseInt(b.dataset.angle, 10) === ((fx.fadeAngle || 0) % 360));
       }
       $('ins-fade-cell').value = fx.fadeCell ?? 14;
-      $('ins-fade-style').value = fx.fadeStyle === 'lines' ? 'lines' : 'dots';
+      const style = ['dots', 'lines', 'rip', 'scan', 'glitch'].includes(fx.fadeStyle) ? fx.fadeStyle : 'dots';
+      $('ins-fade-style').value = style;
+      // seeded styles get the dice; glitch alone gets the RGB split
+      $('ins-fade-reseed').hidden = style !== 'rip' && style !== 'glitch';
+      $('ins-fade-split-row').hidden = style !== 'glitch';
+      $('ins-fade-split').value = fx.glitchSplit ?? 4;
+      $('ins-fade-split-val').textContent = (fx.glitchSplit ?? 4) + 'px';
     }
     if (hasFxUI) {
       const fx = sel.fx || {};
@@ -2954,7 +2960,7 @@ function setFx(patch) {
     shadow: 0, shadowDX: 8, shadowDY: 8, shadowColor: '#000000',
     glow: 0, glowColor: '#ffffff',
     neon: 0, neonColor: '#39ff14',
-    fade: 0, fadeAngle: 0, fadeCell: 14, fadeStyle: 'dots',
+    fade: 0, fadeAngle: 0, fadeCell: 14, fadeStyle: 'dots', fadeSeed: null, glitchSplit: 4,
     ...(sel.fx || {}), ...patch,
   };
   if (!sel.fx.strokeW && !sel.fx.shadow && !sel.fx.glow && !sel.fx.neon && !sel.fx.fade) sel.fx = null;
@@ -2982,6 +2988,9 @@ $('ins-fade-flip').addEventListener('click', () => {
 });
 $('ins-fade-cell').addEventListener('input', () => setFx({ fadeCell: parseInt($('ins-fade-cell').value, 10) || 14 }));
 $('ins-fade-style').addEventListener('change', () => setFx({ fadeStyle: $('ins-fade-style').value }));
+// rip / glitch are seeded: the dice rolls a fresh pattern, saved with the project
+$('ins-fade-reseed').addEventListener('click', () => setFx({ fadeSeed: Math.floor(Math.random() * 0x7fffffff) }));
+$('ins-fade-split').addEventListener('input', () => setFx({ glitchSplit: parseInt($('ins-fade-split').value, 10) || 0 }));
 for (const [id, key] of [['ins-fx-sdx', 'shadowDX'], ['ins-fx-sdy', 'shadowDY']]) {
   $(id).addEventListener('input', () => {
     const v = parseInt($(id).value, 10);
