@@ -25,18 +25,11 @@ export const FINISHES = ['gloss', 'matte', 'satin', 'metallic', 'pearl', 'candy'
 // fixed three-colour palettes for the one-word moods: slot 1 (body) and
 // slot 2 (pattern) contrast hard, the accent is light or dark as the body
 // needs it
-export const MOOD_PALETTES = {
-  night:    { primary: '#0b1b3a', secondary: '#ff6a00', accent: '#ffffff' },
-  sunset:   { primary: '#7a1e3a', secondary: '#ff8c42', accent: '#ffe08a' },
-  forest:   { primary: '#10381f', secondary: '#c9a227', accent: '#f2efe6' },
-  ice:      { primary: '#e8f1f7', secondary: '#1b7fd1', accent: '#0b1b2b' },
-  fire:     { primary: '#121212', secondary: '#ff2a00', accent: '#ffc400' },
-  military: { primary: '#3b4a2f', secondary: '#c2b280', accent: '#1c1c1c' },
-  retro:    { primary: '#f2ead3', secondary: '#1f4e8c', accent: '#e8542b' },
-  neon:     { primary: '#0a0a12', secondary: '#39ff14', accent: '#ff2bd6' },
-  royal:    { primary: '#2a1457', secondary: '#d4af37', accent: '#ffffff' },
-  mono:     { primary: '#141414', secondary: '#ffffff', accent: '#8a8a8a' },
-};
+import { MOODS as MOOD_TABLE } from './brief-shared.js';
+// Mood palettes come from the driver-facing form's table (brief-shared.js) so
+// the swatches a driver picks are exactly the colours the generator uses.
+export const MOOD_PALETTES = Object.fromEntries(
+  MOOD_TABLE.map(m => [m.id, { primary: m.colors[0], secondary: m.colors[1], accent: m.colors[2] }]));
 export const MOODS = Object.keys(MOOD_PALETTES);
 
 // ---------------------------------------------------------------- adapter
