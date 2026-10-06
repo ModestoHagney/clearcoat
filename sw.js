@@ -34,6 +34,7 @@ const PRECACHE = [
   './js/warp.js',
   './js/variants.js',
   './js/layout.js',
+  './js/zones.js',
   './js/vendor/ag-psd.min.js',
   // texture-library picker thumbnails (full-res PNGs runtime-cache on first use)
   './textures/thumb/carbon-twill.jpg',
