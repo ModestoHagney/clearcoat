@@ -26,6 +26,7 @@ import {
   setMirror,
   trimShape,
   growOutline,
+  mirrorKind,
 } from '../js/regions.js';
 
 // Convenience builder: a valid raw map with two mirrored door rectangles.
@@ -603,4 +604,25 @@ test('trimShape is the whole region, or the clicked half when it has a centerlin
   // with bleed the two halves overlap a little, so no seam shows between them
   const top = boxOf(trimShape(roof, 150, 20)), bottom = boxOf(trimShape(roof, 150, 80));
   assert.ok(top[3] > 50 && bottom[1] < 50);
+});
+
+// ---------------------------------------------------------------- mirror partners at any layout
+
+test('mirrorKind tells how a partner lies: beside, above/below, or turned a quarter', () => {
+  const at = (pts, dx, dy) => {
+    const p = pts.map(q => ({ x: q.x + dx, y: q.y + dy }));
+    const xs = p.map(q => q.x), ys = p.map(q => q.y);
+    return { id: 'r', x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys), points: p };
+  };
+  const src = at(L_SHAPE, 0, 0);
+  const flipH = L_SHAPE.map(q => ({ x: 100 - q.x, y: q.y }));
+  const flipV = L_SHAPE.map(q => ({ x: q.x, y: 100 - q.y }));
+  const swap = L_SHAPE.map(q => ({ x: q.y, y: q.x }));
+  assert.equal(mirrorKind(src, at(flipH, 300, 0)), 'h');
+  assert.equal(mirrorKind(src, at(flipV, 0, 300)), 'v');
+  assert.equal(mirrorKind(src, at(swap, 300, 300)), 'd');
+  // two plain boxes fit every way, and then it is side by side, as it always was
+  assert.equal(mirrorKind({ id: 'a', x: 0, y: 0, w: 10, h: 10 }, { id: 'b', x: 50, y: 0, w: 10, h: 10 }), 'h');
+  // a partner lying below: a point near the top of one lands near the bottom of the other
+  assert.deepEqual(mirrorPoint(src, at(flipV, 0, 300), 20, 10, 'v'), { x: 20, y: 390 });
 });

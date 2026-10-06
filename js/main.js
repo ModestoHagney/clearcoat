@@ -20,7 +20,7 @@ import { LIBRARY, libraryItemToLayerSource } from './library.js';
 import { TEXTURES, TEX_CATS, texThumb, texFull } from './textures.js';
 import { wandSelect } from './wand.js';
 import { lassoMask, lassoBounds, CLOSE_RADIUS } from './lasso.js';
-import { parseRegionMap, createRegionMap, regionAt, regionById, mirrorPoint, centerLine, mirrorAcross, uniqueRegionId, piecesRegionMap, renameRegion, setMirror, trimShape, regionOutline, labelPoint, snapToOutline, matchPoint, linkPoints, linkLength, linkDir } from './regions.js';
+import { parseRegionMap, createRegionMap, regionAt, regionById, mirrorPoint, mirrorKind, MIRROR_AXIS, centerLine, mirrorAcross, uniqueRegionId, piecesRegionMap, renameRegion, setMirror, trimShape, regionOutline, labelPoint, snapToOutline, matchPoint, linkPoints, linkLength, linkDir } from './regions.js';
 import { initAdvisor } from './advisor.js';
 
 // ---------- state ----------
@@ -2580,7 +2580,11 @@ function mirrorLayerCopy(sel) {
   if (!src.mirror && !mid) return { error: `"${src.name}" has no mirror partner or centerline in the map.` };
   const dst = mid ? src : regionById(doc.regionMap, src.mirror);
   if (!dst) return { error: `Mirror partner "${src.mirror}" is missing from the map.` };
-  const reflect = mid ? (x, y) => mirrorAcross(src, x, y) : (x, y) => mirrorPoint(src, dst, x, y);
+  // partners can lie side by side, one above the other, or turned a quarter
+  const kind = mid ? null : mirrorKind(src, dst);
+  const reflect = mid ? (x, y) => mirrorAcross(src, x, y) : (x, y) => mirrorPoint(src, dst, x, y, kind);
+  const axis = mid ? mid.angle : MIRROR_AXIS[kind]; // angle of the line being mirrored across
+  const axisLevel = Math.abs(Math.cos(axis * Math.PI / 180)) > Math.abs(Math.sin(axis * Math.PI / 180));
   const copy = {
     ...sel,
     id: 'L' + Math.random().toString(36).slice(2),
@@ -2600,9 +2604,9 @@ function mirrorLayerCopy(sel) {
     clipAt: at ? reflect(at.x, at.y) : null,
     flipH: !sel.flipH,
     // a true mirror image reflects the whole transform, not just the raster
-    // (a mirror across a tilted centerline is the upright mirror plus a turn
+    // (a mirror across a line at any angle is the upright mirror plus a turn
     // of twice the line's angle and a half; kept within ±180°)
-    rotation: mid ? ((-(sel.rotation || 0) + 2 * mid.angle) % 360 + 360) % 360 - 180 : -(sel.rotation || 0),
+    rotation: ((-(sel.rotation || 0) + 2 * axis) % 360 + 360) % 360 - 180,
     skewX: -(sel.skewX || 0),
     skewY: -(sel.skewY || 0),
   };
@@ -2635,14 +2639,13 @@ function mirrorLayerCopy(sel) {
       const o = reflect(sel.x || 0, sel.y || 0);
       copy.x = o.x;
       copy.y = o.y;
-    } else if (mid) {
+    } else {
       // ponytail: a fill's rect cannot turn, so the nearer of an upright or a
-      // level flip stands in for the centerline — exact when the line is one
+      // level flip stands in for the mirror line — exact when the line is one
       // of those, approximate when tilted. Give fills a real rotation if
-      // tilted centerlines turn up.
-      const level = Math.abs(mid.dir.x) > Math.abs(mid.dir.y);
-      copy.flipH = level ? !!sel.flipH : !sel.flipH;
-      copy.flipV = level ? !sel.flipV : !!sel.flipV;
+      // tilted mirror lines turn up.
+      copy.flipH = axisLevel ? !!sel.flipH : !sel.flipH;
+      copy.flipV = axisLevel ? !sel.flipV : !!sel.flipV;
       copy.rotation = -(sel.rotation || 0);
     }
   } else {

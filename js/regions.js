@@ -99,12 +99,49 @@ export function regionAt(map, x, y) {
   return null;
 }
 
-// map a point through a mirror pair by relative position:
-// (u, v) within src → (1 - u, v) within dst
-export function mirrorPoint(src, dst, x, y) {
+// The ways a region can be a mirror image of its partner on the sheet, each
+// with the angle (degrees) of the line the mirroring happens across:
+//   h  side by side      (u, v) → (1 - u, v)
+//   v  one above another (u, v) → (u, 1 - v)
+//   d  turned a quarter  (u, v) → (v, u)
+//   a  turned the other  (u, v) → (1 - v, 1 - u)
+export const MIRROR_AXIS = { h: 90, v: 0, d: 45, a: 135 };
+const MIRROR_UV = {
+  h: (u, v) => [1 - u, v],
+  v: (u, v) => [u, 1 - v],
+  d: (u, v) => [v, u],
+  a: (u, v) => [1 - v, 1 - u],
+};
+
+// map a point through a mirror pair by relative position within the two
+// regions' boxes; `kind` says which way round the partner lies (see
+// mirrorKind) and defaults to side by side
+export function mirrorPoint(src, dst, x, y, kind = 'h') {
   const u = src.w ? (x - src.x) / src.w : 0;
   const v = src.h ? (y - src.y) / src.h : 0;
-  return { x: dst.x + (1 - u) * dst.w, y: dst.y + v * dst.h };
+  const [mu, mv] = MIRROR_UV[kind](u, v);
+  return { x: dst.x + mu * dst.w, y: dst.y + mv * dst.h };
+}
+
+// Which of the four mirrorings lays src's outline most closely over dst's.
+// Plain boxes fit every way equally, and then it is side by side, as before.
+export function mirrorKind(src, dst) {
+  const from = regionOutline(src), to = regionOutline(dst);
+  const probes = [];
+  for (let i = 0; i < from.length; i++) {
+    const p = from[i], q = from[(i + 1) % from.length];
+    probes.push(p, { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 });
+  }
+  let best = 'h', bestD = Infinity;
+  for (const kind of ['h', 'v', 'd', 'a']) {
+    let d = 0;
+    for (const p of probes) {
+      const m = mirrorPoint(src, dst, p.x, p.y, kind);
+      d += snapToOutline(to, m.x, m.y).d;
+    }
+    if (d < bestD - 1e-6) { best = kind; bestD = d; }
+  }
+  return best;
 }
 
 // the { src, dst } mirror pair containing a point, or null
