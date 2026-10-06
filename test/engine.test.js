@@ -23,6 +23,13 @@ const {
   lumSpecChannels,
   fadeBand,
   fadeDotFrac,
+  hashSeed,
+  fadeSeedOf,
+  ripNoise,
+  ripProfile,
+  ripShreds,
+  glitchSlices,
+  RIP_DEPTH,
 } = await import('../js/engine.js');
 
 // Layers built by hand (factory functions for image/text need real canvas).
@@ -100,7 +107,7 @@ test('deserializeDoc coerces partial fx blocks to full defaults', async () => {
     shadow: 0, shadowDX: 8, shadowDY: 8, shadowColor: '#000000',
     glow: 30, glowColor: '#ffffff',
     neon: 0, neonColor: '#39ff14',
-    fade: 0, fadeAngle: 0, fadeCell: 14, fadeStyle: 'dots',
+    fade: 0, fadeAngle: 0, fadeCell: 14, fadeStyle: 'dots', fadeSeed: null, glitchSplit: 4,
   });
   assert.equal(doc.layers[1].fx, null);
 });
@@ -108,12 +115,94 @@ test('deserializeDoc coerces partial fx blocks to full defaults', async () => {
 test('deserializeDoc keeps neon and fade settings across a reload', async () => {
   const doc = await deserializeDoc({
     format: 'clearcoat/1',
-    layers: [{ type: 'image', src: 'data:x', fx: { neon: 30, neonColor: '#ff00ff', fade: 60, fadeAngle: 90, fadeCell: 20, fadeStyle: 'lines' } }],
+    layers: [
+      { type: 'image', src: 'data:x', fx: { neon: 30, neonColor: '#ff00ff', fade: 60, fadeAngle: 90, fadeCell: 20, fadeStyle: 'lines' } },
+      { type: 'image', src: 'data:x', fx: { fade: 40, fadeStyle: 'glitch', fadeSeed: 123456, glitchSplit: 9 } },
+      { type: 'image', src: 'data:x', fx: { fade: 40, fadeStyle: 'rip', fadeSeed: 77 } },
+      { type: 'image', src: 'data:x', fx: { fade: 40, fadeStyle: 'bogus', glitchSplit: 99 } },
+    ],
   });
   const fx = doc.layers[0].fx;
   assert.equal(fx.neon, 30);
   assert.equal(fx.neonColor, '#ff00ff');
   assert.deepEqual([fx.fade, fx.fadeAngle, fx.fadeCell, fx.fadeStyle], [60, 90, 20, 'lines']);
+  const g = doc.layers[1].fx;
+  assert.deepEqual([g.fadeStyle, g.fadeSeed, g.glitchSplit], ['glitch', 123456, 9]);
+  const r = doc.layers[2].fx;
+  assert.deepEqual([r.fadeStyle, r.fadeSeed], ['rip', 77]);
+  const bad = doc.layers[3].fx;
+  assert.deepEqual([bad.fadeStyle, bad.fadeSeed, bad.glitchSplit], ['dots', null, 12]); // unknown style → dots, split clamped
+});
+
+test('hashSeed / fadeSeedOf: stable, and an explicit seed wins over the id hash', () => {
+  assert.equal(hashSeed('L1-abc'), hashSeed('L1-abc'));
+  assert.notEqual(hashSeed('L1-abc'), hashSeed('L2-abc'));
+  assert.equal(fadeSeedOf({ id: 'L1-abc' }, {}), hashSeed('L1-abc'));
+  assert.equal(fadeSeedOf({ id: 'L1-abc' }, { fadeSeed: 42 }), 42);
+});
+
+test('ripNoise: deterministic per seed, bounded in [-1, 1], seeds differ', () => {
+  let maxAbs = 0, diff = 0;
+  for (let i = 0; i < 2000; i++) {
+    const t = i * 0.0731 - 20;
+    const a = ripNoise(7, t), b = ripNoise(7, t), c = ripNoise(8, t);
+    assert.equal(a, b);
+    maxAbs = Math.max(maxAbs, Math.abs(a));
+    diff += Math.abs(a - c);
+  }
+  assert.ok(maxAbs <= 1);
+  assert.ok(maxAbs > 0.3); // not degenerate
+  assert.ok(diff / 2000 > 0.05);
+});
+
+test('ripProfile: covers the band along v, edge stays within [uStart, uStart + RIP_DEPTH·L]', () => {
+  const band = fadeBand([{ x: 0, y: 0 }, { x: 1000, y: 0 }, { x: 1000, y: 400 }, { x: 0, y: 400 }], 0, 50);
+  const prof = ripProfile(99, band, 14);
+  const L = band.u1 - band.uStart;
+  assert.ok(prof[0].v <= band.v0 - 14 && prof[prof.length - 1].v >= band.v1 + 14);
+  for (const p of prof) assert.ok(p.u >= band.uStart - 1e-9 && p.u <= band.uStart + RIP_DEPTH * L + 1e-9);
+  assert.deepEqual(ripProfile(99, band, 14), prof);
+  assert.notDeepEqual(ripProfile(100, band, 14), prof);
+  // shreds: past the solid edge, inside the band, thinning out toward u1
+  const shreds = ripShreds(99, band, 14);
+  assert.ok(shreds.length > 20);
+  let near = 0, far = 0;
+  for (const s of shreds) {
+    assert.ok(s.u >= band.uStart && s.u <= band.u1 + s.w);
+    if (s.u < band.uStart + L * 2 / 3) near++; else far++;
+  }
+  assert.ok(near > far * 2);
+  assert.deepEqual(ripShreds(99, band, 14), shreds);
+});
+
+test('glitchSlices: strips tile the band with 0.5–3 cell heights, segments tile uStart→u1, shift grows and dropout rises', () => {
+  const band = fadeBand([{ x: 0, y: 0 }, { x: 2048, y: 0 }, { x: 2048, y: 2048 }, { x: 0, y: 2048 }], 0, 60);
+  const cell = 14;
+  const strips = glitchSlices(5, band, cell);
+  assert.deepEqual(glitchSlices(5, band, cell), strips);
+  assert.notDeepEqual(glitchSlices(6, band, cell), strips);
+  let v = band.v0 - cell;
+  let keepNear = 0, nNear = 0, keepFar = 0, nFar = 0, shiftNear = 0, shiftFar = 0;
+  const L = band.u1 - band.uStart;
+  for (const s of strips) {
+    assert.ok(Math.abs(s.v - v) < 1e-9, 'strips are contiguous');
+    assert.ok(s.h > 0 && s.h <= cell * 3 + 1e-9);
+    v += s.h;
+    let u = Math.floor(band.uStart); // snapped to the pixel grid
+    for (const seg of s.segs) {
+      assert.ok(Math.abs(seg.u - u) < 1e-9, 'segments are contiguous');
+      assert.equal(seg.shift, Math.round(seg.shift), 'whole-pixel shifts');
+      u += seg.w;
+      const t = (seg.u + seg.w / 2 - band.uStart) / L;
+      if (t < 0.25) { nNear++; keepNear += seg.keep ? 1 : 0; shiftNear += Math.abs(seg.shift); }
+      if (t > 0.75) { nFar++; keepFar += seg.keep ? 1 : 0; shiftFar += Math.abs(seg.shift); }
+    }
+    assert.ok(Math.abs(u - band.u1) < 1e-6, 'segments reach u1');
+  }
+  assert.ok(v >= band.v1 + cell - 1e-9, 'strips reach the far edge');
+  assert.ok(strips.every((s, i) => i === strips.length - 1 || s.h >= cell * 0.5 - 1e-9));
+  assert.ok(keepNear / nNear > 0.7 && keepFar / nFar < 0.3);
+  assert.ok(shiftFar / nFar > shiftNear / nNear);
 });
 
 test('fadeBand: axis-aligned box at 0° fades toward the right edge', () => {
