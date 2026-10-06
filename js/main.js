@@ -5115,6 +5115,23 @@ async function exportAllDrivers() {
   }
 }
 $('drivers-export').addEventListener('click', exportAllDrivers);
+// Share the driver brief form: one click copies a paste-ready message (or opens
+// the phone share sheet), so the link never has to be typed out per driver.
+$('drivers-share').addEventListener('click', async () => {
+  const url = new URL('brief.html', location.href).href;
+  const team = (doc.name && doc.name !== 'untitled livery') ? ` for ${doc.name}` : '';
+  const msg = `Fill in your livery brief${team}: ${url}
+Takes two minutes — colours or a mood, style, finish, your number and any logos. Send me the file it downloads.`;
+  if (navigator.share && /Mobi|Android/i.test(navigator.userAgent)) {
+    try { await navigator.share({ title: 'Livery brief form', text: msg, url }); return; } catch { /* cancelled — fall through to copy */ }
+  }
+  try {
+    await navigator.clipboard.writeText(msg);
+    status('Brief form message copied — paste it to your drivers.', 'ok');
+  } catch {
+    window.prompt('Copy this message for your drivers:', msg);
+  }
+});
 
 $('ins-text-variable').addEventListener('change', () => {
   const sel = selectedLayer();
