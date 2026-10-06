@@ -276,7 +276,7 @@ test('mirrorLayerPlacement returns rounded mirrored coords with flip: true', () 
   // layer center at u=0.25, v=0.5 of door_l (x=175, y=275)
   const placed = mirrorLayerPlacement(map, { x: 175, y: 275 });
   // mirrored to u=0.75 of door_r: x = 900 + 0.75*300 = 1125, y = 200 + 0.5*150 = 275
-  assert.deepEqual(placed, { x: 1125, y: 275, flip: true });
+  assert.deepEqual(placed, { x: 1125, y: 275, flip: true, kind: 'flip' });
 });
 
 test('mirrorLayerPlacement rounds fractional results', () => {
@@ -288,7 +288,7 @@ test('mirrorLayerPlacement rounds fractional results', () => {
   }));
   const placed = mirrorLayerPlacement(map, { x: 1, y: 1 });
   // u = 1/3 → x = 10 + (2/3)*3 = 12, y = 10 + 1 = 11
-  assert.deepEqual(placed, { x: 12, y: 11, flip: true });
+  assert.deepEqual(placed, { x: 12, y: 11, flip: true, kind: 'flip' });
   assert.ok(Number.isInteger(placed.x));
   assert.ok(Number.isInteger(placed.y));
 });

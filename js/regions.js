@@ -4,6 +4,13 @@
 
 export const REGIONS_FORMAT = 'clearcoat-regions/1';
 
+// how a mirror partner relates to its source panel:
+//   flip   — left/right reflection (hand-made maps; the default)
+//   flipV  — top/bottom reflection (template twins folded about the sheet axis)
+//   rot180 — the same panel turned 180° (no reflection at all)
+//   same   — a plain copy, same orientation
+export const MIRROR_KINDS = ['flip', 'flipV', 'rot180', 'same'];
+
 export function createRegionMap(car) {
   return { format: REGIONS_FORMAT, car: car || 'unknown car', regions: [] };
 }
@@ -30,6 +37,11 @@ export function parseRegionMap(data) {
       x: r.x, y: r.y, w: r.w, h: r.h,
     };
     if (typeof r.mirror === 'string' && r.mirror) out.mirror = r.mirror;
+    // template-derived zones: what the rectangle is, how artwork reads in it,
+    // and how its twin relates (see zones.js)
+    if (r.kind === 'sponsor' || r.kind === 'number') out.kind = r.kind;
+    if ([90, 180, 270].includes(r.rot)) out.rot = r.rot;
+    if (MIRROR_KINDS.includes(r.mirrorKind) && out.mirror) out.mirrorKind = r.mirrorKind;
     return out;
   });
   for (const r of regions) {
@@ -64,6 +76,20 @@ export function mirrorPoint(src, dst, x, y) {
   return { x: dst.x + (1 - u) * dst.w, y: dst.y + v * dst.h };
 }
 
+// the relation between a region and its mirror partner ('flip' when unset)
+export function mirrorKindOf(src) {
+  return MIRROR_KINDS.includes(src && src.mirrorKind) ? src.mirrorKind : 'flip';
+}
+
+// mirrorPoint generalized over the pair's relation
+export function mirrorPointKind(src, dst, x, y, kind) {
+  const u = src.w ? (x - src.x) / src.w : 0;
+  const v = src.h ? (y - src.y) / src.h : 0;
+  const fu = kind === 'flip' || kind === 'rot180' ? 1 - u : u;
+  const fv = kind === 'flipV' || kind === 'rot180' ? 1 - v : v;
+  return { x: dst.x + fu * dst.w, y: dst.y + fv * dst.h };
+}
+
 // the { src, dst } mirror pair containing a point, or null
 export function mirrorPairAt(map, x, y) {
   const src = regionAt(map, x, y);
@@ -73,12 +99,15 @@ export function mirrorPairAt(map, x, y) {
 }
 
 // given a layer whose center (x, y) lies in a region with a mirror partner,
-// the mirrored placement — the mirrored copy also gets flipH toggled
+// the mirrored placement. `kind` says how the copy must be transformed:
+// 'flip' toggles flipH (flip: true kept for older callers), 'flipV' toggles
+// flipV, 'rot180' adds 180° of rotation, 'same' copies as-is.
 export function mirrorLayerPlacement(map, layer) {
   const pair = mirrorPairAt(map, layer.x, layer.y);
   if (!pair) return null;
-  const p = mirrorPoint(pair.src, pair.dst, layer.x, layer.y);
-  return { x: Math.round(p.x), y: Math.round(p.y), flip: true };
+  const kind = mirrorKindOf(pair.src);
+  const p = mirrorPointKind(pair.src, pair.dst, layer.x, layer.y, kind);
+  return { x: Math.round(p.x), y: Math.round(p.y), flip: kind === 'flip', kind };
 }
 
 // slug a display name into an id that doesn't collide with the map's regions

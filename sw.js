@@ -32,6 +32,7 @@ const PRECACHE = [
   './js/wand.js',
   './js/lasso.js',
   './js/warp.js',
+  './js/zones.js',
   './js/vendor/ag-psd.min.js',
   // texture-library picker thumbnails (full-res PNGs runtime-cache on first use)
   './textures/thumb/carbon-twill.jpg',
