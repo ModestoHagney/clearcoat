@@ -184,6 +184,7 @@ export function createDoc() {
     drivers: [],                // driver variants { id, name, number, custid, enabled } (see variants.js)
     paintMask: null,            // greyscale canvas from the template's Mask layer: paintable = white (zones.js)
     showUnpaintable: false,     // tint unpaintable template area red in the viewport
+    patternCar: null,           // car slug whose pattern catalogue (IndexedDB, patterns.js) this doc draws on
   };
 }
 
@@ -516,7 +517,62 @@ export function fillPaintStyle(ctx, layer, rx, ry, rw, rh) {
   return g;
 }
 
-export const isRegionLayer = (l) => l.type === 'pattern' || l.type === 'fill';
+// ---------- car pattern layer ----------
+// A full-sheet layer drawn from one of the kit's own colour-keyed designs
+// (see patterns.js). `img` is the KEYED pattern (red/green/blue slots);
+// what gets painted is the recoloured canvas, cached on the layer and
+// rebuilt only when the colours change.
+import { normalizeColors as normalizePatternColors, recolorPattern, DEFAULT_COLORS as PATTERN_DEFAULT_COLORS } from './patterns.js';
+
+export function createCarPatternLayer(patternId, img, colors, src) {
+  return {
+    id: newId(),
+    type: 'carpattern',
+    name: 'car pattern',
+    visible: true,
+    opacity: 1,
+    material: 'gloss',
+    fx: null,
+    patternId: patternId || null,
+    colors: normalizePatternColors(colors),
+    img,
+    // the keyed pattern travels inside the project JSON so it stays self-contained
+    src: src || (img && typeof img.src === 'string' && img.src.startsWith('data:') ? img.src : keyedPatternDataURL(img)),
+    x: SIZE / 2, y: SIZE / 2, scale: 1, rotation: 0, flipH: false, flipV: false,
+    rx: 0, ry: 0, rw: SIZE, rh: SIZE, // crop window — full sheet by default
+    _recolor: null,
+  };
+}
+
+function keyedPatternDataURL(img) {
+  if (!img) return null;
+  try {
+    const c = document.createElement('canvas');
+    c.width = img.naturalWidth || img.width; c.height = img.naturalHeight || img.height;
+    c.getContext('2d').drawImage(img, 0, 0);
+    return c.toDataURL('image/png');
+  } catch { return null; }
+}
+
+export function setCarPatternColors(layer, colors) {
+  layer.colors = normalizePatternColors(colors); // a fresh array — duplicates never share one
+  layer._recolor = null;
+  delete layer._albedo;
+  return layer.colors;
+}
+
+// the recoloured sheet, rebuilt when the colours or the keyed image change
+export function carPatternCanvas(layer) {
+  const colors = normalizePatternColors(layer.colors);
+  const key = colors.join(',');
+  const c = layer._recolor;
+  if (c && c.key === key && c.img === layer.img) return c.canvas;
+  const canvas = recolorPattern(layer.img, colors);
+  layer._recolor = { key, img: layer.img, canvas };
+  return canvas;
+}
+
+export const isRegionLayer = (l) => l.type === 'pattern' || l.type === 'fill' || l.type === 'carpattern';
 
 // Paint blend modes — separable modes only: on a transparent backdrop they
 // degrade to plain source-over, so the spec-map silhouette pass (which draws
@@ -550,6 +606,14 @@ function drawLayerContent(ctx, layer) {
     const rx = layer.rx ?? 0, ry = layer.ry ?? 0, rw = layer.rw ?? SIZE, rh = layer.rh ?? SIZE;
     ctx.fillStyle = fillPaintStyle(ctx, layer, rx, ry, rw, rh);
     ctx.fill(fillShapePath(layer.shape, rx, ry, rw, rh));
+  } else if (layer.type === 'carpattern') {
+    // the kit's own design, recoloured — full sheet, clipped to the crop window
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(layer.rx ?? 0, layer.ry ?? 0, layer.rw ?? SIZE, layer.rh ?? SIZE);
+    ctx.clip();
+    ctx.drawImage(carPatternCanvas(layer), 0, 0, SIZE, SIZE);
+    ctx.restore();
   } else if (layer.type === 'pattern') {
     // tiling fill across a region (seamless textures, e.g. SimTex Pro)
     const pat = ctx.createPattern(layer.img, 'repeat');
@@ -917,7 +981,7 @@ export function drawLayer(ctx, layer, forSpec = false) {
   const doShadow = hasImgFx && !forSpec && fx.shadow > 0;
   const doGlow = hasImgFx && !forSpec && fx.glow > 0;
   // halftone fade changes the silhouette, so it runs in paint AND spec passes
-  const doFade = fx && fx.fade > 0 && (isRaster || layer.type === 'fill' || layer.type === 'pattern');
+  const doFade = fx && fx.fade > 0 && (isRaster || isRegionLayer(layer));
   // neon halo: from the fx slider, or implied by the Neon material itself
   // (bloom matParam). Paint-only — the sim spec map has no emissive channel.
   const neonAmt = !forSpec && isRaster
@@ -1345,6 +1409,7 @@ export function serializeDoc(doc) {
     })),
     paintMask: doc.paintMask ? paintMaskToDataURL(doc.paintMask) : null,
     showUnpaintable: !!doc.showUnpaintable,
+    patternCar: typeof doc.patternCar === 'string' && doc.patternCar ? doc.patternCar : null,
     groups: (doc.groups || []).map(g => ({ id: g.id, name: g.name, collapsed: !!g.collapsed })),
     layers: doc.layers.map(l => ({
       id: l.id, type: l.type, name: l.name,
@@ -1361,6 +1426,9 @@ export function serializeDoc(doc) {
       shape: l.shape, fillType: l.fillType, color2: l.color2, gradAngle: l.gradAngle,
       colorMid: l.colorMid ?? null, midPos: l.midPos ?? 0.5,
       src: l.src,
+      // car pattern: which kit design + its three slot colours
+      patternId: l.type === 'carpattern' ? (l.patternId || null) : undefined,
+      colors: l.type === 'carpattern' && Array.isArray(l.colors) ? l.colors.slice(0, 3) : undefined,
       text: l.text, font: l.font, fontSize: l.fontSize,
       textColor: l.textColor, outlineColor: l.outlineColor, outlineWidth: l.outlineWidth,
       italic: l.italic, letterSpacing: l.letterSpacing,
@@ -1468,6 +1536,7 @@ export async function deserializeDoc(data) {
     } catch { /* mask image failed — bleed checks just switch off */ }
   }
   doc.showUnpaintable = !!data.showUnpaintable;
+  doc.patternCar = typeof data.patternCar === 'string' && data.patternCar ? data.patternCar : null;
   // custom fonts must be live before text layers regenerate below
   doc.fontWarnings = [];
   for (const f of (data.customFonts || [])) {
@@ -1537,6 +1606,23 @@ export async function deserializeDoc(data) {
         } catch { /* regeneration failed — fall through to the saved raster */ }
       }
       const img = await loadImage(l.src);
+      if (l.type === 'carpattern') {
+        doc.layers.push({
+          ...createCarPatternLayer(l.patternId, img, l.colors, l.src),
+          id: l.id || newId(), name: l.name || 'car pattern',
+          visible: l.visible !== false, locked: !!l.locked, opacity: l.opacity ?? 1,
+          material: l.material || 'gloss',
+          blend: BLEND_MODES[l.blend] ? l.blend : 'normal',
+          matParams: l.matParams || null,
+          specBlend: l.specBlend || 'replace',
+          specOnly: !!l.specOnly,
+          paintOnly: !!l.paintOnly,
+          lumSpec: normalizeLumSpec(l.lumSpec),
+          fx: normalizeFx(l.fx),
+          rx: l.rx ?? 0, ry: l.ry ?? 0, rw: l.rw ?? SIZE, rh: l.rh ?? SIZE,
+        });
+        continue;
+      }
       doc.layers.push({
         id: l.id || newId(),
         type: l.type === 'pattern' ? 'pattern' : 'image',

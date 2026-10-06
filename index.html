@@ -115,6 +115,9 @@
     <section class="panel-block grow">
       <h2 class="panel-title">Layers
         <span class="title-actions">
+          <!-- car patterns: enabled once a template PSD has filled the catalogue (see main.js "car patterns") -->
+          <button id="btn-add-carpattern" class="sm-btn" disabled title="Load your car's template PSD first — its hidden Car Patterns group becomes a picker of ready-made, panel-correct base designs">+ Car pattern</button>
+          <!-- /car patterns -->
           <button id="btn-add-image" class="sm-btn" title="Add an image layer (logo, decal, artwork)">+ Image</button>
           <button id="btn-add-pattern" class="sm-btn" title="Add a seamless texture as a tiling fill over a resizable region">+ Pattern</button>
           <button id="btn-add-texture" class="sm-btn" title="Pick from a built-in library of seamless materials — carbon, camo, metals, marble — inserted as a tiling pattern layer">+ Textures</button>
@@ -278,6 +281,23 @@
         <input id="ins-fill-colormid" type="color" value="#888888" title="Middle gradient color" aria-label="Middle gradient color" hidden>
         <input id="ins-fill-midpos" type="range" min="5" max="95" value="50" title="Where the middle stop sits along the gradient" aria-label="Middle stop position" hidden>
       </div>
+
+      <!-- car patterns: three slot colours of the kit design -->
+      <div id="ins-carpattern-section" hidden>
+        <div class="slider-row cp-ins-colors">
+          <label title="The kit design's three colour slots — 1 is the base">Colours</label>
+          <input id="ins-cp-c1" type="color" value="#e8e6e1" title="Slot 1 — base colour" aria-label="Slot 1 colour">
+          <button id="ins-cp-swap12" class="sm-btn icon" title="Swap slots 1 and 2">⇄</button>
+          <input id="ins-cp-c2" type="color" value="#1a6cff" title="Slot 2" aria-label="Slot 2 colour">
+          <button id="ins-cp-swap23" class="sm-btn icon" title="Swap slots 2 and 3">⇄</button>
+          <input id="ins-cp-c3" type="color" value="#ffffff" title="Slot 3" aria-label="Slot 3 colour">
+          <button id="ins-cp-rotate" class="sm-btn icon" title="Rotate the three colours one slot along">↻</button>
+        </div>
+        <div class="btn-row" style="margin-top:6px">
+          <button id="ins-cp-change" class="sm-btn wide" title="Pick a different kit design for this layer — the colours stay">Change pattern…</button>
+        </div>
+      </div>
+      <!-- /car patterns -->
 
       <div class="slider-row">
         <label for="ins-opacity">Opacity</label>
@@ -676,6 +696,26 @@
     <div id="texture-grid" class="library-grid tex-grid"></div>
   </div>
 </div>
+
+<!-- car patterns picker (see main.js "car patterns") -->
+<div id="carpattern-modal" hidden>
+  <div class="library-panel carpattern-panel">
+    <h2 class="panel-title">Car patterns <span class="hint-inline" id="cp-car"></span>
+      <span class="title-actions"><button id="carpattern-close" class="sm-btn icon" title="Close (Esc)">✕</button></span>
+    </h2>
+    <p class="hint" style="margin-top:0">iRacing's own designs for this car, lifted from its template kit — already correct across every panel of the sheet. Pick three colours, narrow by style, click a design to drop it in as the base of your livery.<span id="cp-hint-change" hidden> <b>Changing the selected layer's pattern.</b></span></p>
+    <div class="cp-controls">
+      <div class="cp-colors">
+        <label title="Slot 1 — the base">1 <input id="cp-c1" type="color" value="#e8e6e1"></label>
+        <label title="Slot 2">2 <input id="cp-c2" type="color" value="#1a6cff"></label>
+        <label title="Slot 3">3 <input id="cp-c3" type="color" value="#ffffff"></label>
+      </div>
+      <div class="cp-chips" id="cp-chips"></div>
+    </div>
+    <div id="carpattern-grid" class="library-grid cp-grid"></div>
+  </div>
+</div>
+<!-- /car patterns picker -->
 
 <input type="file" id="file-image" accept="image/png,image/jpeg,image/svg+xml,image/webp" hidden>
 <input type="file" id="file-pattern" accept="image/png,image/jpeg,image/webp" hidden>

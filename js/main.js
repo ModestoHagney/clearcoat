@@ -7,7 +7,11 @@ import {
   buildDragCache, renderPaintWithDrag,
   serializeDoc, deserializeDoc, loadImage, cornersFromMatrix, layerMatrix,
   templateOverlay, defaultParams, resolveParams, mixHex, drawLayer,
+  createCarPatternLayer, setCarPatternColors, carPatternCanvas, // car patterns
 } from './engine.js';
+// car patterns (see the "car patterns" block) — the kit's own colour-keyed designs
+import { buildCatalog, saveCatalog, loadCatalog, getPattern, patternRank, recolorPattern,
+         patternImage, DEFAULT_COLORS as PATTERN_DEFAULTS, PATTERN_STYLES } from './patterns.js';
 import { detectPalette, splitByPalette } from './separate.js';
 import { canvasToTGA, tgaToCanvas } from './tga.js';
 import { psdToTemplate } from './psd.js';
@@ -1831,6 +1835,12 @@ function rebuildLayerList() {
       const tctx = thumb.getContext('2d');
       tctx.fillStyle = fillPaintStyle(tctx, layer, 2, 2, 26, 26);
       tctx.fill(fillShapePath(layer.shape, 2, 2, 26, 26));
+    } else if (layer.type === 'carpattern') {
+      // recoloured, not the red/green/blue keyed source
+      thumb = document.createElement('canvas');
+      thumb.className = 'thumb';
+      thumb.width = thumb.height = 30;
+      try { thumb.getContext('2d').drawImage(carPatternCanvas(layer), 0, 0, 30, 30); } catch { /* keyed img not ready */ }
     } else {
       thumb = document.createElement('img');
       thumb.className = 'thumb';
@@ -2145,8 +2155,9 @@ function syncInspector() {
     $('ins-fill-row').hidden = sel.type !== 'fill';
     $('ins-fill-shape-row').hidden = sel.type !== 'fill';
     $('ins-fill-type-row').hidden = sel.type !== 'fill';
-    document.querySelector('.xform-grid').hidden = sel.type === 'fill';
-    $('ins-flip-h').hidden = $('ins-flip-v').hidden = sel.type === 'fill' && !sel.corners;
+    document.querySelector('.xform-grid').hidden = sel.type === 'fill' || sel.type === 'carpattern';
+    $('ins-flip-h').hidden = $('ins-flip-v').hidden = (sel.type === 'fill' || sel.type === 'carpattern') && !sel.corners;
+    syncCarPatternInspector(sel); // car patterns
     if (sel.type === 'fill') {
       const ft = sel.fillType || 'solid';
       $('ins-fill-color').value = sel.color;
@@ -2188,7 +2199,7 @@ function syncInspector() {
     $('ins-fx-section').hidden = !hasFxUI;
     // halftone fade works on anything drawable — stripes (fill) and textures
     // (pattern) are its headline use, not just logos
-    const hasFadeUI = hasFxUI || sel.type === 'fill' || sel.type === 'pattern';
+    const hasFadeUI = hasFxUI || isRegionLayer(sel);
     $('ins-fade-section').hidden = !hasFadeUI;
     if (hasFadeUI) {
       const fx = sel.fx || {};
@@ -2807,6 +2818,8 @@ $('file-template').addEventListener('change', async (e) => {
     if (intel) applyTemplateIntel(intel, file.name.replace(/\.[^.]+$/, ''));
     $('template-unpaintable-row').hidden = !doc.paintMask;
     markDirty();
+    // car patterns — after the zones status so "+ Car pattern is ready" is what the user sees
+    if (intel) await applyCarPatterns(intel.patterns, file.name.replace(/\.[^.]+$/, ''), !!(intel.zones && intel.zones.length));
   } catch (err) {
     status('Could not load template: ' + (err.message || 'unknown error'), 'err');
   }
@@ -3531,6 +3544,226 @@ textureModal.addEventListener('click', (e) => {
   if (e.target === textureModal) closeTextures();
 });
 
+// ---------- car patterns ----------
+// Every official template PSD hides a "Car Patterns" group: iRacing's own
+// designs for that exact car, colour-keyed red/green/blue = slot 1/2/3. On
+// PSD load they become a catalogue in IndexedDB under the car slug (blobs,
+// not data URLs); the project only remembers `doc.patternCar`. The picker
+// recolours thumbnails live and inserts a `carpattern` layer at the bottom
+// of the stack — a panel-correct base livery with zero tracing.
+
+const carPatternModal = $('carpattern-modal');
+let cpCache = { slug: null, catalog: null };   // last catalogue fetched from IndexedDB
+let cpTarget = null;                             // layer being re-patterned via "Change pattern…", else null
+let cpStyle = 'all';
+let cpRecolorQueued = false;
+
+async function applyCarPatterns(entries, carName, hadZones) {
+  if (!entries || !entries.length) {
+    doc.patternCar = null;
+    cpCache = { slug: null, catalog: null };
+    syncCarPatternButton();
+    return;
+  }
+  try {
+    const catalog = buildCatalog(carName || 'template car', entries);
+    await saveCatalog(catalog);
+    doc.patternCar = catalog.slug;
+    cpCache = { slug: catalog.slug, catalog };
+    syncCarPatternButton();
+    scheduleAutosave();
+    status(`Car patterns: ${catalog.patterns.length} found — + Car pattern is ready.`
+      + (hadZones ? ' Sponsor/number zones mapped too (Template panel).' : ''), 'ok');
+  } catch (err) {
+    status('Car patterns found but could not be stored: ' + (err.message || 'storage error'), 'err');
+  }
+}
+
+function syncCarPatternButton() {
+  const btn = $('btn-add-carpattern');
+  if (!btn) return;
+  btn.disabled = !doc.patternCar;
+  btn.title = doc.patternCar
+    ? 'Insert one of the kit\'s own designs for this car, recoloured with three colours of your choice — a panel-correct base livery'
+    : 'Load your car\'s template PSD first (Template panel) — its hidden Car Patterns group becomes a picker of ready-made, panel-correct base designs';
+}
+
+async function getCarPatternCatalog() {
+  if (!doc.patternCar) return null;
+  if (cpCache.slug === doc.patternCar && cpCache.catalog) return cpCache.catalog;
+  const catalog = await loadCatalog(doc.patternCar).catch(() => null);
+  cpCache = { slug: doc.patternCar, catalog };
+  return catalog;
+}
+
+const cpInputs = () => [$('cp-c1'), $('cp-c2'), $('cp-c3')];
+const cpColors = () => cpInputs().map(i => i.value);
+
+async function openCarPatternPicker(target = null) {
+  if (!doc.patternCar) {
+    status('Car patterns need the car\'s template PSD — load it from the Template panel and the kit\'s own designs appear here.', 'warn');
+    return;
+  }
+  const catalog = await getCarPatternCatalog();
+  if (!catalog || !catalog.patterns.length) {
+    status(`No pattern catalogue stored for "${doc.patternCar}" in this browser — load the car's template PSD again to rebuild it.`, 'err');
+    return;
+  }
+  cpTarget = target;
+  const seed = target ? target.colors : (cpCache.lastColors || PATTERN_DEFAULTS);
+  cpInputs().forEach((inp, i) => { inp.value = seed[i]; });
+  $('cp-car').textContent = `${catalog.car} · ${catalog.patterns.length} designs`;
+  $('cp-hint-change').hidden = !target;
+  buildCarPatternChips();
+  await buildCarPatternGrid(catalog);
+  carPatternModal.hidden = false;
+}
+function closeCarPatternPicker() { carPatternModal.hidden = true; cpTarget = null; }
+
+function buildCarPatternChips() {
+  const row = $('cp-chips');
+  row.innerHTML = '';
+  for (const st of ['all', ...PATTERN_STYLES]) {
+    const b = document.createElement('button');
+    b.className = 'sm-btn cp-chip' + (st === cpStyle ? ' active' : '');
+    b.textContent = st === 'all' ? 'All' : st[0].toUpperCase() + st.slice(1);
+    b.addEventListener('click', async () => {
+      cpStyle = st;
+      buildCarPatternChips();
+      await buildCarPatternGrid(await getCarPatternCatalog());
+    });
+    row.appendChild(b);
+  }
+}
+
+// a style keeps the designs that fit it (rank ≥ 0.55, never fewer than 6), best first
+function filterCarPatterns(catalog, style) {
+  const all = catalog.patterns;
+  if (style === 'all') return all.slice();
+  const ranked = all.map(p => ({ p, r: patternRank(p.stats, style) })).sort((a, b) => b.r - a.r);
+  const keep = ranked.filter(x => x.r >= 0.55);
+  return (keep.length >= 6 ? keep : ranked.slice(0, Math.min(6, ranked.length))).map(x => x.p);
+}
+
+function cpThumbImage(entry) {
+  if (entry._thumbImg) return Promise.resolve(entry._thumbImg);
+  return loadImage(entry.thumb).then(img => (entry._thumbImg = img));
+}
+
+async function buildCarPatternGrid(catalog) {
+  const grid = $('carpattern-grid');
+  grid.innerHTML = '';
+  if (!catalog) return;
+  const colors = cpColors();
+  for (const entry of filterCarPatterns(catalog, cpStyle)) {
+    const btn = document.createElement('button');
+    btn.className = 'library-item cp-item';
+    btn.title = `Insert "${entry.name}"` + (entry.stats ? ` — ${Math.round(entry.stats.coverage * 100)}% of the car patterned` : '');
+    const c = document.createElement('canvas');
+    c.width = c.height = 1;
+    c.dataset.pid = entry.id;
+    const label = document.createElement('span');
+    label.className = 'library-name';
+    label.textContent = 'pattern ' + String(entry.index).padStart(2, '0');
+    btn.append(c, label);
+    btn.addEventListener('click', () => insertCarPattern(entry));
+    grid.appendChild(btn);
+    cpThumbImage(entry).then(img => recolorPattern(img, colors, c)).catch(() => {});
+  }
+}
+
+// colour inputs recolour every visible thumbnail live (one pass per frame)
+function recolorCarPatternGrid() {
+  if (cpRecolorQueued) return;
+  cpRecolorQueued = true;
+  requestAnimationFrame(async () => {
+    cpRecolorQueued = false;
+    const catalog = cpCache.catalog;
+    if (!catalog) return;
+    const colors = cpColors();
+    cpCache.lastColors = colors;
+    for (const c of $('carpattern-grid').querySelectorAll('canvas')) {
+      const entry = getPattern(catalog, c.dataset.pid);
+      if (!entry) continue;
+      try { recolorPattern(await cpThumbImage(entry), colors, c); } catch { /* thumb missing */ }
+    }
+  });
+}
+
+async function insertCarPattern(entry) {
+  const colors = cpColors();
+  cpCache.lastColors = colors;
+  const target = cpTarget;
+  closeCarPatternPicker();
+  try {
+    const img = await patternImage(entry); // keyed full-size sheet, data-URL backed
+    if (target && doc.layers.includes(target)) {
+      target.img = img;
+      target.src = img.src;
+      target.patternId = entry.id;
+      target._recolor = null;
+      delete target._hit;
+      setCarPatternColors(target, colors);
+      if (/^car pattern( \d+)?$/.test(target.name)) target.name = 'car pattern ' + String(entry.index).padStart(2, '0');
+      rebuildLayerList();
+      syncInspector();
+      markDirty();
+      status(`Pattern swapped to ${entry.name}.`, 'ok');
+      return;
+    }
+    const layer = createCarPatternLayer(entry.id, img, colors, img.src);
+    layer.name = 'car pattern ' + String(entry.index).padStart(2, '0');
+    doc.layers.unshift(layer); // bottom of the stack — just above the base coat
+    selectLayer(layer.id);
+    markDirty();
+    status(`Car pattern ${String(entry.index).padStart(2, '0')} added at the bottom of the stack — change its three colours in the inspector.`, 'ok');
+  } catch (err) {
+    status('Could not load that pattern: ' + (err.message || 'decode error'), 'err');
+  }
+}
+
+// inspector: three slot colours, swaps, rotate, change pattern
+const cpInsInputs = () => [$('ins-cp-c1'), $('ins-cp-c2'), $('ins-cp-c3')];
+function syncCarPatternInspector(sel) {
+  const on = !!sel && sel.type === 'carpattern';
+  $('ins-carpattern-section').hidden = !on;
+  if (!on) return;
+  cpInsInputs().forEach((inp, i) => { inp.value = sel.colors[i]; });
+}
+function setSelectedPatternColors(colors) {
+  const sel = selectedLayer();
+  if (!sel || sel.type !== 'carpattern') return;
+  setCarPatternColors(sel, colors);
+  syncCarPatternInspector(sel);
+  rebuildLayerList();
+  syncMaterialGrid(); // shader balls re-shade with the new base colour
+  markDirty();
+}
+cpInsInputs().forEach(inp => inp.addEventListener('input', () => setSelectedPatternColors(cpInsInputs().map(i => i.value))));
+$('ins-cp-swap12').addEventListener('click', () => {
+  const sel = selectedLayer(); if (!sel || sel.type !== 'carpattern') return;
+  const [a, b, c] = sel.colors; setSelectedPatternColors([b, a, c]);
+});
+$('ins-cp-swap23').addEventListener('click', () => {
+  const sel = selectedLayer(); if (!sel || sel.type !== 'carpattern') return;
+  const [a, b, c] = sel.colors; setSelectedPatternColors([a, c, b]);
+});
+$('ins-cp-rotate').addEventListener('click', () => {
+  const sel = selectedLayer(); if (!sel || sel.type !== 'carpattern') return;
+  const [a, b, c] = sel.colors; setSelectedPatternColors([c, a, b]);
+});
+$('ins-cp-change').addEventListener('click', () => {
+  const sel = selectedLayer();
+  if (sel && sel.type === 'carpattern') openCarPatternPicker(sel);
+});
+
+$('btn-add-carpattern').addEventListener('click', () => openCarPatternPicker(null));
+$('carpattern-close').addEventListener('click', closeCarPatternPicker);
+carPatternModal.addEventListener('click', (e) => { if (e.target === carPatternModal) closeCarPatternPicker(); });
+cpInputs().forEach(inp => inp.addEventListener('input', recolorCarPatternGrid));
+syncCarPatternButton();
+// ---------- /car patterns ----------
+
 // ---------- SimTex Pro bridge ----------
 // "+ SimTex" opens SimTex Pro in bridge mode; its "Send to Clearcoat" button
 // posts { type: 'simtex-texture', name, dataUrl } back to this window. Only
@@ -3761,6 +3994,7 @@ function syncDocUI() {
   syncInspector();
   syncRegionUI();
   syncDriversUI(); // driver variants
+  syncCarPatternButton(); // car patterns
 }
 
 // ---------- projects (browser library) ----------
@@ -4583,7 +4817,7 @@ $('file-tga').addEventListener('change', async (e) => {
 // Delete removing layers behind the Projects modal). Esc still passes
 // through — the Escape branch below is what closes them.
 function anyModalOpen() {
-  return ['help-modal', 'projects-modal', 'maps-modal', 'library-modal', 'texture-modal', 'advisor-modal', 'ask-modal']
+  return ['help-modal', 'projects-modal', 'maps-modal', 'library-modal', 'texture-modal', 'carpattern-modal', 'advisor-modal', 'ask-modal']
     .some(id => { const el = document.getElementById(id); return el && !el.hidden; });
 }
 
@@ -4607,6 +4841,7 @@ window.addEventListener('keydown', (e) => {
     if (!mapsModal.hidden) { closeMapsModal(); return; }
     if (!libraryModal.hidden) { closeLibrary(); return; }
     if (!textureModal.hidden) { closeTextures(); return; }
+    if (!carPatternModal.hidden) { closeCarPatternPicker(); return; }
     if (annotateMode) { setAnnotateMode(false); return; }
     if (lassoMode) { setLassoMode(false); status('Lasso cancelled.'); return; }
     if (wandMode) { setWandMode(false); return; }
