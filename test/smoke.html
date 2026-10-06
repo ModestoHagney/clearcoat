@@ -157,6 +157,37 @@ try {
     let h2 = 0, t2 = 0;
     for (let x = 1800; x < 2000; x += 2) { t2++; if (fp2.getImageData(x, 1000, 1, 1).data[0] > 128) h2++; }
     ok('fade-bars-thin', h2 / t2 > 0 && h2 / t2 < 0.3);
+    // the three dissolve styles: coverage must fall along u (band is x 1024→2048)
+    const coverage = (ctx, x0, x1) => {
+      let h = 0, t = 0;
+      for (let x = x0; x < x1; x += 3) for (let y = 920; y < 1080; y += 3) { t++; if (ctx.getImageData(x, y, 1, 1).data[0] > 128) h++; }
+      return h / t;
+    };
+    stripe.fx.fadeSeed = 7;
+    stripe.fx.fadeStyle = 'rip';
+    const fpR = renderPaint(fd).getContext('2d');
+    const ripNear = coverage(fpR, 1030, 1200), ripMid = coverage(fpR, 1400, 1600), ripFar = coverage(fpR, 1850, 2040);
+    ok('fade-rip-tears-out', fpR.getImageData(300, 1000, 1, 1).data[0] === 255 && ripNear > 0.6 && ripNear > ripMid && ripMid > ripFar && ripFar < 0.2);
+    const spR = renderSpec(fd).getContext('2d');
+    ok('fade-rip-spec-follows', JSON.stringify(spR.getImageData(300, 1000, 1, 1).data) !== JSON.stringify(spR.getImageData(2040, 1000, 1, 1).data));
+    stripe.fx.fadeStyle = 'scan';
+    const fpS = renderPaint(fd).getContext('2d');
+    const scanNear = coverage(fpS, 1030, 1200), scanFar = coverage(fpS, 1850, 2040);
+    // scanlines run along x: at a fixed column the rows alternate on/off deep in the band
+    let flips = 0, prev = fpS.getImageData(1700, 920, 1, 1).data[0] > 128;
+    for (let y = 921; y < 1080; y++) { const on = fpS.getImageData(1700, y, 1, 1).data[0] > 128; if (on !== prev) flips++; prev = on; }
+    ok('fade-scan-thins', scanNear > 0.85 && scanFar > 0 && scanFar < 0.3 && flips >= 10);
+    stripe.fx.fadeStyle = 'glitch'; stripe.fx.glitchSplit = 4;
+    const fpG = renderPaint(fd).getContext('2d');
+    const gNear = coverage(fpG, 1030, 1250), gFar = coverage(fpG, 1800, 2040);
+    let gHits = 0, gTot = 0;
+    for (let x = 1024; x < 2048; x += 4) for (let y = 905; y < 1095; y += 3) { gTot++; if (fpG.getImageData(x, y, 1, 1).data[0] > 128) gHits++; }
+    const gTotal = gHits / gTot; // ~half the band survives (keep prob 1 → 0)
+    ok('fade-glitch-drops-out', fpG.getImageData(300, 1000, 1, 1).data[0] === 255 && gNear > gFar && gTotal > 0.25 && gTotal < 0.75);
+    const spG = renderSpec(fd).getContext('2d');
+    let sHits = 0;
+    for (let x = 1024; x < 2048; x += 4) for (let y = 905; y < 1095; y += 3) { if (spG.getImageData(x, y, 1, 1).data[0] !== spG.getImageData(300, 300, 1, 1).data[0]) sHits++; }
+    ok('fade-glitch-spec-in-step', Math.abs(sHits / gTot - gTotal) < 0.12); // spec silhouette ≈ paint silhouette
   }
 } catch (err) {
   lines.push('THROW ' + err.message);
