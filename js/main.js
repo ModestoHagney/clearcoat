@@ -2608,27 +2608,29 @@ function mirrorLayerCopy(sel) {
       });
     }
   } else if (isRegionLayer(sel)) {
-    // mirror both corners of the region rect, then normalize
-    const p1 = reflect(sel.rx, sel.ry);
-    const p2 = reflect(sel.rx + sel.rw, sel.ry + sel.rh);
-    if (mid) {
-      // ponytail: a fill/pattern rect cannot turn, so the nearer of an upright
-      // or a level flip stands in for the centerline — exact when the line is
-      // one of those, approximate when it is tilted. Give these layers a real
-      // rotation if tilted centerlines turn up.
+    // mirror the region rect's corners and take the box around them
+    const cs = [[0, 0], [1, 0], [1, 1], [0, 1]].map(([u, v]) => reflect(sel.rx + u * sel.rw, sel.ry + v * sel.rh));
+    const xs = cs.map(q => q.x), ys = cs.map(q => q.y);
+    copy.rx = Math.round(Math.min(...xs));
+    copy.ry = Math.round(Math.min(...ys));
+    copy.rw = Math.max(1, Math.round(Math.max(...xs) - Math.min(...xs)));
+    copy.rh = Math.max(1, Math.round(Math.max(...ys) - Math.min(...ys)));
+    if (mid && sel.type === 'pattern') {
+      // the tiling can turn even though its box cannot, so the flip and turn
+      // set above mirror it exactly — once the point it tiles from mirrors too
+      const o = reflect(sel.x || 0, sel.y || 0);
+      copy.x = o.x;
+      copy.y = o.y;
+    } else if (mid) {
+      // ponytail: a fill's rect cannot turn, so the nearer of an upright or a
+      // level flip stands in for the centerline — exact when the line is one
+      // of those, approximate when tilted. Give fills a real rotation if
+      // tilted centerlines turn up.
       const level = Math.abs(mid.dir.x) > Math.abs(mid.dir.y);
       copy.flipH = level ? !!sel.flipH : !sel.flipH;
       copy.flipV = level ? !sel.flipV : !!sel.flipV;
       copy.rotation = -(sel.rotation || 0);
-      // a pattern tiles from its own origin, which mirrors too
-      const o = reflect(sel.x || 0, sel.y || 0);
-      copy.x = o.x;
-      copy.y = o.y;
     }
-    copy.rx = Math.round(Math.min(p1.x, p2.x));
-    copy.ry = Math.round(Math.min(p1.y, p2.y));
-    copy.rw = Math.max(1, Math.round(Math.abs(p2.x - p1.x)));
-    copy.rh = Math.max(1, Math.round(Math.abs(p2.y - p1.y)));
   } else {
     const placed = reflect(sel.x, sel.y);
     copy.x = Math.round(placed.x);
