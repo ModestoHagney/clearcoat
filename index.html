@@ -122,6 +122,22 @@
         <span class="material-chip" id="basecoat-material-chip">gloss</span>
       </div>
     </section>
+
+    <!-- driver variants: batch export per driver (see js/variants.js) -->
+    <details class="panel-block drivers-panel" id="drivers-panel">
+      <summary class="panel-title" title="One design, one set of paint files per driver — bind text layers to Driver number / Driver name in the inspector">Drivers <span class="hint-inline" id="drivers-count"></span></summary>
+      <table class="drivers-table" id="drivers-table" aria-label="Drivers">
+        <thead><tr><th title="Included in Export all drivers">✓</th><th>Name</th><th>#</th><th>Cust ID</th><th></th></tr></thead>
+        <tbody id="drivers-body"></tbody>
+      </table>
+      <div class="btn-row">
+        <button id="drivers-add" class="sm-btn" title="Add a driver row">+ Driver</button>
+        <button id="drivers-master" class="sm-btn" title="Back to the master design (stop previewing a driver)" hidden>Show master</button>
+        <button id="drivers-export" class="sm-btn wide accent" title="Render paint + spec for every enabled driver with a numeric Cust ID — written to the linked paints folder, or downloaded one by one">Export all drivers</button>
+      </div>
+      <p class="hint" id="drivers-hint">Bind text layers to <b>Driver number</b> / <b>Driver name</b> (inspector → Text → Variable), add each driver here, then export once for everyone.</p>
+    </details>
+    <!-- /driver variants -->
   </aside>
 
   <!-- ============ CENTER: VIEWPORT ============ -->
@@ -344,6 +360,16 @@
           <input id="ins-text-curve" type="range" min="-180" max="180" step="5" value="0">
           <span class="mono" id="ins-text-curve-val">0°</span>
         </div>
+        <!-- driver variants: variable binding (see js/variants.js) -->
+        <div class="slider-row">
+          <label for="ins-text-variable" title="Bind this text to a driver field — Export all drivers swaps it per driver (see the Drivers panel)">Variable</label>
+          <select id="ins-text-variable" class="tune-select">
+            <option value="">None</option>
+            <option value="number">Driver number</option>
+            <option value="name">Driver name</option>
+          </select>
+        </div>
+        <!-- /driver variants -->
       </div>
 
       <div id="ins-fx-section" hidden>
@@ -426,7 +452,38 @@
       <div class="btn-row">
         <button id="ins-group" class="sm-btn" title="Group selection (Ctrl+G) — clicking any member then selects and moves them all together">Group</button>
         <button id="ins-ungroup" class="sm-btn" title="Ungroup (Ctrl+Shift+G) — keeps the layers, drops the grouping">Ungroup</button>
+        <!-- sponsor row auto-layout (see js/layout.js) -->
+        <button id="ins-row" class="sm-btn" title="Row — line up 2+ selected logos/text evenly with the same visible size">Row…</button>
       </div>
+      <div id="ins-row-panel" class="row-panel" hidden>
+        <div class="slider-row">
+          <label for="ins-row-dir">Along</label>
+          <select id="ins-row-dir" class="tune-select" title="Direction of the row">
+            <option value="horizontal">Horizontal</option>
+            <option value="vertical">Vertical</option>
+          </select>
+          <select id="ins-row-gap" class="tune-select" title="Even gaps: equal space between neighbours. Even centres: equal spacing between centres">
+            <option value="even">Even gaps</option>
+            <option value="centres">Even centres</option>
+          </select>
+        </div>
+        <div class="slider-row">
+          <label for="ins-row-align">Align</label>
+          <select id="ins-row-align" class="tune-select" title="Where the row sits across its direction">
+            <option value="center">Centre</option>
+            <option value="start">Top / left</option>
+            <option value="end">Bottom / right</option>
+          </select>
+          <label class="tb-check" title="Fit the row into the region map zone under the first selected layer instead of the selection's own box"><input type="checkbox" id="ins-row-zone"> Use zone</label>
+        </div>
+        <div class="btn-row">
+          <button id="ins-row-apply" class="sm-btn wide" title="Distribute the selected layers (one undo step)">Apply row</button>
+          <button id="ins-row-close" class="sm-btn icon" title="Close">✕</button>
+        </div>
+        <p class="hint" id="ins-row-hint" style="margin-top:6px"></p>
+      </div>
+      <!-- /sponsor row -->
+
       <div class="btn-row" id="ins-split-row" hidden>
         <button id="ins-split-colors" class="sm-btn wide" title="Detect this layer's dominant colors and split it into one layer per color — each independently recolorable (Tint) and materialable. The original layer is hidden, not deleted">Split colors → layers</button>
       </div>

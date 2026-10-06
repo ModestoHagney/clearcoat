@@ -936,3 +936,35 @@ input  { font-family: inherit; }
 .help-tips li { margin-bottom: 6px; }
 .help-tips b { color: var(--ink); }
 @media (max-width: 880px) { .help-cols { grid-template-columns: 1fr; } }
+
+/* ============ DRIVER VARIANTS + SPONSOR ROW (variants.js / layout.js) ============ */
+.drivers-panel > summary { cursor: pointer; list-style: none; margin-bottom: 0; user-select: none; }
+.drivers-panel > summary::-webkit-details-marker { display: none; }
+.drivers-panel > summary::before { content: '▸'; display: inline-block; width: 14px; color: var(--ink-faint); font-size: 11px; }
+.drivers-panel[open] > summary::before { content: '▾'; }
+.drivers-panel[open] > summary { margin-bottom: 8px; }
+.drivers-table { width: 100%; border-collapse: collapse; font-size: 11px; color: var(--ink-dim); }
+.drivers-table th { text-align: left; font-weight: 500; color: var(--ink-faint); padding: 2px 4px; border-bottom: 1px solid var(--seam); }
+.drivers-table td { padding: 3px 2px; vertical-align: middle; }
+.drivers-table input[type=text] {
+  width: 100%; min-width: 0; box-sizing: border-box;
+  background: var(--asphalt); color: var(--ink);
+  border: 1px solid var(--seam); border-radius: 3px; padding: 3px 5px; font-size: 11px;
+}
+.drivers-table input[type=text]:focus { outline: none; border-color: var(--seam-bright); }
+.drivers-table input.invalid { border-color: var(--danger); }
+.drivers-table td.dt-num { width: 42px; }
+.drivers-table td.dt-cust { width: 86px; }
+.drivers-table td.dt-on { width: 20px; }
+.drivers-table td.dt-act { width: 58px; white-space: nowrap; text-align: right; }
+.drivers-table td.dt-act .sm-btn { padding: 3px 5px; }
+.drivers-table tr.previewing td { background: rgba(255,255,255,.04); }
+.drivers-table tr.previewing .sm-btn.preview { color: var(--ink); border-color: var(--orange); }
+.drivers-table input[type=checkbox] { accent-color: var(--orange); }
+.row-panel { margin-top: 8px; padding: 8px 10px; border: 1px solid var(--seam); border-radius: 4px; background: var(--panel-raise); }
+.row-panel .slider-row { margin-top: 6px; }
+.row-panel .slider-row:first-child { margin-top: 0; }
+.row-panel .tune-select { flex: 1; min-width: 0; }
+.sm-btn.accent { border-color: var(--orange); color: var(--orange); }
+.sm-btn.accent:hover:not(:disabled) { background: #221a14; }
+.sm-btn:disabled { opacity: .45; cursor: default; }
