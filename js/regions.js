@@ -181,6 +181,20 @@ export function renameRegion(map, region, name) {
   return region;
 }
 
+// Pair a region with its mirror partner on the other side of the car (or,
+// with no partner id, unpair it). Pairs always point both ways, so whatever
+// either region was paired with before is released.
+export function setMirror(map, region, partnerId) {
+  const partner = partnerId ? regionById(map, partnerId) : null;
+  for (const r of [region, partner]) {
+    if (!r || !r.mirror) continue;
+    const old = regionById(map, r.mirror);
+    if (old && old.mirror === r.id) delete old.mirror;
+    delete r.mirror;
+  }
+  if (partner && partner !== region) { region.mirror = partner.id; partner.mirror = region.id; }
+}
+
 // the region's shape as corners: its outline, or the four corners of its box
 export function regionOutline(r) {
   return r.points || [

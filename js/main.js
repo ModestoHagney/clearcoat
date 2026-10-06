@@ -20,7 +20,7 @@ import { LIBRARY, libraryItemToLayerSource } from './library.js';
 import { TEXTURES, TEX_CATS, texThumb, texFull } from './textures.js';
 import { wandSelect } from './wand.js';
 import { lassoMask, lassoBounds, CLOSE_RADIUS } from './lasso.js';
-import { parseRegionMap, createRegionMap, regionAt, regionById, mirrorPoint, centerLine, mirrorAcross, uniqueRegionId, piecesRegionMap, renameRegion, regionOutline, labelPoint, snapToOutline, matchPoint, linkPoints, linkLength, linkDir } from './regions.js';
+import { parseRegionMap, createRegionMap, regionAt, regionById, mirrorPoint, centerLine, mirrorAcross, uniqueRegionId, piecesRegionMap, renameRegion, setMirror, regionOutline, labelPoint, snapToOutline, matchPoint, linkPoints, linkLength, linkDir } from './regions.js';
 import { initAdvisor } from './advisor.js';
 
 // ---------- state ----------
@@ -2967,7 +2967,7 @@ function setAnnotateMode(on) {
   viewport.classList.toggle('wand', on || wandMode);
   if (on) {
     setRegionsView(true);
-    status('Annotate: drag a rectangle over a panel, then name it. Click a region to rename it. Esc to exit.');
+    status('Annotate: drag a rectangle over a panel, then name it. Click a region to rename it or set its mirror partner. Esc to exit.');
   } else {
     if (!doc.regionMap && regionsView) setRegionsView(false); // nothing to overlay
     requestRender();
@@ -2982,17 +2982,31 @@ async function finishAnnotate(d) {
   const x1 = cl(Math.min(d.startP.x, d.curP.x)), y1 = cl(Math.min(d.startP.y, d.curP.y));
   const x2 = cl(Math.max(d.startP.x, d.curP.x)), y2 = cl(Math.max(d.startP.y, d.curP.y));
   const w = Math.round(x2 - x1), h = Math.round(y2 - y1);
-  // a click rather than a drag, on an existing region → rename it
+  // a click rather than a drag, on an existing region → rename it and set
+  // which region mirrors it on the other side of the car
   const hit = doc.regionMap && w < 4 && h < 4 ? regionAt(doc.regionMap, d.startP.x, d.startP.y) : null;
   if (hit) {
+    const map = doc.regionMap;
     const ans = await askDialog({
-      title: 'Rename region', okLabel: 'Rename',
-      fields: [{ key: 'name', label: 'Region name', value: hit.name }],
+      title: 'Edit region', okLabel: 'Save',
+      fields: [
+        { key: 'name', label: 'Region name', value: hit.name },
+        {
+          key: 'mirror', label: 'Mirrors', type: 'select', value: hit.mirror || '',
+          options: [
+            { value: '', label: '(no mirror partner)' },
+            ...map.regions.filter(r => r !== hit).map(r => ({ value: r.id, label: r.name })),
+          ],
+        },
+      ],
     });
     if (ans && ans.name && ans.name.trim()) {
-      renameRegion(doc.regionMap, hit, ans.name.trim());
+      renameRegion(map, hit, ans.name.trim());
+      setMirror(map, hit, ans.mirror || null);
       scheduleAutosave();
-      status(`Region renamed to "${hit.name}" (${hit.id}).`, 'ok');
+      syncInspector(); // Mirror button availability
+      const partner = hit.mirror && regionById(map, hit.mirror);
+      status(`Region "${hit.name}" (${hit.id}) saved` + (partner ? ` — mirrors ${partner.name}.` : ' — no mirror partner.'), 'ok');
     }
     requestRender();
     return;

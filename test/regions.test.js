@@ -23,6 +23,7 @@ import {
   linkDir,
   centerLine,
   mirrorAcross,
+  setMirror,
 } from '../js/regions.js';
 
 // Convenience builder: a valid raw map with two mirrored door rectangles.
@@ -556,4 +557,24 @@ test('parseRegionMap keeps a valid center and rejects a bad one', () => {
   for (const bad of [{ a: center.a }, { a: center.a, b: center.a }, null]) {
     assert.throws(() => parseRegionMap(rawMap({ regions: [{ id: 'roof', x: 0, y: 0, w: 10, h: 10, center: bad }] })), /bad "center"/);
   }
+});
+
+test('setMirror pairs both ways, releases old partners, and unpairs', () => {
+  const map = parseRegionMap(rawMap({
+    regions: [
+      { id: 'a', x: 0, y: 0, w: 1, h: 1, mirror: 'b' },
+      { id: 'b', x: 2, y: 0, w: 1, h: 1, mirror: 'a' },
+      { id: 'c', x: 4, y: 0, w: 1, h: 1 },
+    ],
+  }));
+  const [a, b, c] = map.regions;
+  setMirror(map, a, 'c'); // a leaves b for c
+  assert.deepEqual([a.mirror, b.mirror, c.mirror], ['c', undefined, 'a']);
+  setMirror(map, b, 'c'); // c is taken over by b, a is released
+  assert.deepEqual([a.mirror, b.mirror, c.mirror], [undefined, 'c', 'b']);
+  setMirror(map, c, null); // unpair
+  assert.deepEqual([a.mirror, b.mirror, c.mirror], [undefined, undefined, undefined]);
+  setMirror(map, a, 'a');  // a region cannot mirror itself — that is what a centerline is for
+  assert.equal(a.mirror, undefined);
+  parseRegionMap(map);
 });
