@@ -36,6 +36,11 @@ const PRECACHE = [
   './js/layout.js',
   './js/zones.js',
   './js/vendor/ag-psd.min.js',
+  // driver-facing livery brief form (standalone page)
+  './brief.html',
+  './css/brief.css',
+  './js/brief-form.js',
+  './js/brief-shared.js',
   // texture-library picker thumbnails (full-res PNGs runtime-cache on first use)
   './textures/thumb/carbon-twill.jpg',
   './textures/thumb/forged-carbon.jpg',

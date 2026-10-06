@@ -29,6 +29,10 @@ Clearcoat is free. If it saves you time (or a Photoshop license), you can [suppo
 | Portable | PNG download (e.g. for Trading Paints upload) |
 | Region map | Panel-label JSON, shareable with other painters of the same car |
 
+## Brief form
+
+Drivers who have never opened Clearcoat describe the livery they want at [`brief.html`](https://oblivionspeak.github.io/clearcoat/brief.html) — name, number, car, colours (or a mood), style, finish, sponsor logos — and download a `<driver>-<number>.brief.json` that the team's designer loads in Clearcoat to generate three livery candidates. Phone-friendly, works offline once cached, nothing is uploaded.
+
 ## Browser support
 
 - **Chrome / Edge** — full experience including Save to iRacing (File System Access API).
