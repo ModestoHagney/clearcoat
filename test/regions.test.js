@@ -21,6 +21,8 @@ import {
   linkPoints,
   linkLength,
   linkDir,
+  centerLine,
+  mirrorAcross,
 } from '../js/regions.js';
 
 // Convenience builder: a valid raw map with two mirrored door rectangles.
@@ -523,4 +525,35 @@ test('a link side runs the shorter way by default, and keeps a stored dir past h
   assert.equal(linkLength(map, { a: side, b: side }), 150);
   side.dir = -1;
   assert.equal(parseRegionMap(map).links[0].a.dir, -1); // dir survives a save and load
+});
+
+// ---------------------------------------------------------------- centerline
+
+test('centerLine runs square to the twin corners through their midpoint, spanning the region', () => {
+  // a 200x100 box whose twin corners are its top-left and bottom-left: the car's middle is the level line y=50
+  const r = { id: 'roof', x: 0, y: 0, w: 200, h: 100, center: { a: { x: 0, y: 0 }, b: { x: 0, y: 100 } } };
+  const c = centerLine(r);
+  assert.deepEqual(c.mid, { x: 0, y: 50 });
+  assert.deepEqual([c.p0, c.p1].map(q => [Math.round(q.x), Math.round(q.y)]).sort((p, q) => p[0] - q[0]), [[0, 50], [200, 50]]);
+  assert.ok(Math.abs(Math.abs(c.angle) % 180) < 1e-9); // level
+  assert.deepEqual(mirrorAcross(r, 30, 10), { x: 30, y: 90 });
+  assert.equal(centerLine({ id: 'door', x: 0, y: 0, w: 1, h: 1 }), null);
+});
+
+test('centerLine follows a region turned on the sheet', () => {
+  // twin corners on a 45° slant: the centerline is the other diagonal
+  const r = { id: 'bonnet', x: 0, y: 0, w: 100, h: 100, center: { a: { x: 0, y: 0 }, b: { x: 100, y: 100 } } };
+  const m = mirrorAcross(r, 100, 0); // a point on the centerline stays put
+  assert.ok(Math.abs(m.x - 100) < 1e-9 && Math.abs(m.y) < 1e-9);
+  const n = mirrorAcross(r, 0, 0);   // one twin lands on the other
+  assert.ok(Math.abs(n.x - 100) < 1e-9 && Math.abs(n.y - 100) < 1e-9);
+});
+
+test('parseRegionMap keeps a valid center and rejects a bad one', () => {
+  const center = { a: { x: 1, y: 2 }, b: { x: 3, y: 4 } };
+  const ok = parseRegionMap(rawMap({ regions: [{ id: 'roof', x: 0, y: 0, w: 10, h: 10, center }] }));
+  assert.deepEqual(ok.regions[0].center, center);
+  for (const bad of [{ a: center.a }, { a: center.a, b: center.a }, null]) {
+    assert.throws(() => parseRegionMap(rawMap({ regions: [{ id: 'roof', x: 0, y: 0, w: 10, h: 10, center: bad }] })), /bad "center"/);
+  }
 });

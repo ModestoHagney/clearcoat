@@ -33,6 +33,12 @@ export function parseRegionMap(data) {
       x: r.x, y: r.y, w: r.w, h: r.h,
     };
     if (typeof r.mirror === 'string' && r.mirror) out.mirror = r.mirror;
+    if (r.center !== undefined) {
+      const { a, b } = r.center || {};
+      const ok = (q) => q && Number.isFinite(q.x) && Number.isFinite(q.y);
+      if (!ok(a) || !ok(b) || (a.x === b.x && a.y === b.y)) throw new Error(`region "${r.id}" has a bad "center"`);
+      out.center = { a: { x: a.x, y: a.y }, b: { x: b.x, y: b.y } };
+    }
     if (r.points !== undefined) {
       if (!Array.isArray(r.points) || r.points.length < 3
           || !r.points.every(q => q && Number.isFinite(q.x) && Number.isFinite(q.y))) {
@@ -116,6 +122,43 @@ export function mirrorLayerPlacement(map, layer) {
   if (!pair) return null;
   const p = mirrorPoint(pair.src, pair.dst, layer.x, layer.y);
   return { x: Math.round(p.x), y: Math.round(p.y), flip: true };
+}
+
+// ---------- centerline ----------
+// A region that spans the middle of the car (bonnet, roof, bumpers) can carry
+// "center": two twin corners, one each side — { a, b }. Its centerline runs
+// through the point halfway between them, square to the line joining them, so
+// it comes out right however the region is turned on the sheet.
+
+// { mid, dir (unit vector along the line), angle (degrees, as layers rotate),
+//   p0, p1 (the line's ends, spanning the region) } — or null without a center
+export function centerLine(r) {
+  if (!r.center) return null;
+  const { a, b } = r.center;
+  const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy);
+  if (!len) return null;
+  const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  const dir = { x: -dy / len, y: dx / len };
+  let t0 = Infinity, t1 = -Infinity;
+  for (const q of regionOutline(r)) {
+    const t = (q.x - mid.x) * dir.x + (q.y - mid.y) * dir.y;
+    if (t < t0) t0 = t;
+    if (t > t1) t1 = t;
+  }
+  return {
+    mid, dir, angle: Math.atan2(dir.y, dir.x) * 180 / Math.PI,
+    p0: { x: mid.x + dir.x * t0, y: mid.y + dir.y * t0 },
+    p1: { x: mid.x + dir.x * t1, y: mid.y + dir.y * t1 },
+  };
+}
+
+// (x, y) mirrored across the region's centerline
+export function mirrorAcross(r, x, y) {
+  const c = centerLine(r);
+  if (!c) return { x, y };
+  const vx = x - c.mid.x, vy = y - c.mid.y;
+  const along = vx * c.dir.x + vy * c.dir.y;
+  return { x: c.mid.x + 2 * along * c.dir.x - vx, y: c.mid.y + 2 * along * c.dir.y - vy };
 }
 
 // slug a display name into an id that doesn't collide with the map's regions

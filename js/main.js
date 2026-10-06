@@ -20,7 +20,7 @@ import { LIBRARY, libraryItemToLayerSource } from './library.js';
 import { TEXTURES, TEX_CATS, texThumb, texFull } from './textures.js';
 import { wandSelect } from './wand.js';
 import { lassoMask, lassoBounds, CLOSE_RADIUS } from './lasso.js';
-import { parseRegionMap, createRegionMap, regionAt, regionById, mirrorPoint, mirrorLayerPlacement, uniqueRegionId, piecesRegionMap, renameRegion, regionOutline, labelPoint, snapToOutline, matchPoint, linkPoints, linkLength, linkDir } from './regions.js';
+import { parseRegionMap, createRegionMap, regionAt, regionById, mirrorPoint, centerLine, mirrorAcross, uniqueRegionId, piecesRegionMap, renameRegion, regionOutline, labelPoint, snapToOutline, matchPoint, linkPoints, linkLength, linkDir } from './regions.js';
 import { initAdvisor } from './advisor.js';
 
 // ---------- state ----------
@@ -305,7 +305,7 @@ function draw() {
   vctx.restore();
 
   // region map overlay — screen space, forced on while annotating
-  if ((regionsView || annotateMode || linkMode) && doc.regionMap) { drawRegionOverlay(); drawSeamLinks(); }
+  if ((regionsView || annotateMode || regionTool) && doc.regionMap) { drawRegionOverlay(); drawSeamLinks(); }
 
   // annotate / marquee drag — live rectangle preview
   if (drag && (drag.mode === 'annotate' || drag.mode === 'marquee')) {
@@ -473,8 +473,11 @@ function rotateHandlePos(layer) {
 
 let regionsView = false;
 let annotateMode = false;
-let pieceLayerMode = false; // armed: the next click on a region makes a layer of it
-let linkMode = false;       // clicking edge ends to link two regions' edges
+// the armed region-map tool, one at a time: 'layer' (next click on a region
+// makes a layer of it), 'link' (clicking edge ends to link two regions' edges)
+// or 'center' (clicking two twin corners to set a region's centerline)
+let regionTool = null;
+let centerClick = null;     // first twin corner clicked for a centerline: { region, x, y }
 let linkClicks = [];        // ends clicked so far for the link being made: { region, x, y }
 let seamHover = null;       // matchPoint() result under the pointer, for the marker
 let linkDrag = null;        // a link end being slid along its edge: { region, ends, sx, sy, moved }
@@ -533,6 +536,20 @@ function drawSeamLinks() {
       dot(pts[pts.length - 1], 3.5, color); // both ends can be dragged; the big dots meet each other
     }
   });
+  for (const r of map.regions) {
+    const c = centerLine(r);
+    if (!c) continue;
+    const a = docToScreen(c.p0.x, c.p0.y), b = docToScreen(c.p1.x, c.p1.y);
+    vctx.beginPath();
+    vctx.moveTo(a.x, a.y);
+    vctx.lineTo(b.x, b.y);
+    vctx.strokeStyle = 'rgba(0,0,0,.6)'; vctx.lineWidth = 5; vctx.stroke();
+    vctx.setLineDash([10, 6]);
+    vctx.strokeStyle = '#ffe119'; vctx.lineWidth = 2; vctx.stroke();
+    vctx.setLineDash([]);
+    for (const q of [r.center.a, r.center.b]) dot(docToScreen(q.x, q.y), 4, '#ffe119');
+  }
+  if (centerClick) dot(docToScreen(centerClick.x, centerClick.y), 8, '#ffe119');
   vctx.font = '700 11px "IBM Plex Mono", monospace';
   vctx.textAlign = 'center';
   vctx.textBaseline = 'middle';
@@ -699,8 +716,7 @@ let wandMode = false;
 function setWandMode(on) {
   wandMode = on;
   if (on && annotateMode) setAnnotateMode(false); // the two modes never coexist
-  if (on && pieceLayerMode) setPieceLayerMode(false);
-  if (on && linkMode) setLinkMode(false);
+  if (on && regionTool) setRegionTool(null);
   $('btn-wand').classList.toggle('active', on);
   $('wand-tol-row').hidden = !on;
   viewport.classList.toggle('wand', on || annotateMode);
@@ -741,7 +757,7 @@ function lassoEditLayer(layer) {
 
 function setLassoMode(on) {
   lassoMode = on;
-  if (on) { if (wandMode) setWandMode(false); if (annotateMode) setAnnotateMode(false); if (pieceLayerMode) setPieceLayerMode(false); if (linkMode) setLinkMode(false); }
+  if (on) { if (wandMode) setWandMode(false); if (annotateMode) setAnnotateMode(false); if (regionTool) setRegionTool(null); }
   lassoPts = [];
   lassoDragIdx = null;
   lassoEditingId = null;
@@ -1057,12 +1073,17 @@ viewport.addEventListener('pointerdown', (e) => {
   viewport.setPointerCapture(e.pointerId);
   const sx = e.offsetX, sy = e.offsetY;
 
-  if (pieceLayerMode && e.button === 0 && !spaceHeld) {
+  if (regionTool === 'layer' && e.button === 0 && !spaceHeld) {
     pieceLayerAt(screenToDoc(sx, sy));
     return;
   }
 
-  if (linkMode && e.button === 0 && !spaceHeld) {
+  if (regionTool === 'center' && e.button === 0 && !spaceHeld) {
+    centerlineClick(screenToDoc(sx, sy), e.altKey);
+    return;
+  }
+
+  if (regionTool === 'link' && e.button === 0 && !spaceHeld) {
     // press on a link's end: a drag slides it along the edge, a plain click
     // still counts as a click there (to start the next link from that spot)
     const grab = !e.altKey && !linkClicks.length ? linkEndAt(sx, sy) : null;
@@ -1231,7 +1252,7 @@ viewport.addEventListener('pointermove', (e) => {
   $('status-pos').textContent = `${Math.round(p.x)}, ${Math.round(p.y)}` + (region ? ` — ${region.name}` : '');
 
   // seam marker: near a linked edge, show where that spot lands on the other piece
-  const hover = (regionsView || linkMode) && doc.regionMap ? matchPoint(doc.regionMap, p.x, p.y, 10 / view.zoom) : null;
+  const hover = (regionsView || regionTool === 'link') && doc.regionMap ? matchPoint(doc.regionMap, p.x, p.y, 10 / view.zoom) : null;
   if (hover || seamHover) { seamHover = hover; requestRender(); }
 
   if (linkDrag) {
@@ -2543,9 +2564,13 @@ function mirrorLayerCopy(sel) {
   const cy = isRegionLayer(sel) ? sel.ry + sel.rh / 2 : sel.y;
   const src = regionAt(doc.regionMap, cx, cy);
   if (!src) return { error: `"${sel.name}" is not inside a mapped region.` };
-  if (!src.mirror) return { error: `"${src.name}" has no mirror partner in the map.` };
-  const dst = regionById(doc.regionMap, src.mirror);
+  // a region with a mirror partner mirrors onto the partner; one with a
+  // centerline (bonnet, roof, bumpers) mirrors onto itself across that line
+  const mid = src.mirror ? null : centerLine(src);
+  if (!src.mirror && !mid) return { error: `"${src.name}" has no mirror partner or centerline in the map.` };
+  const dst = mid ? src : regionById(doc.regionMap, src.mirror);
   if (!dst) return { error: `Mirror partner "${src.mirror}" is missing from the map.` };
+  const reflect = mid ? (x, y) => mirrorAcross(src, x, y) : (x, y) => mirrorPoint(src, dst, x, y);
   const copy = {
     ...sel,
     id: 'L' + Math.random().toString(36).slice(2),
@@ -2561,7 +2586,9 @@ function mirrorLayerCopy(sel) {
     fx: sel.fx ? { ...sel.fx } : null,
     flipH: !sel.flipH,
     // a true mirror image reflects the whole transform, not just the raster
-    rotation: -(sel.rotation || 0),
+    // (a mirror across a tilted centerline is the upright mirror plus a turn
+    // of twice the line's angle and a half; kept within ±180°)
+    rotation: mid ? ((-(sel.rotation || 0) + 2 * mid.angle) % 360 + 360) % 360 - 180 : -(sel.rotation || 0),
     skewX: -(sel.skewX || 0),
     skewY: -(sel.skewY || 0),
   };
@@ -2570,28 +2597,31 @@ function mirrorLayerCopy(sel) {
     // the left/right pairs afterwards keeps the winding consistent, or the
     // mirrored quad comes out inside-out.
     const m = copy.corners.map(q => {
-      const r = mirrorPoint(src, dst, q.x, q.y);
+      const r = reflect(q.x, q.y);
       return { x: r.x, y: r.y };
     });
     copy.corners = [m[1], m[0], m[3], m[2]];
     if (Array.isArray(copy.lassoPts)) {
       copy.lassoPts = copy.lassoPts.map(q => {
-        const r = mirrorPoint(src, dst, q.x, q.y);
+        const r = reflect(q.x, q.y);
         return { x: r.x, y: r.y };
       });
     }
   } else if (isRegionLayer(sel)) {
     // mirror both corners of the region rect, then normalize
-    const p1 = mirrorPoint(src, dst, sel.rx, sel.ry);
-    const p2 = mirrorPoint(src, dst, sel.rx + sel.rw, sel.ry + sel.rh);
+    // ponytail: exact only when the mirror line is upright or level, since a
+    // fill/pattern rect cannot turn — a tilted centerline needs these layers
+    // to gain a rotation first.
+    const p1 = reflect(sel.rx, sel.ry);
+    const p2 = reflect(sel.rx + sel.rw, sel.ry + sel.rh);
     copy.rx = Math.round(Math.min(p1.x, p2.x));
     copy.ry = Math.round(Math.min(p1.y, p2.y));
     copy.rw = Math.max(1, Math.round(Math.abs(p2.x - p1.x)));
     copy.rh = Math.max(1, Math.round(Math.abs(p2.y - p1.y)));
   } else {
-    const placed = mirrorLayerPlacement(doc.regionMap, sel);
-    copy.x = placed.x;
-    copy.y = placed.y;
+    const placed = reflect(sel.x, sel.y);
+    copy.x = Math.round(placed.x);
+    copy.y = Math.round(placed.y);
   }
   return { copy, dst };
 }
@@ -2919,8 +2949,7 @@ $('btn-regions-view').addEventListener('click', () => setRegionsView(!regionsVie
 function setAnnotateMode(on) {
   annotateMode = on;
   if (on && wandMode) setWandMode(false); // the two modes never coexist
-  if (on && pieceLayerMode) setPieceLayerMode(false);
-  if (on && linkMode) setLinkMode(false);
+  if (on && regionTool) setRegionTool(null);
   $('btn-annotate').classList.toggle('active', on);
   viewport.classList.toggle('wand', on || wandMode);
   if (on) {
@@ -3047,6 +3076,22 @@ async function addPieceColors(quiet = false) {
       ctx.restore();
     }
   });
+  // centerlines: a bold dashed line down the middle of each region that has one
+  for (const r of map.regions) {
+    const c = centerLine(r);
+    if (!c) continue;
+    ctx.save();
+    trace(regionOutline(r));
+    ctx.clip();
+    ctx.beginPath();
+    ctx.moveTo(c.p0.x, c.p0.y);
+    ctx.lineTo(c.p1.x, c.p1.y);
+    ctx.lineCap = 'butt';
+    ctx.strokeStyle = '#101114'; ctx.lineWidth = 14; ctx.stroke();
+    ctx.setLineDash([28, 20]);
+    ctx.strokeStyle = '#ffe119'; ctx.lineWidth = 8; ctx.stroke();
+    ctx.restore();
+  }
   // names go on last, each kept clear of the later regions drawn over its own
   map.regions.forEach((r, i) => {
     const p = labelPoint(r, map.regions.slice(i + 1));
@@ -3084,20 +3129,30 @@ $('btn-piece-colors').addEventListener('click', () => addPieceColors());
 // way a lasso layer is (a white mask of the outline, colored by a full Tint
 // wash), and keeps the outline, so Tint recolors it and Edit shape re-shapes it.
 
-function setPieceLayerMode(on) {
-  pieceLayerMode = on;
-  if (on) {
+const REGION_TOOLS = {
+  layer: { btn: 'btn-piece-layer', hint: 'Piece → layer: click a region to make a layer in its shape. Esc to cancel.' },
+  link: { btn: 'btn-link-edges', hint: 'Link edges: click the two ends of a shared stretch on one region, then the two ends it meets on the other, in the same order. Drag an end dot to adjust. Backspace undoes, Alt+click removes a link, Esc exits.' },
+  center: { btn: 'btn-centerline', hint: 'Centerline: on a region that spans the middle of the car, click a corner and then its twin on the other side. Alt+click a region to remove its line, Esc exits.' },
+};
+
+// arm one region tool (or none) — they never coexist with each other or with
+// the wand, lasso and annotate modes
+function setRegionTool(tool) {
+  regionTool = tool;
+  linkClicks = [];
+  centerClick = null;
+  if (tool) {
     if (wandMode) setWandMode(false);
     if (lassoMode) setLassoMode(false);
     if (annotateMode) setAnnotateMode(false);
-    if (linkMode) setLinkMode(false);
     setRegionsView(true);
-    status('Piece → layer: click a region to make a layer in its shape. Esc to cancel.');
+    status(REGION_TOOLS[tool].hint);
   }
-  $('btn-piece-layer').classList.toggle('active', on);
-  viewport.classList.toggle('wand', on || wandMode || lassoMode || annotateMode || linkMode);
+  for (const t in REGION_TOOLS) $(REGION_TOOLS[t].btn).classList.toggle('active', t === tool);
+  viewport.classList.toggle('wand', !!tool || wandMode || lassoMode || annotateMode);
+  requestRender();
 }
-$('btn-piece-layer').addEventListener('click', () => setPieceLayerMode(!pieceLayerMode));
+for (const t in REGION_TOOLS) $(REGION_TOOLS[t].btn).addEventListener('click', () => setRegionTool(regionTool === t ? null : t));
 
 async function pieceLayerAt(p) {
   const region = doc.regionMap && regionAt(doc.regionMap, p.x, p.y);
@@ -3105,7 +3160,7 @@ async function pieceLayerAt(p) {
   const pts = regionOutline(region).map(q => ({ x: q.x, y: q.y }));
   const mask = lassoMask(pts);
   if (!mask) { status(`"${region.name}" is too small to make a layer from.`, 'err'); return; }
-  setPieceLayerMode(false);
+  setRegionTool(null);
   try {
     const layer = createImageLayer(await loadImage(mask.src), mask.src, region.name);
     layer.x = SIZE / 2; layer.y = SIZE / 2; layer.scale = 1;
@@ -3125,23 +3180,6 @@ async function pieceLayerAt(p) {
 // Tell Clearcoat which edges meet on the car: click the two ends of the shared
 // stretch on one region, then the two ends it meets on the other, in the same
 // order. Links live in the region map (see regions.js) — nothing is baked.
-
-function setLinkMode(on) {
-  linkMode = on;
-  linkClicks = [];
-  if (on) {
-    if (wandMode) setWandMode(false);
-    if (lassoMode) setLassoMode(false);
-    if (annotateMode) setAnnotateMode(false);
-    if (pieceLayerMode) setPieceLayerMode(false);
-    setRegionsView(true);
-    status('Link edges: click the two ends of a shared stretch on one region, then the two ends it meets on the other, in the same order. Drag an end dot to adjust. Backspace undoes, Alt+click removes a link, Esc exits.');
-  }
-  $('btn-link-edges').classList.toggle('active', on);
-  viewport.classList.toggle('wand', on || wandMode || lassoMode || annotateMode || pieceLayerMode);
-  requestRender();
-}
-$('btn-link-edges').addEventListener('click', () => setLinkMode(!linkMode));
 
 // the outline spot a click means: an existing link end or a corner when one
 // is close, otherwise the nearest spot on the edge. `only` limits the search
@@ -3165,6 +3203,47 @@ function linkSnap(p, only, reach = 14 / view.zoom, skip = []) {
     }
   }
   return { region: best.region, x: best.x, y: best.y };
+}
+
+// ---------- centerline ----------
+// A region that spans the middle of the car gets its centerline from two twin
+// corners (see regions.js). Mirror Clone then mirrors layers on it across the
+// line, and later tools use it to cut a pattern off at the middle.
+
+function centerlineClick(p, remove) {
+  const map = doc.regionMap;
+  if (!map) return;
+  if (remove) {
+    const r = regionAt(map, p.x, p.y);
+    if (!r || !r.center) { status('No centerline there to remove — Alt+click inside a region that has one.', 'warn'); return; }
+    delete r.center;
+    scheduleAutosave();
+    syncPieceColors();
+    requestRender();
+    status(`Centerline removed from ${r.name}.`, 'ok');
+    return;
+  }
+  const snap = linkSnap(p, centerClick ? centerClick.region : null);
+  if (!snap) {
+    status(centerClick ? 'Click the twin corner on the same region\'s edge.' : 'Click closer to a region\'s edge.', 'warn');
+    return;
+  }
+  if (!centerClick) {
+    centerClick = snap;
+    status('Corner 1 set — now click its twin on the other side of the same region.');
+    requestRender();
+    return;
+  }
+  if (Math.hypot(snap.x - centerClick.x, snap.y - centerClick.y) < 2) { status('The two corners need to be apart.', 'warn'); return; }
+  const r = regionById(map, snap.region);
+  const pt = (c) => ({ x: Math.round(c.x * 10) / 10, y: Math.round(c.y * 10) / 10 });
+  r.center = { a: pt(centerClick), b: pt(snap) };
+  centerClick = null;
+  scheduleAutosave();
+  syncPieceColors();
+  syncInspector(); // Mirror button availability
+  requestRender();
+  status(`Centerline set on ${r.name} — Mirror Clone now mirrors layers on it across the line. Click two corners again to redo it.`, 'ok');
 }
 
 // The link end under the pointer, with every other end sharing that spot on
@@ -4685,7 +4764,7 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); redo(); return; }
-  if (linkMode && e.key === 'Backspace') { e.preventDefault(); linkUndo(); return; }
+  if (regionTool === 'link' && e.key === 'Backspace') { e.preventDefault(); linkUndo(); return; }
   if (e.key === 'Delete' || e.key === 'Backspace') { deleteSelected(); return; }
   if (e.key === 'Escape') {
     if (!askModal.hidden) { closeAsk(null); return; }
@@ -4694,10 +4773,10 @@ window.addEventListener('keydown', (e) => {
     if (!mapsModal.hidden) { closeMapsModal(); return; }
     if (!libraryModal.hidden) { closeLibrary(); return; }
     if (!textureModal.hidden) { closeTextures(); return; }
-    if (pieceLayerMode) { setPieceLayerMode(false); return; }
-    if (linkMode) {
-      if (linkClicks.length) { linkClicks = []; status('Link cancelled — click the first end of an edge.'); requestRender(); }
-      else setLinkMode(false);
+    if (regionTool) {
+      // Esc first drops a half-made link or centerline, then leaves the tool
+      if (linkClicks.length || centerClick) { linkClicks = []; centerClick = null; status(REGION_TOOLS[regionTool].hint); requestRender(); }
+      else setRegionTool(null);
       return;
     }
     if (annotateMode) { setAnnotateMode(false); return; }

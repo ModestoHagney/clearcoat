@@ -29,6 +29,11 @@ exported by Clearcoat itself:
   are the outline's bounding box. Versions of Clearcoat that predate outlines
   ignore `points` and use the box.
 - `mirror` is optional and must reference another region's `id`.
+- `center` is optional, for a region that spans the middle of the car
+  (bonnet, roof, bumpers): two twin corners, one each side —
+  `"center": { "a": { "x": …, "y": … }, "b": { "x": …, "y": … } }`. The
+  centerline runs through the point halfway between them, square to the line
+  joining them. Mirror Clone mirrors layers on such a region across it.
 - A map may also carry a top-level `links` list, recording which edges meet
   on the car even when the regions sit far apart or turned on the sheet:
 
