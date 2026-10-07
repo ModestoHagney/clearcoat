@@ -6,7 +6,7 @@
 // the reload that activates it. If VERSION doesn't change, returning users
 // keep being served the old cached shell.
 
-const VERSION = 'v0.63';
+const VERSION = 'v0.68-pieces.1';
 const CACHE = 'clearcoat-' + VERSION;
 
 // app shell — every path here must exist in the repo
@@ -32,7 +32,18 @@ const PRECACHE = [
   './js/wand.js',
   './js/lasso.js',
   './js/warp.js',
+  './js/variants.js',
+  './js/layout.js',
+  './js/zones.js',
+  './js/patterns.js',
+  './js/brief.js',
+  './samples/opmo-sample.brief.json',
   './js/vendor/ag-psd.min.js',
+  // driver-facing livery brief form (standalone page)
+  './brief.html',
+  './css/brief.css',
+  './js/brief-form.js',
+  './js/brief-shared.js',
   // texture-library picker thumbnails (full-res PNGs runtime-cache on first use)
   './textures/thumb/carbon-twill.jpg',
   './textures/thumb/forged-carbon.jpg',

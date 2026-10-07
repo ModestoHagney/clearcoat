@@ -58,12 +58,12 @@ exported by Clearcoat itself:
    loaded an official PSD, Clearcoat has already outlined the sheet's pieces
    as "Piece 1…N" — click one in Annotate mode to give it a real name (its
    id follows: "Left Door" becomes `left_door`). Not sure which piece is
-   which? **Piece colors** adds a color-coded, labelled layer you can save
+   which? **+ Piece colors** adds a color-coded, labelled layer you can save
    to iRacing and look at on the car.
    **Link edges** records which edges meet: click the two ends of a shared
    stretch on one region, then the two ends it meets on the other (drag an
    end dot afterwards to adjust it). Linked
-   edges show the same color bands in **Piece colors**, so on the car the
+   edges show the same color bands in **+ Piece colors**, so on the car the
    same colors should face each other across the seam.
 2. Click **Export map** in the Template panel to download the JSON.
 3. Rename the file to `<car-folder-name>.json`, where `<car-folder-name>`

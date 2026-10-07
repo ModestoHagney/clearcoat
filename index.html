@@ -23,7 +23,7 @@
       <path d="M16 22 L24 8 H26 L18 22 Z" fill="#e8e6e1"/>
     </svg>
     <span class="brand-name">CLEARCOAT</span>
-    <span class="brand-sub">livery workbench <span id="app-version">v0.63</span></span>
+    <span class="brand-sub">livery workbench <span id="app-version">v0.68-pieces.1</span></span>
   </div>
 
   <input id="project-name" class="project-name" type="text" value="untitled livery" spellcheck="false" aria-label="Project name">
@@ -33,6 +33,9 @@
     <button id="btn-redo" class="tb-btn" title="Redo (Ctrl+Shift+Z / Ctrl+Y)" disabled>↷</button>
     <button id="btn-new" class="tb-btn" title="New project">New</button>
     <button id="btn-open" class="tb-btn" title="Open a .clearcoat.json project">Open</button>
+    <!-- BRIEF: start from a driver brief (js/brief.js) -->
+    <button id="btn-brief" class="tb-btn" title="Start from a driver brief (.brief.json) — three panel-correct livery candidates, no AI">Brief</button>
+    <!-- /BRIEF -->
     <button id="btn-save" class="tb-btn" title="Download project as .clearcoat.json">Save</button>
     <button id="btn-projects" class="tb-btn" title="Browse projects saved in this browser">Projects</button>
     <span id="current-project-label" class="current-project mono" title="The browser project autosave follows">unsaved</span>
@@ -88,18 +91,25 @@
         <button class="tpl-color tpl-original" data-tcolor="original" title="Original template colors">org</button>
         <label class="tpl-bold"><input type="checkbox" id="template-bold" checked> Bold</label>
       </div>
+      <label class="tb-check" id="template-unpaintable-row" style="margin-top:6px" hidden title="Tint the template's non-paintable area (the kit's Mask layer — glass, lights, tires) red at 25% so you can see where paint is thrown away. Layers that mostly land there get a warning badge in the layer list."><input type="checkbox" id="template-unpaintable"> Show unpaintable</label>
       <div class="template-row" style="margin-top:8px">
         <button id="btn-load-regions" class="sm-btn wide" title="Load a region map (.json) — labels the sheet's panels for hover labels, the Regions overlay, and one-click Mirror">Load region map…</button>
         <button id="btn-get-map" class="sm-btn" title="Browse community region maps shared on GitHub and load one for your car">Get map…</button>
         <button id="btn-clear-regions" class="sm-btn icon" title="Remove region map" hidden>✕</button>
       </div>
-      <div class="template-row" id="region-map-info" style="margin-top:6px; align-items:center; flex-wrap:wrap" hidden>
-        <span class="hint" id="region-map-name" style="margin:0; flex:1 0 100%"></span>
-        <button id="btn-piece-colors" class="sm-btn" title="Add a layer that fills every region in its own color with its name on it — save to iRacing to see which piece is where on the car, then hide the layer. Click again to refresh it after renaming.">Piece colors</button>
-        <button id="btn-piece-layer" class="sm-btn" title="Make a paint layer in the exact shape of a region: click this, then click the region on the sheet. Recolor it with Tint, give it any finish, and re-shape it with Edit shape.">Piece → layer</button>
-        <button id="btn-link-edges" class="sm-btn" title="Tell Clearcoat which edges meet on the car: click the two ends of a shared stretch on one region, then the two ends it meets on the other. Linked edges get matching color bands in Piece colors, and with Regions on, pointing at a linked edge shows where that spot lands on the other piece.">Link edges</button>
-        <button id="btn-centerline" class="sm-btn" title="Mark the middle of a region that spans both sides of the car (bonnet, roof, bumpers): click a corner, then its twin on the other side. Mirror Clone then mirrors layers on that region across the line.">Centerline</button>
+      <div class="template-row" id="region-map-info" style="margin-top:6px; align-items:center" hidden>
+        <span class="hint" id="region-map-name" style="margin:0; flex:1"></span>
         <button id="btn-export-regions" class="sm-btn" title="Download this region map as JSON — share it so others get labels for the same car">Export map</button>
+      </div>
+      <div class="slider-row" id="region-edit-row" style="margin-top:6px" hidden>
+        <select id="region-pick" class="tune-select" style="flex:1; min-width:0" title="Pick a region to fix how it reads — the PSD inference sets good defaults, but a sideways or upside-down panel can be corrected here" aria-label="Region"></select>
+        <select id="region-rot" class="tune-select" title="How artwork reads in this region: Fit to zone turns the layer by this much. 180° for panels that are mapped upside-down, 90°/270° for sideways text" aria-label="Region rotation">
+          <option value="0">0°</option>
+          <option value="90">90°</option>
+          <option value="180">180°</option>
+          <option value="270">270°</option>
+        </select>
+        <label class="tb-check" id="region-mirrored-wrap" title="Checked: the partner panel is a mirror image, so Mirror Clone flips the copy. Unchecked: the partner is the same panel turned 180°, so Mirror Clone rotates the copy instead"><input type="checkbox" id="region-mirrored"> Mirrored</label>
       </div>
       <p class="hint">Load your car's official iRacing template <b>PSD</b> directly — Clearcoat extracts the wireframe for you. PNG/JPG work too. Shown for reference only, never exported.</p>
       <p class="hint"><a href="https://www.tradingpaints.com/cartemplates" target="_blank" rel="noopener">Get your car's template ↗</a> (or in-sim: My Content → Car Manager → Download Template)</p>
@@ -108,6 +118,12 @@
     <section class="panel-block grow">
       <h2 class="panel-title">Layers
         <span class="title-actions">
+          <!-- car patterns: enabled once a template PSD has filled the catalogue (see main.js "car patterns") -->
+          <button id="btn-add-carpattern" class="sm-btn" disabled title="Load your car's template PSD first — its hidden Car Patterns group becomes a picker of ready-made, panel-correct base designs">+ Car pattern</button>
+          <!-- /car patterns -->
+          <!-- from the region map: enabled once it has pieces (see main.js syncRegionUI) -->
+          <button id="btn-piece-layer" class="sm-btn" disabled title="Make a paint layer in the exact shape of a region: click this, then click the region on the sheet. Recolor it with Tint, give it any finish, and re-shape it with Edit shape.">+ Piece</button>
+          <button id="btn-piece-colors" class="sm-btn" disabled title="Add a layer that fills every region in its own color with its name on it — save to iRacing to see which piece is where on the car, then hide the layer. Click again to refresh it after renaming.">+ Piece colors</button>
           <button id="btn-add-image" class="sm-btn" title="Add an image layer (logo, decal, artwork)">+ Image</button>
           <button id="btn-add-pattern" class="sm-btn" title="Add a seamless texture as a tiling fill over a resizable region">+ Pattern</button>
           <button id="btn-add-texture" class="sm-btn" title="Pick from a built-in library of seamless materials — carbon, camo, metals, marble — inserted as a tiling pattern layer">+ Textures</button>
@@ -126,6 +142,23 @@
         <span class="material-chip" id="basecoat-material-chip">gloss</span>
       </div>
     </section>
+
+    <!-- driver variants: batch export per driver (see js/variants.js) -->
+    <details class="panel-block drivers-panel" id="drivers-panel">
+      <summary class="panel-title" title="One design, one set of paint files per driver — bind text layers to Driver number / Driver name in the inspector">Drivers <span class="hint-inline" id="drivers-count"></span></summary>
+      <table class="drivers-table" id="drivers-table" aria-label="Drivers">
+        <thead><tr><th title="Included in Export all drivers">✓</th><th>Name</th><th>#</th><th>Cust ID</th><th></th></tr></thead>
+        <tbody id="drivers-body"></tbody>
+      </table>
+      <div class="btn-row">
+        <button id="drivers-add" class="sm-btn" title="Add a driver row">+ Driver</button>
+        <button id="drivers-master" class="sm-btn" title="Back to the master design (stop previewing a driver)" hidden>Show master</button>
+        <button id="drivers-export" class="sm-btn wide accent" title="Render paint + spec for every enabled driver with a numeric Cust ID — written to the linked paints folder, or downloaded one by one">Export all drivers</button>
+        <button id="drivers-share" class="sm-btn" title="Copy a ready-to-paste message with the driver brief form link (uses your phone's share sheet where available)">Share form</button>
+      </div>
+      <p class="hint" id="drivers-hint">Bind text layers to <b>Driver number</b> / <b>Driver name</b> (inspector → Text → Variable), add each driver here, then export once for everyone. Need a design from a driver? Send them the <a href="brief.html" target="_blank" rel="noopener" title="They describe the livery they want, you get a .brief.json back to drop on the canvas">driver brief form ↗</a>.</p>
+    </details>
+    <!-- /driver variants -->
   </aside>
 
   <!-- ============ CENTER: VIEWPORT ============ -->
@@ -162,10 +195,16 @@
       <button id="btn-showroom" class="hud-btn" title="Showroom — cinematic reveal video of this livery (spotlight sweep reads your real spec maps), records a Discord-ready WebM">Reveal</button>
       <button id="btn-regions-view" class="hud-btn toggle" title="Show the region map's rectangles and panel names over the sheet" disabled>Regions</button>
       <span class="hud-sep"></span>
-      <button id="btn-annotate" class="hud-btn toggle warn" title="Annotate mode — drag rectangles over the sheet to label panels and record mirror pairs, building a region map for this car. Click an existing region to rename it or set its mirror partner.">Annotate</button>
+      <button id="btn-annotate" class="hud-btn toggle warn" title="Annotate mode — drag rectangles over the sheet to label panels and record mirror pairs, building a region map for this car. Click an existing region to rename it or set its mirror partner. With Regions on, Link edges and Centerline appear in a row below.">Annotate</button>
       <span class="hud-sep"></span>
       <button id="btn-advisor" class="hud-btn" title="Livery Advisor — describe the look you want, get changes to make (100% local, no AI keys)">✨ Advisor</button>
       <button id="btn-help" class="hud-btn" title="How Clearcoat works + shortcuts (F1)">?</button>
+      <!-- map-editing tools: a second toolbar row, shown while the Regions overlay is on (see main.js syncMapTools) -->
+      <span id="map-tools" hidden>
+        <span class="hud-label">Region map</span>
+        <button id="btn-link-edges" class="hud-btn toggle warn" disabled title="Tell Clearcoat which edges meet on the car: click the two ends of a shared stretch on one region, then the two ends it meets on the other. Linked edges get matching color bands in Piece colors, and with Regions on, pointing at a linked edge shows where that spot lands on the other piece.">Link edges</button>
+        <button id="btn-centerline" class="hud-btn toggle warn" disabled title="Mark the middle of a region that spans both sides of the car (bonnet, roof, bumpers): click a corner, then its twin on the other side. Mirror Clone then mirrors layers on that region across the line.">Centerline</button>
+      </span>
     </div>
     <div id="showroom-overlay" hidden>
       <div class="showroom-box">
@@ -221,6 +260,7 @@
     <section class="panel-block" id="inspector-layer" hidden>
       <h2 class="panel-title">Layer</h2>
       <input id="ins-name" class="ins-name" type="text" spellcheck="false" aria-label="Layer name">
+      <p class="hint ins-bleed-note" id="ins-bleed" style="margin-top:4px" hidden></p>
 
       <div class="slider-row" id="ins-fill-row" hidden>
         <label for="ins-fill-color">Color</label>
@@ -254,6 +294,23 @@
         <input id="ins-fill-colormid" type="color" value="#888888" title="Middle gradient color" aria-label="Middle gradient color" hidden>
         <input id="ins-fill-midpos" type="range" min="5" max="95" value="50" title="Where the middle stop sits along the gradient" aria-label="Middle stop position" hidden>
       </div>
+
+      <!-- car patterns: three slot colours of the kit design -->
+      <div id="ins-carpattern-section" hidden>
+        <div class="slider-row cp-ins-colors">
+          <label title="The kit design's three colour slots — 1 is the base">Colours</label>
+          <input id="ins-cp-c1" type="color" value="#e8e6e1" title="Slot 1 — base colour" aria-label="Slot 1 colour">
+          <button id="ins-cp-swap12" class="sm-btn icon" title="Swap slots 1 and 2">⇄</button>
+          <input id="ins-cp-c2" type="color" value="#1a6cff" title="Slot 2" aria-label="Slot 2 colour">
+          <button id="ins-cp-swap23" class="sm-btn icon" title="Swap slots 2 and 3">⇄</button>
+          <input id="ins-cp-c3" type="color" value="#ffffff" title="Slot 3" aria-label="Slot 3 colour">
+          <button id="ins-cp-rotate" class="sm-btn icon" title="Rotate the three colours one slot along">↻</button>
+        </div>
+        <div class="btn-row" style="margin-top:6px">
+          <button id="ins-cp-change" class="sm-btn wide" title="Pick a different kit design for this layer — the colours stay">Change pattern…</button>
+        </div>
+      </div>
+      <!-- /car patterns -->
 
       <div class="slider-row">
         <label for="ins-opacity">Opacity</label>
@@ -351,6 +408,16 @@
           <input id="ins-text-curve" type="range" min="-180" max="180" step="5" value="0">
           <span class="mono" id="ins-text-curve-val">0°</span>
         </div>
+        <!-- driver variants: variable binding (see js/variants.js) -->
+        <div class="slider-row">
+          <label for="ins-text-variable" title="Bind this text to a driver field — Export all drivers swaps it per driver (see the Drivers panel)">Variable</label>
+          <select id="ins-text-variable" class="tune-select">
+            <option value="">None</option>
+            <option value="number">Driver number</option>
+            <option value="name">Driver name</option>
+          </select>
+        </div>
+        <!-- /driver variants -->
       </div>
 
       <div id="ins-fx-section" hidden>
@@ -393,13 +460,32 @@
           <input id="ins-fade-angle" type="range" min="0" max="359" value="0">
           <span class="mono" id="ins-fade-angle-val">0°</span>
         </div>
+        <div class="slider-row" id="ins-fade-dir-row">
+          <label title="Which way the dots run. Templates differ: some lay the car out nose-left, some nose-right, so pick the side the fade should end on. Flip turns the current angle around, whatever it is">From</label>
+          <div class="fade-dir" role="group" aria-label="Fade direction">
+            <button type="button" class="sm-btn icon fade-dir-btn" data-angle="180" title="Solid on the right, dots toward the left (180°)">&larr;</button>
+            <button type="button" class="sm-btn icon fade-dir-btn" data-angle="0" title="Solid on the left, dots toward the right (0°)">&rarr;</button>
+            <button type="button" class="sm-btn icon fade-dir-btn" data-angle="270" title="Solid at the bottom, dots toward the top (270°)">&uarr;</button>
+            <button type="button" class="sm-btn icon fade-dir-btn" data-angle="90" title="Solid at the top, dots toward the bottom (90°)">&darr;</button>
+            <button type="button" class="sm-btn" id="ins-fade-flip" title="Reverse the fade: the dots swap to the other side (adds 180° to the angle)">Flip</button>
+          </div>
+        </div>
         <div class="slider-row">
-          <label for="ins-fade-cell" title="Dot pitch in template pixels — small for a fine screen, large for bold comic-book dots">Dots</label>
+          <label for="ins-fade-cell" title="Pitch in template pixels: dot spacing, bar spacing, scanline spacing, glitch strip height, or how fine the torn edge is — small for a fine screen, large for bold comic-book dots">Pitch</label>
           <input id="ins-fade-cell" type="range" min="4" max="64" value="14">
-          <select id="ins-fade-style" title="Dot screen or bars across the fade">
+          <select id="ins-fade-style" title="How the layer dissolves: Dots = halftone screen, Bars = stripes across the fade, Rip = torn-paper edge with shreds, Scanlines = CRT lines along the fade, Glitch = sliced and shifted rows with an RGB split">
             <option value="dots">Dots</option>
             <option value="lines">Bars</option>
+            <option value="rip">Rip</option>
+            <option value="scan">Scanlines</option>
+            <option value="glitch">Glitch</option>
           </select>
+          <button type="button" class="sm-btn icon" id="ins-fade-reseed" title="Reseed: roll a new random tear / glitch pattern (the current one is saved with the project)" aria-label="Reseed" hidden>&#x1F3B2;</button>
+        </div>
+        <div class="slider-row" id="ins-fade-split-row" hidden>
+          <label for="ins-fade-split" title="RGB split: draws the red and blue channels offset in opposite directions inside the glitched band — paint only, the spec map ignores it">Split</label>
+          <input id="ins-fade-split" type="range" min="0" max="12" value="4">
+          <span class="mono" id="ins-fade-split-val">4px</span>
         </div>
       </div>
 
@@ -417,13 +503,45 @@
         <button id="ins-flip-h" class="sm-btn" title="Flip horizontally">Flip H</button>
         <button id="ins-flip-v" class="sm-btn" title="Flip vertically">Flip V</button>
         <button id="ins-mirror" class="sm-btn" title="Mirror Clone (Ctrl+Shift+D) — copy every selected layer onto its partner panel, mirrored. Needs a region map, with each layer's center inside a mirrored region">Mirror Clone</button>
+        <button id="ins-fit-zone" class="sm-btn" title="Fit to zone — scale this layer to sit centred inside the region under it (or the nearest one) with an 8% margin, turned the way that panel reads. Needs a region map; template PSDs create one with the kit's sponsor and number zones">Fit to zone</button>
         <button id="ins-duplicate" class="sm-btn" title="Duplicate layer (Ctrl+D)">Duplicate</button>
         <button id="ins-delete" class="sm-btn danger" title="Delete layer (Del)">Delete</button>
       </div>
       <div class="btn-row">
         <button id="ins-group" class="sm-btn" title="Group selection (Ctrl+G) — clicking any member then selects and moves them all together">Group</button>
         <button id="ins-ungroup" class="sm-btn" title="Ungroup (Ctrl+Shift+G) — keeps the layers, drops the grouping">Ungroup</button>
+        <!-- sponsor row auto-layout (see js/layout.js) -->
+        <button id="ins-row" class="sm-btn" title="Row — line up 2+ selected logos/text evenly with the same visible size">Row…</button>
       </div>
+      <div id="ins-row-panel" class="row-panel" hidden>
+        <div class="slider-row">
+          <label for="ins-row-dir">Along</label>
+          <select id="ins-row-dir" class="tune-select" title="Direction of the row">
+            <option value="horizontal">Horizontal</option>
+            <option value="vertical">Vertical</option>
+          </select>
+          <select id="ins-row-gap" class="tune-select" title="Even gaps: equal space between neighbours. Even centres: equal spacing between centres">
+            <option value="even">Even gaps</option>
+            <option value="centres">Even centres</option>
+          </select>
+        </div>
+        <div class="slider-row">
+          <label for="ins-row-align">Align</label>
+          <select id="ins-row-align" class="tune-select" title="Where the row sits across its direction">
+            <option value="center">Centre</option>
+            <option value="start">Top / left</option>
+            <option value="end">Bottom / right</option>
+          </select>
+          <label class="tb-check" title="Fit the row into the region map zone under the first selected layer instead of the selection's own box"><input type="checkbox" id="ins-row-zone"> Use zone</label>
+        </div>
+        <div class="btn-row">
+          <button id="ins-row-apply" class="sm-btn wide" title="Distribute the selected layers (one undo step)">Apply row</button>
+          <button id="ins-row-close" class="sm-btn icon" title="Close">✕</button>
+        </div>
+        <p class="hint" id="ins-row-hint" style="margin-top:6px"></p>
+      </div>
+      <!-- /sponsor row -->
+
       <div class="btn-row" id="ins-split-row" hidden>
         <button id="ins-split-colors" class="sm-btn wide" title="Detect this layer's dominant colors and split it into one layer per color — each independently recolorable (Tint) and materialable. The original layer is hidden, not deleted">Split colors → layers</button>
       </div>
@@ -575,6 +693,27 @@
   </div>
 </div>
 
+<!-- BRIEF: candidates panel (js/brief.js + the "Brief → livery" block in main.js) -->
+<div id="brief-modal" hidden>
+  <div class="library-panel brief-panel">
+    <h2 class="panel-title">Brief → livery
+      <span class="title-actions">
+        <button id="brief-load" class="sm-btn" title="Open another .brief.json">Open brief…</button>
+        <button id="brief-close" class="sm-btn icon" title="Close (Esc)">✕</button>
+      </span>
+    </h2>
+    <div id="brief-meta" class="brief-meta"></div>
+    <div id="brief-warn" class="brief-warn" hidden></div>
+    <div id="brief-cards" class="brief-cards"></div>
+    <div class="btn-row brief-actions">
+      <button id="brief-regen" class="sm-btn" title="Another set of patterns for the same brief">Regenerate</button>
+      <span class="brief-spacer"></span>
+      <a id="brief-sample" href="#" class="brief-link">Load sample</a> · <a href="brief.html" target="_blank" rel="noopener" class="brief-link" title="Send this to a driver — they describe the livery they want, you get a .brief.json back.">Driver brief form ↗</a>
+    </div>
+  </div>
+</div>
+<!-- /BRIEF -->
+
 <div id="library-modal" hidden>
   <div class="library-panel">
     <h2 class="panel-title">Graphics library
@@ -595,11 +734,33 @@
   </div>
 </div>
 
+<!-- car patterns picker (see main.js "car patterns") -->
+<div id="carpattern-modal" hidden>
+  <div class="library-panel carpattern-panel">
+    <h2 class="panel-title">Car patterns <span class="hint-inline" id="cp-car"></span>
+      <span class="title-actions"><button id="carpattern-close" class="sm-btn icon" title="Close (Esc)">✕</button></span>
+    </h2>
+    <p class="hint" style="margin-top:0">iRacing's own designs for this car, lifted from its template kit — already correct across every panel of the sheet. Pick three colours, narrow by style, click a design to drop it in as the base of your livery.<span id="cp-hint-change" hidden> <b>Changing the selected layer's pattern.</b></span></p>
+    <div class="cp-controls">
+      <div class="cp-colors">
+        <label title="Slot 1 — the base">1 <input id="cp-c1" type="color" value="#e8e6e1"></label>
+        <label title="Slot 2">2 <input id="cp-c2" type="color" value="#1a6cff"></label>
+        <label title="Slot 3">3 <input id="cp-c3" type="color" value="#ffffff"></label>
+      </div>
+      <div class="cp-chips" id="cp-chips"></div>
+    </div>
+    <div id="carpattern-grid" class="library-grid cp-grid"></div>
+  </div>
+</div>
+<!-- /car patterns picker -->
+
 <input type="file" id="file-image" accept="image/png,image/jpeg,image/svg+xml,image/webp" hidden>
 <input type="file" id="file-pattern" accept="image/png,image/jpeg,image/webp" hidden>
 <input type="file" id="file-tga" accept=".tga" hidden>
 <input type="file" id="file-template" accept=".psd,image/png,image/jpeg,image/webp,image/vnd.adobe.photoshop" hidden>
 <input type="file" id="file-project" accept=".json,application/json" hidden>
+<input type="file" id="file-brief" accept=".json,application/json" hidden> <!-- BRIEF -->
+
 <input type="file" id="file-regions" accept=".json,application/json" hidden>
 <input type="file" id="file-font" accept=".ttf,.otf,.woff,.woff2" hidden>
 

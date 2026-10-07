@@ -7,7 +7,11 @@ import {
   buildDragCache, renderPaintWithDrag,
   serializeDoc, deserializeDoc, loadImage, cornersFromMatrix, layerMatrix,
   templateOverlay, defaultParams, resolveParams, mixHex, drawLayer,
+  createCarPatternLayer, setCarPatternColors, carPatternCanvas, // car patterns
 } from './engine.js';
+// car patterns (see the "car patterns" block) — the kit's own colour-keyed designs
+import { buildCatalog, saveCatalog, loadCatalog, getPattern, patternRank, recolorPattern,
+         patternImage, DEFAULT_COLORS as PATTERN_DEFAULTS, PATTERN_STYLES } from './patterns.js';
 import { detectPalette, splitByPalette } from './separate.js';
 import { canvasToTGA, tgaToCanvas } from './tga.js';
 import { psdToTemplate } from './psd.js';
@@ -20,8 +24,15 @@ import { LIBRARY, libraryItemToLayerSource } from './library.js';
 import { TEXTURES, TEX_CATS, texThumb, texFull } from './textures.js';
 import { wandSelect } from './wand.js';
 import { lassoMask, lassoBounds, CLOSE_RADIUS } from './lasso.js';
-import { parseRegionMap, createRegionMap, regionAt, regionById, mirrorPoint, mirrorKind, MIRROR_AXIS, centerLine, mirrorAcross, uniqueRegionId, piecesRegionMap, renameRegion, setMirror, trimShape, regionOutline, labelPoint, snapToOutline, matchPoint, linkPoints, linkLength, linkDir } from './regions.js';
+import { parseRegionMap, createRegionMap, regionAt, regionById, uniqueRegionId, mirrorKindOf, mirrorPointKind, guessMirrorKind, MIRROR_KINDS, centerLine, mirrorAcross, piecesRegionMap, renameRegion, setMirror, trimShape, regionOutline, labelPoint, snapToOutline, matchPoint, linkPoints, linkLength, linkDir } from './regions.js';
+import { zonesToRegions, inferDecalPairs, applyOrientation, fitToZone, nearestRegion, offPaintFraction } from './zones.js';
 import { initAdvisor } from './advisor.js';
+// driver variants + sponsor row (see the "driver variants / sponsor row" block near the end)
+import { applyVariant, newDriver, exportableDrivers, validCustidStr, hasVariables } from './variants.js';
+import { measureOptical, layoutRow, cornersRect } from './layout.js';
+// BRIEF: brief → livery generator (see the "Brief → livery" block at the end)
+import * as briefLib from './brief.js';
+// /BRIEF
 
 // ---------- state ----------
 
@@ -32,6 +43,12 @@ let specView = false;
 let shineView = false;
 let shineStart = 0;
 let dirty = true;             // composite needs re-render
+// bleed check state (see "template zones: fit, hints, bleed" below)
+const BLEED_WARN = 0.2;       // flag a layer when >20% of it lands off-paint
+const BLEED_RES = 512;        // quarter-res sampling keeps the check cheap
+let bleedTimer = null;
+let bleedMask = { mask: null, img: null }; // paint mask downsampled to BLEED_RES
+let bleedScratch = null;
 let studioView = false;       // Studio 3D panel open
 let studioDirty = true;       // studio textures need re-render + re-upload
 let autosaveTimer = null;
@@ -102,6 +119,7 @@ function markDirty() {
   skipNextCapture = false; // a real edit followed an undo/redo — capture it
   requestRender();
   scheduleAutosave();
+  scheduleBleedCheck();
 }
 
 // ---------- undo / redo ----------
@@ -258,12 +276,15 @@ function draw() {
   vctx.clearRect(0, 0, w, h);
 
   let composite;
+  // driver variants: while previewing a driver, the composite comes from a
+  // variant copy of the doc — the live doc, selection and undo are untouched
+  const rdoc = previewRenderDoc();
   if (shineView) {
     const frame = lightSweepFrame(
-      renderPaint(doc), renderSpec(doc),
+      renderPaint(rdoc), renderSpec(rdoc),
       (performance.now() - shineStart) / 1000, dirty,
     );
-    composite = frame || renderPaint(doc); // WebGL unavailable → plain paint
+    composite = frame || renderPaint(rdoc); // WebGL unavailable → plain paint
     compositeCache = null; // shine touched both singletons — re-render next time
   } else if (drag && dragPaintCache && !specView) {
     // live layer drag: static slabs pre-rendered, only moving layers redraw
@@ -272,7 +293,7 @@ function draw() {
   } else {
     const mode = specView ? 'spec' : 'paint';
     if (dirty || !compositeCache || compositeCacheMode !== mode) {
-      compositeCache = specView ? renderSpec(doc) : renderPaint(doc);
+      compositeCache = specView ? renderSpec(rdoc) : renderPaint(rdoc);
       compositeCacheMode = mode;
     }
     composite = compositeCache;
@@ -301,6 +322,11 @@ function draw() {
     if (ov.multiply) vctx.globalCompositeOperation = 'multiply';
     vctx.drawImage(ov.img, 0, 0, SIZE, SIZE);
     vctx.restore();
+  }
+  // unpaintable template area (the kit's Mask layer) — red tint at 25%
+  if (doc.template && doc.paintMask && doc.showUnpaintable && !specView) {
+    const tint = unpaintableTint(doc.paintMask);
+    if (tint) vctx.drawImage(tint, 0, 0, SIZE, SIZE);
   }
   vctx.restore();
 
@@ -488,21 +514,27 @@ function drawRegionOverlay() {
   vctx.lineWidth = 1;
   vctx.font = '11px "IBM Plex Mono", monospace';
   for (const r of doc.regionMap.regions) {
-    // an outlined region draws its real shape, labelled at its first corner
+    // an outlined region draws its real shape, labelled at its first corner;
+    // template zones (sponsor / number blocks) read dashed + orange so they
+    // don't blend in with pieces and hand-drawn panels
     const pts = regionOutline(r).map(q => docToScreen(q.x, q.y));
     const a = pts[0];
+    const zone = !!r.kind;
+    const col = zone ? '255, 77, 0' : '45, 214, 193';
     vctx.beginPath();
     vctx.moveTo(a.x, a.y);
     for (let i = 1; i < pts.length; i++) vctx.lineTo(pts[i].x, pts[i].y);
     vctx.closePath();
-    vctx.fillStyle = 'rgba(45, 214, 193, .07)';
+    vctx.fillStyle = `rgba(${col}, .07)`;
     vctx.fill();
-    vctx.strokeStyle = 'rgba(45, 214, 193, .75)';
+    vctx.strokeStyle = `rgba(${col}, .75)`;
+    vctx.setLineDash(zone ? [5, 3] : []);
     vctx.stroke();
-    const label = r.name + (r.mirror ? ' ⇄' : '');
+    vctx.setLineDash([]);
+    const label = (zone ? `${r.kind} · ` : '') + r.name + (r.mirror ? ' ⇄' : '') + (r.rot ? ` ↻${r.rot}°` : '');
     vctx.fillStyle = 'rgba(13, 14, 17, .75)'; // backing so labels read over any paint
     vctx.fillRect(a.x, a.y, vctx.measureText(label).width + 8, 17);
-    vctx.fillStyle = '#2dd6c1';
+    vctx.fillStyle = zone ? '#ff8a50' : '#2dd6c1';
     vctx.fillText(label, a.x + 4, a.y + 12);
   }
   vctx.restore();
@@ -576,6 +608,28 @@ function drawSeamLinks() {
     }
   }
   vctx.restore();
+}
+
+// red tint over the mask's unpaintable pixels — cached per mask canvas
+let unpaintCache = { mask: null, canvas: null };
+function unpaintableTint(mask) {
+  if (unpaintCache.mask === mask) return unpaintCache.canvas;
+  let canvas = null;
+  try {
+    const w = mask.width, h = mask.height;
+    canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    const src = mask.getContext('2d').getImageData(0, 0, w, h).data;
+    const img = ctx.createImageData(w, h);
+    const d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+      if (src[i] < 128) { d[i] = 255; d[i + 1] = 40; d[i + 2] = 40; d[i + 3] = 64; }
+    }
+    ctx.putImageData(img, 0, 0);
+  } catch { canvas = null; }
+  unpaintCache = { mask, canvas };
+  return canvas;
 }
 
 // ---------- pointer interaction ----------
@@ -1318,6 +1372,7 @@ viewport.addEventListener('pointermove', (e) => {
       drag.layer.y = ny;
       syncInspector();
       markDirty();
+      hintZoneRot(drag.layer, drag);
       break;
     }
     case 'move-multi': {
@@ -1638,6 +1693,9 @@ wrap.addEventListener('drop', async (e) => {
   dragDepth = 0;
   $('drop-cue').hidden = true;
   for (const file of e.dataTransfer.files) {
+    // BRIEF: a dropped .brief.json opens the candidates panel
+    if (/\.brief\.json$/i.test(file.name)) { await openBriefFile(file); continue; }
+    // /BRIEF
     if (file.type.startsWith('image/')) await addImageLayerFromFile(file);
   }
 });
@@ -1664,6 +1722,7 @@ async function addImageLayerFromFile(file, asPattern = false) {
     rebuildLayerList();
     markDirty();
     status(asPattern ? `Added tiling pattern "${layer.name}"` : `Added layer "${layer.name}"`, 'ok');
+    if (!asPattern) hintZoneRot(layer, null);
   } catch {
     status('Could not load that image.', 'err');
   }
@@ -1919,6 +1978,12 @@ function rebuildLayerList() {
       const tctx = thumb.getContext('2d');
       tctx.fillStyle = fillPaintStyle(tctx, layer, 2, 2, 26, 26);
       tctx.fill(fillShapePath(layer.shape, 2, 2, 26, 26));
+    } else if (layer.type === 'carpattern') {
+      // recoloured, not the red/green/blue keyed source
+      thumb = document.createElement('canvas');
+      thumb.className = 'thumb';
+      thumb.width = thumb.height = 30;
+      try { thumb.getContext('2d').drawImage(carPatternCanvas(layer), 0, 0, 30, 30); } catch { /* keyed img not ready */ }
     } else {
       thumb = document.createElement('img');
       thumb.className = 'thumb';
@@ -1992,7 +2057,17 @@ function rebuildLayerList() {
     down.addEventListener('click', (e) => { e.stopPropagation(); e.shiftKey ? moveLayerToEnd(layer, false) : moveLayer(layer, -1); });
     order.append(up, down);
 
-    li.append(thumb, name, mat, dup, lock, vis, del, order);
+    li.append(thumb, name, mat);
+    // bleed check: most of this layer lands on unpaintable template area
+    const bleed = layerBleed(layer);
+    if (bleed !== null && bleed > BLEED_WARN) {
+      const warn = document.createElement('span');
+      warn.className = 'lbleed';
+      warn.textContent = '⚠';
+      warn.title = `${Math.round(bleed * 100)}% of this layer lands on unpaintable template area`;
+      li.append(warn);
+    }
+    li.append(dup, lock, vis, del, order);
     li.addEventListener('click', (e) => {
       if (e.ctrlKey || e.metaKey) toggleSelect(layer.id);
       else selectLayer(layer.id);
@@ -2224,8 +2299,9 @@ function syncInspector() {
     $('ins-fill-row').hidden = sel.type !== 'fill';
     $('ins-fill-shape-row').hidden = sel.type !== 'fill';
     $('ins-fill-type-row').hidden = sel.type !== 'fill';
-    document.querySelector('.xform-grid').hidden = sel.type === 'fill';
-    $('ins-flip-h').hidden = $('ins-flip-v').hidden = sel.type === 'fill' && !sel.corners;
+    document.querySelector('.xform-grid').hidden = sel.type === 'fill' || sel.type === 'carpattern';
+    $('ins-flip-h').hidden = $('ins-flip-v').hidden = (sel.type === 'fill' || sel.type === 'carpattern') && !sel.corners;
+    syncCarPatternInspector(sel); // car patterns
     if (sel.type === 'fill') {
       const ft = sel.fillType || 'solid';
       $('ins-fill-color').value = sel.color;
@@ -2259,6 +2335,7 @@ function syncInspector() {
       $('ins-text-italic').checked = sel.italic;
       $('ins-text-curve').value = sel.curve || 0;
       $('ins-text-curve-val').textContent = (sel.curve || 0) + '°';
+      $('ins-text-variable').value = sel.variable || ''; // driver variants
     }
     // effects: raster layers only (image + text)
     $('ins-split-row').hidden = sel.type !== 'image' && sel.type !== 'pattern';
@@ -2266,7 +2343,7 @@ function syncInspector() {
     $('ins-fx-section').hidden = !hasFxUI;
     // halftone fade works on anything drawable — stripes (fill) and textures
     // (pattern) are its headline use, not just logos
-    const hasFadeUI = hasFxUI || sel.type === 'fill' || sel.type === 'pattern';
+    const hasFadeUI = hasFxUI || isRegionLayer(sel);
     $('ins-fade-section').hidden = !hasFadeUI;
     if (hasFadeUI) {
       const fx = sel.fx || {};
@@ -2274,8 +2351,18 @@ function syncInspector() {
       $('ins-fade-amt-val').textContent = (fx.fade || 0) + '%';
       $('ins-fade-angle').value = fx.fadeAngle || 0;
       $('ins-fade-angle-val').textContent = (fx.fadeAngle || 0) + '°';
+      // light up the cardinal button that matches the current angle (if any)
+      for (const b of document.querySelectorAll('.fade-dir-btn')) {
+        b.classList.toggle('active', parseInt(b.dataset.angle, 10) === ((fx.fadeAngle || 0) % 360));
+      }
       $('ins-fade-cell').value = fx.fadeCell ?? 14;
-      $('ins-fade-style').value = fx.fadeStyle === 'lines' ? 'lines' : 'dots';
+      const style = ['dots', 'lines', 'rip', 'scan', 'glitch'].includes(fx.fadeStyle) ? fx.fadeStyle : 'dots';
+      $('ins-fade-style').value = style;
+      // seeded styles get the dice; glitch alone gets the RGB split
+      $('ins-fade-reseed').hidden = style !== 'rip' && style !== 'glitch';
+      $('ins-fade-split-row').hidden = style !== 'glitch';
+      $('ins-fade-split').value = fx.glitchSplit ?? 4;
+      $('ins-fade-split-val').textContent = (fx.glitchSplit ?? 4) + 'px';
     }
     if (hasFxUI) {
       const fx = sel.fx || {};
@@ -2313,9 +2400,131 @@ function syncInspector() {
       : 'Mirror Clone needs a region map — load one from the Template panel, or draw your own with Annotate.';
     $('ins-group').disabled = selectedIds.size < 2;
     $('ins-ungroup').disabled = !selectedLayers().some(l => l.groupId);
+    syncRowButton(); // sponsor row
+    const fitBtn = $('ins-fit-zone');
+    fitBtn.classList.toggle('needs-setup', !doc.regionMap);
+    fitBtn.hidden = !!(sel.corners && sel.corners.length === 4); // a pinned quad has no single frame to fit
+    // bleed check note
+    const bleed = layerBleed(sel);
+    const bleedEl = $('ins-bleed');
+    bleedEl.hidden = !(bleed !== null && bleed > BLEED_WARN);
+    if (!bleedEl.hidden) bleedEl.textContent = `⚠ ${Math.round(bleed * 100)}% of this layer lands on unpaintable template area — it won't show on the car.`;
   }
   if (isBase) syncBaseColorFields();
   syncMaterialGrid();
+}
+
+// ---------- template zones: fit, hints, bleed ----------
+
+// scale the selected layer to sit inside the region under its centre (or the
+// nearest one), centred with an 8% margin, turned the way the zone reads
+function fitSelectedToZone() {
+  const sel = selectedLayer();
+  if (!sel) { status('Select a layer first, then Fit to zone drops it into the nearest region.', 'warn'); return; }
+  if (!doc.regionMap || !doc.regionMap.regions.length) {
+    status('Fit to zone needs a region map — load your car\'s template PSD (it brings the sponsor and number zones) or draw regions with Annotate.', 'err');
+    return;
+  }
+  if (sel.locked) { status(`"${sel.name}" is locked.`, 'warn'); return; }
+  if (sel.corners && sel.corners.length === 4) { status('Corner-pinned layers keep their own quad — unpin first to fit a zone.', 'warn'); return; }
+  const cx = isRegionLayer(sel) ? sel.rx + sel.rw / 2 : sel.x;
+  const cy = isRegionLayer(sel) ? sel.ry + sel.rh / 2 : sel.y;
+  const r = nearestRegion(doc.regionMap, cx, cy);
+  if (!r) return;
+  if (isRegionLayer(sel)) {
+    // fills/patterns are axis-aligned rectangles: inset the region
+    const mx = Math.round(r.w * 0.08), my = Math.round(r.h * 0.08);
+    sel.rx = r.x + mx; sel.ry = r.y + my;
+    sel.rw = Math.max(1, r.w - 2 * mx); sel.rh = Math.max(1, r.h - 2 * my);
+  } else {
+    const f = fitToZone(sel.img.width, sel.img.height, r);
+    sel.x = f.x; sel.y = f.y;
+    sel.scale = f.scale; sel.scaleY = null;
+    sel.rotation = f.rotation; sel.skewX = 0; sel.skewY = 0;
+  }
+  syncInspector();
+  markDirty();
+  status(`"${sel.name}" fitted to ${r.name}` + (r.rot ? ` — turned ${r.rot}° the way that panel reads.` : '.'), 'ok');
+}
+$('ins-fit-zone').addEventListener('click', fitSelectedToZone);
+
+// moving/dropping a layer into a zone that reads rotated: say so once per
+// zone entered, never rotate behind the user's back
+function hintZoneRot(layer, d) {
+  if (!doc.regionMap || isRegionLayer(layer)) return;
+  const r = regionAt(doc.regionMap, layer.x, layer.y);
+  const id = r ? r.id : null;
+  if (d) { if (d.hintRegion === id) return; d.hintRegion = id; }
+  if (!r || !r.rot) return;
+  status(`Zone reads rotated ${r.rot}° — Fit to zone applies it.`);
+}
+
+// Bleed check. Each visible layer is rendered alone at quarter resolution
+// and compared against the paint mask; results cache on the layer under a
+// transform signature and refresh on a debounce after edits settle.
+function bleedSignature(l) {
+  return [l.img && l.img.src ? l.img.src.length : 0, l.x, l.y, l.scale, l.scaleY, l.rotation, l.skewX, l.skewY,
+    l.flipH, l.flipV, l.rx, l.ry, l.rw, l.rh, l.opacity, l.visible,
+    l.corners ? l.corners.map(q => `${q.x},${q.y}`).join(';') : '',
+    l.lassoPts ? l.lassoPts.length : 0, l.fx ? JSON.stringify(l.fx) : ''].join('|');
+}
+
+// cached fraction (null = unknown / not applicable)
+function layerBleed(l) {
+  if (!doc.paintMask || !l || !l.visible) return null;
+  return l._bleed && l._bleed.sig === bleedSignature(l) && l._bleed.mask === doc.paintMask ? l._bleed.frac : null;
+}
+
+function bleedMaskImage() {
+  if (bleedMask.mask === doc.paintMask) return bleedMask.img;
+  let img = null;
+  try {
+    const c = document.createElement('canvas');
+    c.width = c.height = BLEED_RES;
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(doc.paintMask, 0, 0, BLEED_RES, BLEED_RES);
+    img = ctx.getImageData(0, 0, BLEED_RES, BLEED_RES);
+  } catch { img = null; }
+  bleedMask = { mask: doc.paintMask, img };
+  return img;
+}
+
+function runBleedCheck() {
+  bleedTimer = null;
+  if (!doc.paintMask) return;
+  const maskImg = bleedMaskImage();
+  if (!maskImg) return;
+  if (!bleedScratch) {
+    bleedScratch = document.createElement('canvas');
+    bleedScratch.width = bleedScratch.height = BLEED_RES;
+  }
+  const ctx = bleedScratch.getContext('2d', { willReadFrequently: true });
+  let changed = false;
+  for (const l of doc.layers) {
+    if (!l.visible) continue;
+    const sig = bleedSignature(l);
+    if (l._bleed && l._bleed.sig === sig && l._bleed.mask === doc.paintMask) continue;
+    let frac = null;
+    try {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, BLEED_RES, BLEED_RES);
+      ctx.scale(BLEED_RES / SIZE, BLEED_RES / SIZE);
+      drawLayer(ctx, { ...l, opacity: 1 });
+      frac = offPaintFraction(ctx.getImageData(0, 0, BLEED_RES, BLEED_RES), maskImg);
+    } catch { frac = null; }
+    const was = l._bleed ? l._bleed.frac : null;
+    l._bleed = { sig, mask: doc.paintMask, frac };
+    if ((was !== null && was > BLEED_WARN) !== (frac !== null && frac > BLEED_WARN)) changed = true;
+    else if (frac !== null && frac > BLEED_WARN && Math.round(frac * 100) !== Math.round((was || 0) * 100)) changed = true;
+  }
+  if (changed) { rebuildLayerList(); syncInspector(); }
+}
+
+function scheduleBleedCheck() {
+  if (!doc.paintMask) return;
+  clearTimeout(bleedTimer);
+  bleedTimer = setTimeout(runBleedCheck, 350);
 }
 
 // keep swatch, hex field, and RGB fields in agreement (skip whichever the
@@ -2572,7 +2781,7 @@ function mirrorLayerCopy(sel) {
   const at = sel.clip && sel.clipAt;
   const cx = at ? at.x : isRegionLayer(sel) ? sel.rx + sel.rw / 2 : sel.x;
   const cy = at ? at.y : isRegionLayer(sel) ? sel.ry + sel.rh / 2 : sel.y;
-  const src = regionAt(doc.regionMap, cx, cy);
+  const src = at ? pieceAt(cx, cy) : regionAt(doc.regionMap, cx, cy);
   if (!src) return { error: `"${sel.name}" is not inside a mapped region.` };
   // a region with a mirror partner mirrors onto the partner; one with a
   // centerline (bonnet, roof, bumpers) mirrors onto itself across that line
@@ -2580,11 +2789,13 @@ function mirrorLayerCopy(sel) {
   if (!src.mirror && !mid) return { error: `"${src.name}" has no mirror partner or centerline in the map.` };
   const dst = mid ? src : regionById(doc.regionMap, src.mirror);
   if (!dst) return { error: `Mirror partner "${src.mirror}" is missing from the map.` };
-  // partners can lie side by side, one above the other, or turned a quarter
-  const kind = mid ? null : mirrorKind(src, dst);
-  const reflect = mid ? (x, y) => mirrorAcross(src, x, y) : (x, y) => mirrorPoint(src, dst, x, y, kind);
-  const axis = mid ? mid.angle : MIRROR_AXIS[kind]; // angle of the line being mirrored across
-  const axisLevel = Math.abs(Math.cos(axis * Math.PI / 180)) > Math.abs(Math.sin(axis * Math.PI / 180));
+  // how the partner panel relates: a left/right or top/bottom reflection
+  // (flip / flipV), the same panel turned 180° (rot180), or a plain copy.
+  // Outlined pieces paired before that was recorded get it from their shapes.
+  const kind = mid ? null : MIRROR_KINDS.includes(src.mirrorKind) ? src.mirrorKind : guessMirrorKind(src, dst);
+  const reflect = !!mid || kind === 'flip' || kind === 'flipV';
+  // where a point of the layer lands on the copy's side
+  const carry = mid ? (x, y) => mirrorAcross(src, x, y) : (x, y) => mirrorPointKind(src, dst, x, y, kind);
   const copy = {
     ...sel,
     id: 'L' + Math.random().toString(36).slice(2),
@@ -2600,34 +2811,40 @@ function mirrorLayerCopy(sel) {
     fx: sel.fx ? { ...sel.fx } : null,
     // a trimmed layer's copy is trimmed to the matching place: the other half
     // across a centerline, or the whole partner region
-    clip: !sel.clip ? null : mid ? sel.clip.map(q => reflect(q.x, q.y)) : trimShape(dst, 0, 0),
-    clipAt: at ? reflect(at.x, at.y) : null,
-    flipH: !sel.flipH,
+    clip: !sel.clip ? null : mid ? sel.clip.map(q => carry(q.x, q.y)) : trimShape(dst, 0, 0),
+    clipAt: at ? carry(at.x, at.y) : null,
+    flipH: mid || kind === 'flip' ? !sel.flipH : !!sel.flipH,
+    flipV: kind === 'flipV' ? !sel.flipV : !!sel.flipV,
     // a true mirror image reflects the whole transform, not just the raster
-    // (a mirror across a line at any angle is the upright mirror plus a turn
-    // of twice the line's angle and a half; kept within ±180°)
-    rotation: ((-(sel.rotation || 0) + 2 * axis) % 360 + 360) % 360 - 180,
-    skewX: -(sel.skewX || 0),
-    skewY: -(sel.skewY || 0),
+    // (across a centerline at any angle that is the upright mirror plus a
+    // turn of twice the line's angle and a half, kept within ±180°);
+    // a 180° twin just turns it
+    rotation: mid ? ((-(sel.rotation || 0) + 2 * mid.angle) % 360 + 360) % 360 - 180
+      : reflect ? -(sel.rotation || 0) : kind === 'rot180' ? ((sel.rotation || 0) + 180) % 360 : (sel.rotation || 0),
+    skewX: reflect ? -(sel.skewX || 0) : (sel.skewX || 0),
+    skewY: reflect ? -(sel.skewY || 0) : (sel.skewY || 0),
   };
   if (copy.corners) {
-    // A pinned layer lives entirely in its corners, so reflect those. Swapping
-    // the left/right pairs afterwards keeps the winding consistent, or the
-    // mirrored quad comes out inside-out.
+    // A pinned layer lives entirely in its corners, so map those. Re-ordering
+    // afterwards keeps TL/TR/BR/BL meaningful (and the winding consistent),
+    // or the mirrored quad comes out inside-out.
     const m = copy.corners.map(q => {
-      const r = reflect(q.x, q.y);
+      const r = carry(q.x, q.y);
       return { x: r.x, y: r.y };
     });
-    copy.corners = [m[1], m[0], m[3], m[2]];
+    copy.corners = mid || kind === 'flip' ? [m[1], m[0], m[3], m[2]]
+      : kind === 'flipV' ? [m[3], m[2], m[1], m[0]]
+      : kind === 'rot180' ? [m[2], m[3], m[0], m[1]]
+      : m;
     if (Array.isArray(copy.lassoPts)) {
       copy.lassoPts = copy.lassoPts.map(q => {
-        const r = reflect(q.x, q.y);
+        const r = carry(q.x, q.y);
         return { x: r.x, y: r.y };
       });
     }
   } else if (isRegionLayer(sel)) {
-    // mirror the region rect's corners and take the box around them
-    const cs = [[0, 0], [1, 0], [1, 1], [0, 1]].map(([u, v]) => reflect(sel.rx + u * sel.rw, sel.ry + v * sel.rh));
+    // carry the region rect's corners across and take the box around them
+    const cs = [[0, 0], [1, 0], [1, 1], [0, 1]].map(([u, v]) => carry(sel.rx + u * sel.rw, sel.ry + v * sel.rh));
     const xs = cs.map(q => q.x), ys = cs.map(q => q.y);
     copy.rx = Math.round(Math.min(...xs));
     copy.ry = Math.round(Math.min(...ys));
@@ -2635,21 +2852,22 @@ function mirrorLayerCopy(sel) {
     copy.rh = Math.max(1, Math.round(Math.max(...ys) - Math.min(...ys)));
     if (sel.type === 'pattern') {
       // the tiling can turn even though its box cannot, so the flip and turn
-      // set above mirror it exactly — once the point it tiles from mirrors too
-      const o = reflect(sel.x || 0, sel.y || 0);
+      // set above carry it exactly — once the point it tiles from moves too
+      const o = carry(sel.x || 0, sel.y || 0);
       copy.x = o.x;
       copy.y = o.y;
-    } else {
+    } else if (mid) {
       // ponytail: a fill's rect cannot turn, so the nearer of an upright or a
-      // level flip stands in for the mirror line — exact when the line is one
+      // level flip stands in for the centerline — exact when the line is one
       // of those, approximate when tilted. Give fills a real rotation if
-      // tilted mirror lines turn up.
-      copy.flipH = axisLevel ? !!sel.flipH : !sel.flipH;
-      copy.flipV = axisLevel ? !sel.flipV : !!sel.flipV;
+      // tilted centerlines turn up.
+      const level = Math.abs(mid.dir.x) > Math.abs(mid.dir.y);
+      copy.flipH = level ? !!sel.flipH : !sel.flipH;
+      copy.flipV = level ? !sel.flipV : !!sel.flipV;
       copy.rotation = -(sel.rotation || 0);
     }
   } else {
-    const placed = reflect(sel.x, sel.y);
+    const placed = carry(sel.x, sel.y);
     copy.x = Math.round(placed.x);
     copy.y = Math.round(placed.y);
   }
@@ -2755,22 +2973,15 @@ $('file-template').addEventListener('change', async (e) => {
   if (!file) return;
   try {
     let src;
+    let intel = null;
     if (/\.psd$/i.test(file.name)) {
       status('Reading PSD — extracting wireframe…');
-      const { src: psdSrc, usedWireframe, pieces } = await psdToTemplate(await file.arrayBuffer());
-      src = psdSrc;
-      let found = '';
-      if (pieces.length && doc.regionMap) {
-        // never replace a map the user loaded or drew
-        found = ` Found ${pieces.length} pieces — clear the current region map and load the PSD again to use them.`;
-      } else if (pieces.length) {
-        applyRegionMap(piecesRegionMap(file.name.replace(/\.psd$/i, ''), pieces));
-        setRegionsView(true);
-        found = ` Found ${pieces.length} pieces — shown as regions. Rename one with Annotate: click it.`;
-      }
-      status((usedWireframe
+      const res = await psdToTemplate(await file.arrayBuffer());
+      src = res.src;
+      intel = res;
+      status((res.usedWireframe
         ? 'Wireframe extracted from PSD.'
-        : 'PSD loaded (no wireframe layers found — using flattened composite).') + found, 'ok');
+        : 'PSD loaded (no wireframe layers found — using flattened composite).'), 'ok');
     } else {
       src = await fileToDataURL(file);
       status('Template loaded — shown as a multiply overlay.', 'ok');
@@ -2780,18 +2991,81 @@ $('file-template').addEventListener('change', async (e) => {
     $('template-opacity-row').hidden = false;
     $('template-style-row').hidden = false;
     syncTemplateStyle();
+    if (intel) applyTemplateIntel(intel, file.name.replace(/\.[^.]+$/, ''));
+    $('template-unpaintable-row').hidden = !doc.paintMask;
     markDirty();
+    // car patterns — after the zones status so "+ Car pattern is ready" is what the user sees
+    if (intel) await applyCarPatterns(intel.patterns, file.name.replace(/\.[^.]+$/, ''), !!(intel.zones && intel.zones.length));
   } catch (err) {
     status('Could not load template: ' + (err.message || 'unknown error'), 'err');
   }
 });
 $('btn-clear-template').addEventListener('click', () => {
   doc.template = null;
+  doc.paintMask = null; // the mask belongs to the template
   $('btn-clear-template').hidden = true;
   $('template-opacity-row').hidden = true;
   $('template-style-row').hidden = true;
+  $('template-unpaintable-row').hidden = true;
+  rebuildLayerList(); // bleed badges go with it
+  syncInspector();
   markDirty();
 });
+$('template-unpaintable').addEventListener('change', () => {
+  doc.showUnpaintable = $('template-unpaintable').checked;
+  scheduleAutosave();
+  requestRender();
+});
+
+// What the kit knows, applied to the doc: sponsor/number zones become
+// regions (twins paired, orientation inferred from the stock decals), the
+// Mask layer becomes the paint mask behind the bleed check.
+function applyTemplateIntel({ zones, paintMask, decals, pieces }, carName) {
+  doc.paintMask = paintMask || null;
+  bleedMask = { mask: null, img: null };
+  for (const l of doc.layers) l._bleed = null;
+  // The sheet's pieces, outlined from the wireframe. They go in once: a map
+  // that already has outlined regions keeps them, so reloading the template
+  // never disturbs pieces that have since been named, paired, linked or
+  // given a centerline. They sit first in the map, under everything else.
+  let nPieces = 0;
+  if (pieces && pieces.length && !(doc.regionMap && doc.regionMap.regions.some(r => r.points))) {
+    if (!doc.regionMap) doc.regionMap = createRegionMap(carName || 'template car');
+    const fresh = piecesRegionMap(carName, pieces).regions;
+    for (const r of fresh) r.id = uniqueRegionId(r.id, doc.regionMap);
+    doc.regionMap.regions.unshift(...fresh);
+    nPieces = fresh.length;
+  }
+  const found = nPieces ? `Found ${nPieces} pieces — rename or pair one with Annotate: click it. ` : '';
+  if (!zones || !zones.length) {
+    if (nPieces) { syncRegionUI(); if (!regionsView) setRegionsView(true); }
+    if (nPieces || doc.paintMask) status(found + (doc.paintMask ? 'Template loaded with its paint mask — the layer list flags artwork that lands off-paint.' : ''), 'ok');
+    return;
+  }
+  if (!doc.regionMap) doc.regionMap = createRegionMap(carName || 'template car');
+  // a reload replaces the previous template zones; hand-drawn regions stay
+  const kept = doc.regionMap.regions.filter(r => !r.kind);
+  for (const r of kept) {
+    if (r.mirror && !kept.some(o => o.id === r.mirror)) { delete r.mirror; delete r.mirrorKind; }
+  }
+  // a map that was nothing but the previous kit's zones takes the new kit's name
+  if (!kept.length && carName) doc.regionMap.car = carName;
+  doc.regionMap.regions = kept;
+  const { regions, axis } = zonesToRegions(zones, doc.regionMap);
+  let oriented = 0;
+  if (decals) {
+    try {
+      const img = decals.getContext('2d').getImageData(0, 0, decals.width, decals.height);
+      oriented = applyOrientation(regions, inferDecalPairs(img, { axis }), axis);
+    } catch { /* orientation stays at the geometric default */ }
+  }
+  doc.regionMap.regions.push(...regions);
+  const nS = regions.filter(r => r.kind === 'sponsor').length, nN = regions.filter(r => r.kind === 'number').length;
+  const pairs = regions.filter(r => r.mirror).length / 2;
+  syncRegionUI();
+  if (!regionsView) setRegionsView(true);
+  status(found + `Template zones mapped: ${nS} sponsor, ${nN} number (${pairs} twin pairs${oriented ? `, ${oriented} oriented from the kit's decals` : ''}). Drop a logo near one and press Fit to zone.`, 'ok');
+}
 
 function syncTemplateStyle() {
   document.querySelectorAll('.tpl-color').forEach(btn => {
@@ -2826,9 +3100,67 @@ function syncRegionUI() {
     $('region-map-name').textContent = `${map.car} — ${map.regions.length} region${map.regions.length === 1 ? '' : 's'}`;
   }
   $('btn-regions-view').disabled = !map;
+  // the piece tools need pieces (or hand-drawn regions) — the kit's zones alone won't do
+  const hasPieces = !!map && map.regions.some(r => !r.kind);
+  for (const id of ['btn-piece-layer', 'btn-piece-colors', 'btn-link-edges', 'btn-centerline']) $(id).disabled = !hasPieces;
+  if (!hasPieces && regionTool) setRegionTool(null);
+  syncMapTools();
   if (!map && regionsView) setRegionsView(false);
+  syncRegionEditRow();
   syncInspector(); // Mirror button availability
 }
+
+// per-region override: how a region reads (rot) and whether its twin is a
+// mirror image or a 180° turn — the PSD inference only sets defaults
+function syncRegionEditRow() {
+  const map = doc.regionMap;
+  const row = $('region-edit-row');
+  row.hidden = !map || !map.regions.length;
+  if (row.hidden) return;
+  const pick = $('region-pick');
+  const prev = pick.value;
+  pick.innerHTML = '';
+  for (const r of map.regions) {
+    const o = document.createElement('option');
+    o.value = r.id;
+    o.textContent = r.name + (r.mirror ? ' ⇄' : '');
+    pick.appendChild(o);
+  }
+  if (map.regions.some(r => r.id === prev)) pick.value = prev;
+  const r = regionById(map, pick.value);
+  $('region-rot').value = String(r && r.rot ? r.rot : 0);
+  $('region-mirrored-wrap').hidden = !(r && r.mirror);
+  $('region-mirrored').checked = !!(r && r.mirror && mirrorKindOf(r) !== 'rot180');
+}
+$('region-pick').addEventListener('change', syncRegionEditRow);
+$('region-rot').addEventListener('change', () => {
+  const r = doc.regionMap && regionById(doc.regionMap, $('region-pick').value);
+  if (!r) return;
+  const rot = parseInt($('region-rot').value, 10) || 0;
+  if (rot) r.rot = rot; else delete r.rot;
+  scheduleAutosave();
+  requestRender();
+  status(`${r.name} now reads ${rot ? `rotated ${rot}°` : 'upright'} — Fit to zone applies it.`, 'ok');
+});
+$('region-mirrored').addEventListener('change', () => {
+  const map = doc.regionMap;
+  const r = map && regionById(map, $('region-pick').value);
+  const m = r && r.mirror ? regionById(map, r.mirror) : null;
+  if (!r || !m) return;
+  let kind;
+  if ($('region-mirrored').checked) {
+    // a reflection: top/bottom when the twins share a column, else left/right
+    kind = Math.abs(r.x - m.x) <= 6 && Math.abs(r.w - m.w) <= 6 ? 'flipV' : 'flip';
+  } else {
+    kind = 'rot180';
+  }
+  r.mirrorKind = m.mirrorKind = kind;
+  scheduleAutosave();
+  requestRender();
+  status(kind === 'rot180'
+    ? `${r.name} ⇄ ${m.name}: twins turned 180° — Mirror Clone rotates the copy.`
+    : `${r.name} ⇄ ${m.name}: mirror-image twins — Mirror Clone flips the copy.`, 'ok');
+});
 
 // shared by the file loader and the community "Get map…" flow — validates,
 // applies to the doc, and syncs everything that watches the region map
@@ -2969,9 +3301,18 @@ $('btn-export-regions').addEventListener('click', () => {
   status('Region map exported.', 'ok');
 });
 
+// Link edges and Centerline edit the map, like Annotate, so they live in the
+// same toolbar — as a second row, and only while the map is on show
+function syncMapTools() {
+  const map = doc.regionMap;
+  const hasPieces = !!map && map.regions.some(r => !r.kind);
+  $('map-tools').hidden = !(hasPieces && (regionsView || annotateMode || regionTool === 'link' || regionTool === 'center'));
+}
+
 function setRegionsView(on) {
   regionsView = on;
   $('btn-regions-view').classList.toggle('active', on);
+  syncMapTools();
   requestRender();
 }
 $('btn-regions-view').addEventListener('click', () => setRegionsView(!regionsView));
@@ -2989,6 +3330,7 @@ function setAnnotateMode(on) {
     if (!doc.regionMap && regionsView) setRegionsView(false); // nothing to overlay
     requestRender();
   }
+  syncMapTools();
 }
 $('btn-annotate').addEventListener('click', () => setAnnotateMode(!annotateMode));
 
@@ -3075,7 +3417,10 @@ const BAND_COLORS = ['#ffffff', '#e6194b', '#ffe119', '#0082c8', '#101114', '#f5
 
 async function addPieceColors(quiet = false) {
   const map = doc.regionMap;
-  if (!map || !map.regions.length) return;
+  // pieces and hand-drawn panels — the kit's sponsor/number zones would only
+  // paint boxes over them
+  const regions = map ? map.regions.filter(r => !r.kind) : [];
+  if (!regions.length) return;
   const c = document.createElement('canvas');
   c.width = c.height = SIZE;
   const ctx = c.getContext('2d');
@@ -3088,7 +3433,7 @@ async function addPieceColors(quiet = false) {
     for (let k = 1; k < pts.length; k++) ctx.lineTo(pts[k].x, pts[k].y);
     ctx.closePath();
   };
-  map.regions.forEach((r, i) => {
+  regions.forEach((r, i) => {
     trace(regionOutline(r));
     // golden-angle hue steps keep neighbours in the list far apart in color
     ctx.fillStyle = `hsl(${(i * 137.5) % 360} 70% ${i % 2 ? 62 : 46}%)`;
@@ -3121,7 +3466,7 @@ async function addPieceColors(quiet = false) {
     }
   });
   // centerlines: a bold dashed line down the middle of each region that has one
-  for (const r of map.regions) {
+  for (const r of regions) {
     const c = centerLine(r);
     if (!c) continue;
     ctx.save();
@@ -3137,8 +3482,8 @@ async function addPieceColors(quiet = false) {
     ctx.restore();
   }
   // names go on last, each kept clear of the later regions drawn over its own
-  map.regions.forEach((r, i) => {
-    const p = labelPoint(r, map.regions.slice(i + 1));
+  regions.forEach((r, i) => {
+    const p = labelPoint(r, regions.slice(i + 1));
     let size = Math.max(14, Math.min(64, p.room * 0.7));
     ctx.font = `700 ${size}px "IBM Plex Mono", monospace`;
     const fit = (p.room * 1.7) / ctx.measureText(r.name).width;
@@ -3174,11 +3519,18 @@ $('btn-piece-colors').addEventListener('click', () => addPieceColors());
 // wash), and keeps the outline, so Tint recolors it and Edit shape re-shapes it.
 
 const REGION_TOOLS = {
-  layer: { btn: 'btn-piece-layer', hint: 'Piece → layer: click a region to make a layer in its shape. Esc to cancel.' },
+  layer: { btn: 'btn-piece-layer', hint: '+ Piece: click a region to add a layer in its shape. Esc to cancel.' },
   link: { btn: 'btn-link-edges', hint: 'Link edges: click the two ends of a shared stretch on one region, then the two ends it meets on the other, in the same order. Drag an end dot to adjust. Backspace undoes, Alt+click removes a link, Esc exits.' },
   trim: { btn: 'ins-trim', hint: 'Trim to piece: click the region this layer should show in — on a region with a centerline, click the half you want. Esc to cancel.' },
   center: { btn: 'btn-centerline', hint: 'Centerline: on a region that spans the middle of the car, click a corner and then its twin on the other side. Alt+click a region to remove its line, Esc exits.' },
 };
+
+// The region under a point for the piece tools: the kit's sponsor and number
+// zones (regions with a kind) sit on top of the pieces and are looked past.
+function pieceAt(x, y) {
+  const map = doc.regionMap;
+  return map ? regionAt({ regions: map.regions.filter(r => !r.kind) }, x, y) : null;
+}
 
 // arm one region tool (or none) — they never coexist with each other or with
 // the wand, lasso and annotate modes
@@ -3194,6 +3546,7 @@ function setRegionTool(tool) {
     status(REGION_TOOLS[tool].hint);
   }
   for (const t in REGION_TOOLS) $(REGION_TOOLS[t].btn).classList.toggle('active', t === tool);
+  syncMapTools();
   viewport.classList.toggle('wand', !!tool || wandMode || lassoMode || annotateMode);
   requestRender();
 }
@@ -3220,7 +3573,7 @@ for (const t in REGION_TOOLS) {
 // trim tool: the clicked region (or half of it) becomes the selected layer's window
 function trimAt(p) {
   const sel = selectedLayer();
-  const r = doc.regionMap && regionAt(doc.regionMap, p.x, p.y);
+  const r = pieceAt(p.x, p.y);
   if (!sel) { setRegionTool(null); return; }
   if (!r) { status('No region there — click inside one of the outlined regions.', 'warn'); return; }
   sel.clip = trimShape(r, p.x, p.y);
@@ -3233,7 +3586,7 @@ function trimAt(p) {
 }
 
 async function pieceLayerAt(p) {
-  const region = doc.regionMap && regionAt(doc.regionMap, p.x, p.y);
+  const region = pieceAt(p.x, p.y);
   if (!region) { status('No region there — click inside one of the outlined regions.', 'warn'); return; }
   const pts = regionOutline(region).map(q => ({ x: q.x, y: q.y }));
   const mask = lassoMask(pts);
@@ -3266,7 +3619,7 @@ function linkSnap(p, only, reach = 14 / view.zoom, skip = []) {
   const map = doc.regionMap;
   let best = null;
   for (const r of map.regions) {
-    if (only && r.id !== only) continue;
+    if (r.kind || (only && r.id !== only)) continue; // edges of pieces, not of the kit's zones
     const q = snapToOutline(regionOutline(r), p.x, p.y, 10 / view.zoom);
     if (q.d <= reach && (!best || q.d < best.d)) best = { region: r.id, x: q.x, y: q.y, d: q.d };
   }
@@ -3292,7 +3645,7 @@ function centerlineClick(p, remove) {
   const map = doc.regionMap;
   if (!map) return;
   if (remove) {
-    const r = regionAt(map, p.x, p.y);
+    const r = pieceAt(p.x, p.y);
     if (!r || !r.center) { status('No centerline there to remove — Alt+click inside a region that has one.', 'warn'); return; }
     delete r.center;
     scheduleAutosave();
@@ -3402,7 +3755,7 @@ function linkClick(p, remove) {
   syncPieceColors();
   requestRender();
   const name = (id) => (regionById(map, id) || { name: id }).name;
-  status(`Linked ${name(a1.region)} ⇄ ${name(b1.region)} (${map.links.length} link${map.links.length === 1 ? '' : 's'}). Drag an end dot to adjust it; Piece colors shows it on the car.`, 'ok');
+  status(`Linked ${name(a1.region)} ⇄ ${name(b1.region)} (${map.links.length} link${map.links.length === 1 ? '' : 's'}). Drag an end dot to adjust it; + Piece colors shows it on the car.`, 'ok');
 }
 
 // Backspace in link mode: take back the last click, or the last finished link
@@ -3511,7 +3864,7 @@ function setFx(patch) {
     shadow: 0, shadowDX: 8, shadowDY: 8, shadowColor: '#000000',
     glow: 0, glowColor: '#ffffff',
     neon: 0, neonColor: '#39ff14',
-    fade: 0, fadeAngle: 0, fadeCell: 14, fadeStyle: 'dots',
+    fade: 0, fadeAngle: 0, fadeCell: 14, fadeStyle: 'dots', fadeSeed: null, glitchSplit: 4,
     ...(sel.fx || {}), ...patch,
   };
   if (!sel.fx.strokeW && !sel.fx.shadow && !sel.fx.glow && !sel.fx.neon && !sel.fx.fade) sel.fx = null;
@@ -3528,8 +3881,20 @@ $('ins-fx-neon').addEventListener('input', () => setFx({ neon: parseInt($('ins-f
 $('ins-fx-neon-color').addEventListener('input', () => setFx({ neonColor: $('ins-fx-neon-color').value }));
 $('ins-fade-amt').addEventListener('input', () => setFx({ fade: parseInt($('ins-fade-amt').value, 10) || 0 }));
 $('ins-fade-angle').addEventListener('input', () => setFx({ fadeAngle: parseInt($('ins-fade-angle').value, 10) || 0 }));
+// one-click direction: templates lay cars out nose-left or nose-right, so the
+// side the dots run toward is the first thing to get right
+for (const b of document.querySelectorAll('.fade-dir-btn')) {
+  b.addEventListener('click', () => setFx({ fadeAngle: parseInt(b.dataset.angle, 10) || 0 }));
+}
+$('ins-fade-flip').addEventListener('click', () => {
+  const sel = selectedLayer(); if (!sel) return;
+  setFx({ fadeAngle: (((sel.fx?.fadeAngle || 0) + 180) % 360) });
+});
 $('ins-fade-cell').addEventListener('input', () => setFx({ fadeCell: parseInt($('ins-fade-cell').value, 10) || 14 }));
 $('ins-fade-style').addEventListener('change', () => setFx({ fadeStyle: $('ins-fade-style').value }));
+// rip / glitch are seeded: the dice rolls a fresh pattern, saved with the project
+$('ins-fade-reseed').addEventListener('click', () => setFx({ fadeSeed: Math.floor(Math.random() * 0x7fffffff) }));
+$('ins-fade-split').addEventListener('input', () => setFx({ glitchSplit: parseInt($('ins-fade-split').value, 10) || 0 }));
 for (const [id, key] of [['ins-fx-sdx', 'shadowDX'], ['ins-fx-sdy', 'shadowDY']]) {
   $(id).addEventListener('input', () => {
     const v = parseInt($(id).value, 10);
@@ -3777,6 +4142,226 @@ textureModal.addEventListener('click', (e) => {
   if (e.target === textureModal) closeTextures();
 });
 
+// ---------- car patterns ----------
+// Every official template PSD hides a "Car Patterns" group: iRacing's own
+// designs for that exact car, colour-keyed red/green/blue = slot 1/2/3. On
+// PSD load they become a catalogue in IndexedDB under the car slug (blobs,
+// not data URLs); the project only remembers `doc.patternCar`. The picker
+// recolours thumbnails live and inserts a `carpattern` layer at the bottom
+// of the stack — a panel-correct base livery with zero tracing.
+
+const carPatternModal = $('carpattern-modal');
+let cpCache = { slug: null, catalog: null };   // last catalogue fetched from IndexedDB
+let cpTarget = null;                             // layer being re-patterned via "Change pattern…", else null
+let cpStyle = 'all';
+let cpRecolorQueued = false;
+
+async function applyCarPatterns(entries, carName, hadZones) {
+  if (!entries || !entries.length) {
+    doc.patternCar = null;
+    cpCache = { slug: null, catalog: null };
+    syncCarPatternButton();
+    return;
+  }
+  try {
+    const catalog = buildCatalog(carName || 'template car', entries);
+    await saveCatalog(catalog);
+    doc.patternCar = catalog.slug;
+    cpCache = { slug: catalog.slug, catalog };
+    syncCarPatternButton();
+    scheduleAutosave();
+    status(`Car patterns: ${catalog.patterns.length} found — + Car pattern is ready.`
+      + (hadZones ? ' Sponsor/number zones mapped too (Template panel).' : ''), 'ok');
+  } catch (err) {
+    status('Car patterns found but could not be stored: ' + (err.message || 'storage error'), 'err');
+  }
+}
+
+function syncCarPatternButton() {
+  const btn = $('btn-add-carpattern');
+  if (!btn) return;
+  btn.disabled = !doc.patternCar;
+  btn.title = doc.patternCar
+    ? 'Insert one of the kit\'s own designs for this car, recoloured with three colours of your choice — a panel-correct base livery'
+    : 'Load your car\'s template PSD first (Template panel) — its hidden Car Patterns group becomes a picker of ready-made, panel-correct base designs';
+}
+
+async function getCarPatternCatalog() {
+  if (!doc.patternCar) return null;
+  if (cpCache.slug === doc.patternCar && cpCache.catalog) return cpCache.catalog;
+  const catalog = await loadCatalog(doc.patternCar).catch(() => null);
+  cpCache = { slug: doc.patternCar, catalog };
+  return catalog;
+}
+
+const cpInputs = () => [$('cp-c1'), $('cp-c2'), $('cp-c3')];
+const cpColors = () => cpInputs().map(i => i.value);
+
+async function openCarPatternPicker(target = null) {
+  if (!doc.patternCar) {
+    status('Car patterns need the car\'s template PSD — load it from the Template panel and the kit\'s own designs appear here.', 'warn');
+    return;
+  }
+  const catalog = await getCarPatternCatalog();
+  if (!catalog || !catalog.patterns.length) {
+    status(`No pattern catalogue stored for "${doc.patternCar}" in this browser — load the car's template PSD again to rebuild it.`, 'err');
+    return;
+  }
+  cpTarget = target;
+  const seed = target ? target.colors : (cpCache.lastColors || PATTERN_DEFAULTS);
+  cpInputs().forEach((inp, i) => { inp.value = seed[i]; });
+  $('cp-car').textContent = `${catalog.car} · ${catalog.patterns.length} designs`;
+  $('cp-hint-change').hidden = !target;
+  buildCarPatternChips();
+  await buildCarPatternGrid(catalog);
+  carPatternModal.hidden = false;
+}
+function closeCarPatternPicker() { carPatternModal.hidden = true; cpTarget = null; }
+
+function buildCarPatternChips() {
+  const row = $('cp-chips');
+  row.innerHTML = '';
+  for (const st of ['all', ...PATTERN_STYLES]) {
+    const b = document.createElement('button');
+    b.className = 'sm-btn cp-chip' + (st === cpStyle ? ' active' : '');
+    b.textContent = st === 'all' ? 'All' : st[0].toUpperCase() + st.slice(1);
+    b.addEventListener('click', async () => {
+      cpStyle = st;
+      buildCarPatternChips();
+      await buildCarPatternGrid(await getCarPatternCatalog());
+    });
+    row.appendChild(b);
+  }
+}
+
+// a style keeps the designs that fit it (rank ≥ 0.55, never fewer than 6), best first
+function filterCarPatterns(catalog, style) {
+  const all = catalog.patterns;
+  if (style === 'all') return all.slice();
+  const ranked = all.map(p => ({ p, r: patternRank(p.stats, style) })).sort((a, b) => b.r - a.r);
+  const keep = ranked.filter(x => x.r >= 0.55);
+  return (keep.length >= 6 ? keep : ranked.slice(0, Math.min(6, ranked.length))).map(x => x.p);
+}
+
+function cpThumbImage(entry) {
+  if (entry._thumbImg) return Promise.resolve(entry._thumbImg);
+  return loadImage(entry.thumb).then(img => (entry._thumbImg = img));
+}
+
+async function buildCarPatternGrid(catalog) {
+  const grid = $('carpattern-grid');
+  grid.innerHTML = '';
+  if (!catalog) return;
+  const colors = cpColors();
+  for (const entry of filterCarPatterns(catalog, cpStyle)) {
+    const btn = document.createElement('button');
+    btn.className = 'library-item cp-item';
+    btn.title = `Insert "${entry.name}"` + (entry.stats ? ` — ${Math.round(entry.stats.coverage * 100)}% of the car patterned` : '');
+    const c = document.createElement('canvas');
+    c.width = c.height = 1;
+    c.dataset.pid = entry.id;
+    const label = document.createElement('span');
+    label.className = 'library-name';
+    label.textContent = 'pattern ' + String(entry.index).padStart(2, '0');
+    btn.append(c, label);
+    btn.addEventListener('click', () => insertCarPattern(entry));
+    grid.appendChild(btn);
+    cpThumbImage(entry).then(img => recolorPattern(img, colors, c)).catch(() => {});
+  }
+}
+
+// colour inputs recolour every visible thumbnail live (one pass per frame)
+function recolorCarPatternGrid() {
+  if (cpRecolorQueued) return;
+  cpRecolorQueued = true;
+  requestAnimationFrame(async () => {
+    cpRecolorQueued = false;
+    const catalog = cpCache.catalog;
+    if (!catalog) return;
+    const colors = cpColors();
+    cpCache.lastColors = colors;
+    for (const c of $('carpattern-grid').querySelectorAll('canvas')) {
+      const entry = getPattern(catalog, c.dataset.pid);
+      if (!entry) continue;
+      try { recolorPattern(await cpThumbImage(entry), colors, c); } catch { /* thumb missing */ }
+    }
+  });
+}
+
+async function insertCarPattern(entry) {
+  const colors = cpColors();
+  cpCache.lastColors = colors;
+  const target = cpTarget;
+  closeCarPatternPicker();
+  try {
+    const img = await patternImage(entry); // keyed full-size sheet, data-URL backed
+    if (target && doc.layers.includes(target)) {
+      target.img = img;
+      target.src = img.src;
+      target.patternId = entry.id;
+      target._recolor = null;
+      delete target._hit;
+      setCarPatternColors(target, colors);
+      if (/^car pattern( \d+)?$/.test(target.name)) target.name = 'car pattern ' + String(entry.index).padStart(2, '0');
+      rebuildLayerList();
+      syncInspector();
+      markDirty();
+      status(`Pattern swapped to ${entry.name}.`, 'ok');
+      return;
+    }
+    const layer = createCarPatternLayer(entry.id, img, colors, img.src);
+    layer.name = 'car pattern ' + String(entry.index).padStart(2, '0');
+    doc.layers.unshift(layer); // bottom of the stack — just above the base coat
+    selectLayer(layer.id);
+    markDirty();
+    status(`Car pattern ${String(entry.index).padStart(2, '0')} added at the bottom of the stack — change its three colours in the inspector.`, 'ok');
+  } catch (err) {
+    status('Could not load that pattern: ' + (err.message || 'decode error'), 'err');
+  }
+}
+
+// inspector: three slot colours, swaps, rotate, change pattern
+const cpInsInputs = () => [$('ins-cp-c1'), $('ins-cp-c2'), $('ins-cp-c3')];
+function syncCarPatternInspector(sel) {
+  const on = !!sel && sel.type === 'carpattern';
+  $('ins-carpattern-section').hidden = !on;
+  if (!on) return;
+  cpInsInputs().forEach((inp, i) => { inp.value = sel.colors[i]; });
+}
+function setSelectedPatternColors(colors) {
+  const sel = selectedLayer();
+  if (!sel || sel.type !== 'carpattern') return;
+  setCarPatternColors(sel, colors);
+  syncCarPatternInspector(sel);
+  rebuildLayerList();
+  syncMaterialGrid(); // shader balls re-shade with the new base colour
+  markDirty();
+}
+cpInsInputs().forEach(inp => inp.addEventListener('input', () => setSelectedPatternColors(cpInsInputs().map(i => i.value))));
+$('ins-cp-swap12').addEventListener('click', () => {
+  const sel = selectedLayer(); if (!sel || sel.type !== 'carpattern') return;
+  const [a, b, c] = sel.colors; setSelectedPatternColors([b, a, c]);
+});
+$('ins-cp-swap23').addEventListener('click', () => {
+  const sel = selectedLayer(); if (!sel || sel.type !== 'carpattern') return;
+  const [a, b, c] = sel.colors; setSelectedPatternColors([a, c, b]);
+});
+$('ins-cp-rotate').addEventListener('click', () => {
+  const sel = selectedLayer(); if (!sel || sel.type !== 'carpattern') return;
+  const [a, b, c] = sel.colors; setSelectedPatternColors([c, a, b]);
+});
+$('ins-cp-change').addEventListener('click', () => {
+  const sel = selectedLayer();
+  if (sel && sel.type === 'carpattern') openCarPatternPicker(sel);
+});
+
+$('btn-add-carpattern').addEventListener('click', () => openCarPatternPicker(null));
+$('carpattern-close').addEventListener('click', closeCarPatternPicker);
+carPatternModal.addEventListener('click', (e) => { if (e.target === carPatternModal) closeCarPatternPicker(); });
+cpInputs().forEach(inp => inp.addEventListener('input', recolorCarPatternGrid));
+syncCarPatternButton();
+// ---------- /car patterns ----------
+
 // ---------- SimTex Pro bridge ----------
 // "+ SimTex" opens SimTex Pro in bridge mode; its "Send to Clearcoat" button
 // posts { type: 'simtex-texture', name, dataUrl } back to this window. Only
@@ -3993,6 +4578,8 @@ function syncDocUI() {
   $('template-opacity').value = Math.round(doc.templateOpacity * 100);
   $('template-opacity-val').textContent = Math.round(doc.templateOpacity * 100) + '%';
   syncTemplateStyle();
+  $('template-unpaintable-row').hidden = !(doc.template && doc.paintMask);
+  $('template-unpaintable').checked = !!doc.showUnpaintable;
   $('basecoat-color').value = doc.baseColor;
   rebuildFontSelect();
   ensureDocFonts();
@@ -4004,6 +4591,8 @@ function syncDocUI() {
   rebuildLayerList();
   syncInspector();
   syncRegionUI();
+  syncDriversUI(); // driver variants
+  syncCarPatternButton(); // car patterns
 }
 
 // ---------- projects (browser library) ----------
@@ -4826,7 +5415,7 @@ $('file-tga').addEventListener('change', async (e) => {
 // Delete removing layers behind the Projects modal). Esc still passes
 // through — the Escape branch below is what closes them.
 function anyModalOpen() {
-  return ['help-modal', 'projects-modal', 'maps-modal', 'library-modal', 'texture-modal', 'advisor-modal', 'ask-modal']
+  return ['help-modal', 'projects-modal', 'maps-modal', 'library-modal', 'texture-modal', 'carpattern-modal', 'brief-modal' /* BRIEF */, 'advisor-modal', 'ask-modal']
     .some(id => { const el = document.getElementById(id); return el && !el.hidden; });
 }
 
@@ -4848,9 +5437,11 @@ window.addEventListener('keydown', (e) => {
     if (!askModal.hidden) { closeAsk(null); return; }
     if (!$('help-modal').hidden) { $('help-modal').hidden = true; return; }
     if (!projectsModal.hidden) { closeProjects(); return; }
+    if (!$('brief-modal').hidden) { closeBrief(); return; } // BRIEF
     if (!mapsModal.hidden) { closeMapsModal(); return; }
     if (!libraryModal.hidden) { closeLibrary(); return; }
     if (!textureModal.hidden) { closeTextures(); return; }
+    if (!carPatternModal.hidden) { closeCarPatternPicker(); return; }
     if (regionTool) {
       // Esc first drops a half-made link or centerline, then leaves the tool
       if (linkClicks.length || centerClick) { linkClicks = []; centerClick = null; status(REGION_TOOLS[regionTool].hint); requestRender(); }
@@ -4920,6 +5511,317 @@ window.addEventListener('keydown', (e) => {
 window.addEventListener('keyup', (e) => { if (e.code === 'Space') spaceHeld = false; });
 
 window.addEventListener('resize', requestRender);
+
+// ═══════════ driver variants (variants.js) + sponsor row (layout.js) ═══════════
+// Everything for both features lives between these markers, apart from the
+// import line at the top, one line in draw() (previewRenderDoc), one line
+// each in syncInspector (ins-text-variable, syncRowButton) and syncDocUI.
+
+// ---------- driver variants ----------
+// Previewing a driver never replaces `doc`: draw() asks previewRenderDoc()
+// for the doc to composite, and gets a throwaway applyVariant() copy that is
+// rebuilt whenever the master changes (dirty) or is swapped out (undo/open).
+let variantPreview = null; // { driverId, base, vdoc } | null
+
+function previewRenderDoc() {
+  if (!variantPreview) return doc;
+  const drv = (doc.drivers || []).find(d => d.id === variantPreview.driverId);
+  if (!drv) { variantPreview = null; syncDriversUI(); return doc; }
+  if (variantPreview.base !== doc || dirty || !variantPreview.vdoc) {
+    variantPreview.vdoc = applyVariant(doc, drv);
+    variantPreview.base = doc;
+  }
+  return variantPreview.vdoc;
+}
+
+function setPreviewDriver(id) {
+  const drv = id ? (doc.drivers || []).find(d => d.id === id) : null;
+  variantPreview = drv ? { driverId: drv.id, base: null, vdoc: null } : null;
+  dirty = true;           // force a re-composite without touching autosave/undo
+  requestRender();
+  syncDriversUI();
+  if (drv) {
+    status(`Previewing ${drv.name || 'driver'}${drv.number ? ' #' + drv.number : ''} — the master design is unchanged. Click Show master to go back.`);
+  } else {
+    status('Showing the master design.');
+  }
+}
+
+const previewingDriverId = () => variantPreview ? variantPreview.driverId : null;
+
+function driverInput(value, cls, title, onInput) {
+  const inp = document.createElement('input');
+  inp.type = 'text';
+  inp.value = value;
+  inp.spellcheck = false;
+  if (cls) inp.className = cls;
+  inp.title = title;
+  inp.addEventListener('input', () => { onInput(inp.value); markDirty(); });
+  inp.addEventListener('change', syncDriversUI);
+  return inp;
+}
+
+function syncDriversUI() {
+  const body = $('drivers-body');
+  if (!body) return;
+  if (!Array.isArray(doc.drivers)) doc.drivers = [];
+  const drivers = doc.drivers;
+  const focusKey = document.activeElement && document.activeElement.dataset
+    ? document.activeElement.dataset.dkey : null;
+  body.innerHTML = '';
+  for (const d of drivers) {
+    const tr = document.createElement('tr');
+    tr.dataset.id = d.id;
+    if (previewingDriverId() === d.id) tr.classList.add('previewing');
+
+    const tdOn = document.createElement('td'); tdOn.className = 'dt-on';
+    const on = document.createElement('input');
+    on.type = 'checkbox'; on.checked = d.enabled !== false;
+    on.title = 'Include in Export all drivers';
+    on.addEventListener('change', () => { d.enabled = on.checked; markDirty(); syncDriversUI(); });
+    tdOn.appendChild(on);
+
+    const tdName = document.createElement('td');
+    const name = driverInput(d.name, '', 'Driver name — fills text layers bound to Driver name', v => { d.name = v; });
+    name.placeholder = 'Name'; name.dataset.dkey = d.id + ':name';
+    tdName.appendChild(name);
+
+    const tdNum = document.createElement('td'); tdNum.className = 'dt-num';
+    const num = driverInput(d.number, 'mono', 'Car number — fills text layers bound to Driver number', v => { d.number = v; });
+    num.placeholder = '#'; num.inputMode = 'numeric'; num.dataset.dkey = d.id + ':number';
+    tdNum.appendChild(num);
+
+    const tdCust = document.createElement('td'); tdCust.className = 'dt-cust';
+    const cust = driverInput(d.custid, 'mono' + (d.custid && !validCustidStr(d.custid) ? ' invalid' : ''),
+      'iRacing customer ID — names this driver\'s files (car_<id>.tga + car_spec_<id>.tga)', v => { d.custid = v.trim(); });
+    cust.placeholder = '123456'; cust.inputMode = 'numeric'; cust.dataset.dkey = d.id + ':custid';
+    tdCust.appendChild(cust);
+
+    const tdAct = document.createElement('td'); tdAct.className = 'dt-act';
+    const prev = document.createElement('button');
+    prev.className = 'sm-btn preview';
+    prev.textContent = previewingDriverId() === d.id ? 'Master' : 'Preview';
+    prev.title = previewingDriverId() === d.id
+      ? 'Back to the master design'
+      : 'Show this driver\'s number and name on the canvas (the master is not changed)';
+    prev.addEventListener('click', () => setPreviewDriver(previewingDriverId() === d.id ? null : d.id));
+    const del = document.createElement('button');
+    del.className = 'sm-btn danger icon'; del.textContent = '✕'; del.title = 'Remove this driver';
+    del.addEventListener('click', () => {
+      doc.drivers = doc.drivers.filter(x => x.id !== d.id);
+      if (previewingDriverId() === d.id) { variantPreview = null; dirty = true; requestRender(); }
+      markDirty();
+      syncDriversUI();
+    });
+    tdAct.append(prev, del);
+
+    tr.append(tdOn, tdName, tdNum, tdCust, tdAct);
+    body.appendChild(tr);
+  }
+  if (focusKey) {
+    const el = body.querySelector(`[data-dkey="${focusKey}"]`);
+    if (el) el.focus();
+  }
+  const ready = exportableDrivers(drivers).length;
+  $('drivers-count').textContent = drivers.length ? `${ready} of ${drivers.length} ready` : '';
+  $('drivers-master').hidden = !variantPreview;
+  $('drivers-export').disabled = ready === 0;
+  $('drivers-table').hidden = drivers.length === 0;
+  const hint = $('drivers-hint');
+  if (!drivers.length) {
+    hint.innerHTML = 'Bind text layers to <b>Driver number</b> / <b>Driver name</b> (inspector → Text → Variable), add each driver here, then export once for everyone.';
+  } else if (!hasVariables(doc)) {
+    hint.textContent = 'No text layer is bound to a variable yet — every driver would get the same artwork. Select a text layer and set Variable in the inspector.';
+  } else if (!ready) {
+    hint.textContent = 'Tick a driver and give them a numeric Cust ID to export.';
+  } else {
+    const where = $('btn-save-iracing').disabled ? 'downloaded one by one' : 'written to the linked paints folder';
+    hint.textContent = `Export all drivers renders ${ready} set${ready === 1 ? '' : 's'} of files, ${where}.`;
+  }
+}
+
+$('drivers-add').addEventListener('click', () => {
+  if (!Array.isArray(doc.drivers)) doc.drivers = [];
+  const d = newDriver();
+  doc.drivers.push(d);
+  markDirty();
+  $('drivers-panel').open = true;
+  syncDriversUI();
+  const el = $('drivers-body').querySelector(`[data-dkey="${d.id}:name"]`);
+  if (el) el.focus();
+});
+
+$('drivers-master').addEventListener('click', () => setPreviewDriver(null));
+
+// Render + write every enabled driver through the same export path the single
+// Save/Export buttons use. The master doc is never modified: each driver gets
+// its own applyVariant() copy. The engine's shared render canvases end up
+// holding the last variant, so the viewport is re-composited afterwards.
+async function exportAllDrivers() {
+  const list = exportableDrivers(doc.drivers);
+  if (!list.length) { status('Add a driver with a numeric Cust ID and tick it first.', 'err'); return; }
+  const btn = $('drivers-export');
+  btn.disabled = true;
+  let handle = null;
+  try { handle = await effectivePaintsDir({ requestIfNeeded: false }); } catch { handle = null; }
+  const total = list.length;
+  const written = [];
+  const failed = [];
+  try {
+    for (let i = 0; i < total; i++) {
+      const drv = list[i];
+      const [paintName, specName] = paintFilenames(drv.custid);
+      status(`${i + 1} of ${total}: ${paintName}`);
+      await new Promise(r => setTimeout(r, 0)); // let the status line paint
+      try {
+        const vdoc = applyVariant(doc, drv);
+        const paint = exportPaintCanvas(renderPaint(vdoc));
+        assertExportable(paint);
+        const paintBlob = canvasToTGA(paint);
+        let specBlob = null;
+        if (specName) {
+          const spec = renderSpec(vdoc);
+          assertExportable(spec);
+          specBlob = canvasToTGA(spec, { alpha: true });
+        }
+        if (handle) {
+          await backupOriginals(handle, drv.custid);
+          await persist.writeFileToFolder(handle, paintName, paintBlob);
+          if (specBlob) await persist.writeFileToFolder(handle, specName, specBlob);
+        } else {
+          downloadBlob(paintBlob, paintName);
+          if (specBlob) {
+            await new Promise(r => setTimeout(r, 300)); // back-to-back downloads get dropped
+            downloadBlob(specBlob, specName);
+          }
+        }
+        written.push(paintName);
+      } catch (err) {
+        failed.push(`${drv.name || drv.custid}: ${err.message}`);
+      }
+    }
+  } finally {
+    btn.disabled = false;
+    dirty = true;      // shared render canvases hold the last variant
+    requestRender();
+  }
+  const where = handle ? 'written to the paints folder' : 'downloaded';
+  if (failed.length) {
+    status(`${written.length} of ${total} driver${total === 1 ? '' : 's'} ${where}; failed — ${failed.join('; ')}`, 'err');
+  } else {
+    const dl = handle ? '' : ' If only some files arrived, allow automatic downloads for this site (address-bar icon) and run it again.';
+    status(`${written.length} driver${written.length === 1 ? '' : 's'} ${where}: ${written.join(', ')}.${dl}`, 'ok');
+  }
+}
+$('drivers-export').addEventListener('click', exportAllDrivers);
+// Share the driver brief form: one click copies a paste-ready message (or opens
+// the phone share sheet), so the link never has to be typed out per driver.
+$('drivers-share').addEventListener('click', async () => {
+  const url = new URL('brief.html', location.href).href;
+  const team = (doc.name && doc.name !== 'untitled livery') ? ` for ${doc.name}` : '';
+  const msg = `Fill in your livery brief${team}: ${url}
+Takes two minutes — colours or a mood, style, finish, your number and any logos. Send me the file it downloads.`;
+  if (navigator.share && /Mobi|Android/i.test(navigator.userAgent)) {
+    try { await navigator.share({ title: 'Livery brief form', text: msg, url }); return; } catch { /* cancelled — fall through to copy */ }
+  }
+  try {
+    await navigator.clipboard.writeText(msg);
+    status('Brief form message copied — paste it to your drivers.', 'ok');
+  } catch {
+    window.prompt('Copy this message for your drivers:', msg);
+  }
+});
+
+$('ins-text-variable').addEventListener('change', () => {
+  const sel = selectedLayer();
+  if (!sel || sel.type !== 'text') return;
+  sel.variable = $('ins-text-variable').value || null;
+  markDirty();
+  syncDriversUI();
+});
+
+// ---------- sponsor row ----------
+// Row = 2+ raster layers (image / text) distributed along a line with equal
+// *optical* size. Corner-pinned layers are skipped: a warped quad has no
+// single scale to set.
+function rowCandidates() {
+  return selectedLayers().filter(l =>
+    (l.type === 'image' || l.type === 'text') && l.img && !l.locked && !(l.corners && l.corners.length === 4));
+}
+
+function rowZoneRect() {
+  const first = rowCandidates()[0];
+  if (!first || !doc.regionMap) return null;
+  const r = regionAt(doc.regionMap, first.x, first.y);
+  return r ? { x: r.x, y: r.y, w: r.w, h: r.h, name: r.name || r.id } : null;
+}
+
+function syncRowButton() {
+  const n = rowCandidates().length;
+  $('ins-row').disabled = n < 2;
+  if (n < 2) $('ins-row-panel').hidden = true;
+  if (!$('ins-row-panel').hidden) syncRowPanel();
+}
+
+function syncRowPanel() {
+  const n = rowCandidates().length;
+  const zone = rowZoneRect();
+  const zoneCb = $('ins-row-zone');
+  zoneCb.disabled = !zone;
+  if (!zone) zoneCb.checked = false;
+  zoneCb.parentElement.title = zone
+    ? `Fit the row into the "${zone.name}" zone instead of the selection's own box`
+    : 'Needs a region map with a zone under the first selected layer';
+  $('ins-row-hint').textContent = `${n} layers → ${zoneCb.checked && zone ? `zone "${zone.name}"` : 'the selection\'s box'}. Rotation and skew are reset; sizes match by visible pixels, not canvas size.`;
+}
+
+$('ins-row').addEventListener('click', () => {
+  const panel = $('ins-row-panel');
+  panel.hidden = !panel.hidden;
+  if (!panel.hidden) syncRowPanel();
+});
+$('ins-row-close').addEventListener('click', () => { $('ins-row-panel').hidden = true; });
+for (const id of ['ins-row-dir', 'ins-row-gap', 'ins-row-align', 'ins-row-zone']) {
+  $(id).addEventListener('change', syncRowPanel);
+}
+
+// optical boxes are per-raster, so cache them by img (text layers get a new
+// img on every edit, which naturally invalidates the entry)
+const opticalCache = new WeakMap();
+function opticalBox(img) {
+  let b = opticalCache.get(img);
+  if (!b) { b = measureOptical(img); opticalCache.set(img, b); }
+  return b;
+}
+
+function applyRow() {
+  const layers = rowCandidates();
+  if (layers.length < 2) { status('Select two or more image or text layers first.', 'err'); return; }
+  const direction = $('ins-row-dir').value;
+  // keep the user's current order along the row
+  layers.sort((a, b) => direction === 'vertical' ? a.y - b.y : a.x - b.x);
+  const zone = $('ins-row-zone').checked ? rowZoneRect() : null;
+  const rect = zone || cornersRect(layers.map(layerCorners));
+  if (!rect || rect.w < 1 || rect.h < 1) { status('The selection has no area to lay out in.', 'err'); return; }
+  const items = layers.map(l => {
+    const o = opticalBox(l.img);
+    return { id: l.id, w: l.img.width, h: l.img.height, ox: o.x, oy: o.y, ow: o.w, oh: o.h, flipH: !!l.flipH, flipV: !!l.flipV };
+  });
+  const placed = layoutRow(items, rect, {
+    direction, gap: $('ins-row-gap').value, align: $('ins-row-align').value,
+  });
+  // positions are applied directly — snapping only runs during pointer drags
+  for (const p of placed) {
+    const l = layers.find(x => x.id === p.id);
+    l.x = p.x; l.y = p.y; l.scale = p.scale; l.scaleY = null;
+    l.rotation = 0; l.skewX = 0; l.skewY = 0;
+  }
+  syncInspector();
+  markDirty(); // one settled edit → one undo step
+  status(`Row: ${layers.length} layers lined up ${direction === 'vertical' ? 'top to bottom' : 'left to right'} in ${zone ? `zone "${zone.name}"` : 'the selection box'}.`, 'ok');
+}
+$('ins-row-apply').addEventListener('click', applyRow);
+// ═══════════ /driver variants + sponsor row ═══════════
 
 // ---------- boot ----------
 
@@ -5084,3 +5986,221 @@ if ('serviceWorker' in navigator) {
     } catch { /* blocked or unsupported — the app works fine without it */ }
   });
 }
+
+// ---------- BRIEF → livery (js/brief.js) ----------
+// BRIEF BEGIN
+// A driver's .brief.json → three panel-correct candidates in a dialog. All
+// the planning/building logic is in brief.js; this block is file handling,
+// the cards, and the one-undo-step swap into the live doc.
+
+// The pattern catalogue (patterns.js) is built separately and may not be
+// present yet — wire it when it is. The carpattern layer type self-wires in
+// brief.js from engine.js's exports.
+import('./patterns.js')
+  .then(m => briefLib.wireAdapter({ loadCatalog: m.loadCatalog, getPattern: m.getPattern, patternRank: m.patternRank }))
+  .catch(() => { /* no catalogue module yet — candidates use a plain base coat */ });
+
+const briefModal = $('brief-modal');
+let briefState = null; // { brief, seed, catalog, plans, docs, assets, busy, gen }
+
+function briefCarSlug() {
+  return doc.patternCar || briefLib.slugCar(doc.regionMap && doc.regionMap.car);
+}
+
+async function openBriefFile(file) {
+  try {
+    const brief = briefLib.parseBrief(await file.text());
+    await showBrief(brief);
+  } catch (err) {
+    status('Could not read that brief: ' + (err.message || 'unknown error'), 'err');
+  }
+}
+
+$('btn-brief').addEventListener('click', () => $('file-brief').click());
+$('brief-load').addEventListener('click', () => $('file-brief').click());
+$('file-brief').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (file) await openBriefFile(file);
+});
+$('brief-sample').addEventListener('click', async (e) => {
+  e.preventDefault();
+  try {
+    const res = await fetch('samples/opmo-sample.brief.json');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    await showBrief(briefLib.parseBrief(await res.text()));
+  } catch (err) {
+    status('Could not load the sample brief: ' + (err.message || 'unknown error'), 'err');
+  }
+});
+$('brief-close').addEventListener('click', closeBrief);
+briefModal.addEventListener('click', (e) => { if (e.target === briefModal) closeBrief(); });
+$('brief-regen').addEventListener('click', () => {
+  if (!briefState || briefState.busy) return;
+  briefState.seed++;
+  generateBriefCandidates();
+});
+
+function closeBrief() { briefModal.hidden = true; }
+
+async function showBrief(brief) {
+  briefState = { brief, seed: 0, catalog: null, plans: [], docs: [], assets: null, busy: false, gen: 0 };
+  renderBriefMeta(brief);
+  $('brief-cards').innerHTML = '';
+  $('brief-warn').hidden = true;
+  briefModal.hidden = false;
+  try { briefState.catalog = await briefLib.adapter.loadCatalog(briefCarSlug()); } catch { briefState.catalog = null; }
+  renderBriefWarnings();
+  await generateBriefCandidates();
+}
+
+function renderBriefMeta(brief) {
+  const pal = briefLib.resolvePalette(brief);
+  const el = $('brief-meta');
+  el.innerHTML = '';
+  const item = (k, v) => {
+    const d = document.createElement('div');
+    const kk = document.createElement('span'); kk.className = 'k'; kk.textContent = k;
+    d.appendChild(kk);
+    if (typeof v === 'string') d.appendChild(document.createTextNode(v || '—')); else d.appendChild(v);
+    el.appendChild(d);
+    return d;
+  };
+  const drv = [brief.driver.name, brief.driver.number && '#' + brief.driver.number, brief.driver.custid && `(ID ${brief.driver.custid})`]
+    .filter(Boolean).join(' ');
+  item('Driver', drv);
+  item('Team', brief.team);
+  item('Car', brief.car);
+  const sw = document.createElement('span'); sw.className = 'brief-swatches';
+  for (const c of [pal.primary, pal.secondary, pal.accent]) {
+    const i = document.createElement('i'); i.style.background = c; i.title = c; sw.appendChild(i);
+  }
+  const palWrap = document.createElement('span');
+  palWrap.append(sw, document.createTextNode(` ${brief.palette.mood ? brief.palette.mood + ' · ' : ''}${brief.style} · ${brief.finish}`));
+  item('Look', palWrap);
+  item('Logos', brief.logos.length ? brief.logos.map(l => l.name).join(', ') : 'none');
+  if (brief.notes) item('Notes', brief.notes).classList.add('notes');
+}
+
+function renderBriefWarnings() {
+  const st = briefState;
+  const el = $('brief-warn');
+  const warns = st ? briefLib.briefWarnings(st.brief, { regionMap: doc.regionMap, catalog: st.catalog, patternCar: doc.patternCar }) : [];
+  el.innerHTML = '';
+  for (const w of warns) { const p = document.createElement('p'); p.textContent = w; el.appendChild(p); }
+  el.hidden = !warns.length;
+}
+
+// logos + pattern rasters the plans need; a logo that fails to load is
+// skipped rather than failing the whole brief
+async function briefAssets(brief, plans, catalog) {
+  const logoImages = [];
+  for (const logo of brief.logos) {
+    try { logoImages.push(await loadImage(logo.src)); } catch { logoImages.push(null); }
+  }
+  const patternImages = {};
+  for (const id of new Set(plans.map(p => p.patternId).filter(Boolean))) {
+    try {
+      const pat = briefLib.adapter.getPattern(catalog, id);
+      const src = pat && (pat.blob instanceof Blob ? URL.createObjectURL(pat.blob) : pat.src);
+      if (src) patternImages[id] = await loadImage(src);
+    } catch { /* no raster — the plan falls back to a plain base */ }
+  }
+  return { regionMap: doc.regionMap, logoImages, patternImages, patternCar: doc.patternCar || null };
+}
+
+// the live doc's template context rides along so zones and wireframe stay put
+function carryTemplate(built) {
+  built.template = doc.template;
+  built.paintMask = doc.paintMask;
+  built.templateOpacity = doc.templateOpacity;
+  built.templateColor = doc.templateColor;
+  built.templateBold = doc.templateBold;
+  built.target = doc.target;
+  return built;
+}
+
+function briefCard(plan, i) {
+  const card = document.createElement('div');
+  card.className = 'brief-card';
+  card.dataset.index = i;
+  const preview = document.createElement('div'); preview.className = 'preview';
+  const c = document.createElement('canvas'); c.width = c.height = 384;
+  const spin = document.createElement('div'); spin.className = 'spinner'; spin.textContent = 'rendering…';
+  preview.append(c, spin);
+  const title = document.createElement('div'); title.className = 'title';
+  const t = document.createElement('span'); t.textContent = `Candidate ${i + 1}`;
+  const meta = document.createElement('span'); meta.className = 'meta';
+  meta.textContent = (plan.patternId ? `pattern ${plan.patternId}` : 'plain base') + ` · ${plan.finish}`;
+  title.append(t, meta);
+  const use = document.createElement('button');
+  use.className = 'sm-btn accent use'; use.textContent = 'Use this'; use.disabled = true;
+  use.title = 'Replace the canvas with this candidate (one undo step)';
+  use.addEventListener('click', () => useBriefCandidate(i));
+  card.append(preview, title, use);
+  return card;
+}
+
+async function generateBriefCandidates() {
+  const st = briefState;
+  if (!st) return;
+  const gen = ++st.gen;
+  st.busy = true;
+  $('brief-regen').disabled = true;
+  const cards = $('brief-cards');
+  cards.innerHTML = '';
+  st.plans = briefLib.planCandidates(st.brief, st.catalog, doc.regionMap, 3, { seed: st.seed });
+  st.docs = [];
+  const els = st.plans.map((plan, i) => { const el = briefCard(plan, i); cards.appendChild(el); return el; });
+  st.assets = await briefAssets(st.brief, st.plans, st.catalog);
+  for (let i = 0; i < st.plans.length; i++) {
+    if (gen !== st.gen) return; // a newer run took over
+    await new Promise(r => setTimeout(r, 0)); // let the spinner paint
+    const el = els[i];
+    try {
+      const built = carryTemplate(briefLib.buildDoc(st.plans[i], st.brief, st.assets));
+      st.docs[i] = built;
+      const src = renderPaint(built);
+      const c = el.querySelector('canvas');
+      const cctx = c.getContext('2d');
+      cctx.drawImage(src, 0, 0, c.width, c.height);
+      // the wireframe over the paint, as in the viewport, so panels read
+      const ov = templateOverlay(built);
+      if (ov) {
+        cctx.save();
+        cctx.globalAlpha = Math.min(1, built.templateOpacity * 0.8);
+        cctx.globalCompositeOperation = ov.multiply ? 'multiply' : 'source-over';
+        cctx.drawImage(ov.img, 0, 0, c.width, c.height);
+        cctx.restore();
+      }
+      el.querySelector('.spinner').remove();
+      el.classList.add('ready');
+      el.querySelector('.use').disabled = false;
+    } catch (err) {
+      el.querySelector('.spinner').textContent = 'Failed: ' + (err.message || 'render error');
+    }
+  }
+  // the engine's shared paint canvas now holds the last candidate
+  dirty = true;
+  requestRender();
+  st.busy = false;
+  $('brief-regen').disabled = false;
+}
+
+function useBriefCandidate(i) {
+  const st = briefState;
+  if (!st || !st.docs[i]) return;
+  if (doc.layers.length && !confirm('Replace the current livery with this candidate? Undo brings the current one back.')) return;
+  // build afresh so the preview doc and the live doc never share layer objects
+  const fresh = carryTemplate(briefLib.buildDoc(st.plans[i], st.brief, st.assets));
+  // keep drivers already in the table that the brief doesn't cover
+  const have = new Set(fresh.drivers.map(d => d.custid));
+  for (const d of (doc.drivers || [])) if (!have.has(d.custid)) fresh.drivers.push(d);
+  fresh.name = doc.name && doc.name !== 'untitled livery' ? doc.name : fresh.name;
+  doc = fresh;
+  afterDocLoad(); // syncDocUI + markDirty + ONE history snapshot (no history reset — undo returns to the old doc)
+  closeBrief();
+  const drv = fresh.drivers.length ? ` Driver row for ID ${fresh.drivers[0].custid} is ready in the Drivers panel.` : '';
+  status(`Candidate ${i + 1} is on the canvas — ${fresh.layers.length} layers.${drv}`, 'ok');
+}
+// BRIEF END

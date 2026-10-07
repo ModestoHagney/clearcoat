@@ -52,6 +52,15 @@ export const clearAutosave = () => kvDelete('autosave');
 export const saveSetting = (key, value) => kvSet('setting:' + key, value);
 export const loadSetting = (key) => kvGet('setting:' + key);
 
+// ---------- blob records ----------
+// Large binary-bearing records (e.g. a car's pattern catalogue — see
+// patterns.js). IndexedDB stores Blobs structurally, so values can carry
+// them directly instead of base64 data URLs.
+
+export const saveBlob = (key, value) => kvSet('blob:' + key, value);
+export const loadBlob = (key) => kvGet('blob:' + key);
+export const deleteBlob = (key) => kvDelete('blob:' + key);
+
 // ---------- projects ----------
 // Index entries are {id, name, updatedAt, thumb} — thumb is a small dataURL
 // kept in the index so the project browser lists without loading full docs.

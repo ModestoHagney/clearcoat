@@ -181,7 +181,30 @@ export function createDoc() {
     templateBold: true,         // thicken 1px linework
     customFonts: [],            // { name, data (base64) } — uploaded fonts travel with the project
     regionMap: null,            // parsed clearcoat-regions/1 map (see regions.js)
+    drivers: [],                // driver variants { id, name, number, custid, enabled } (see variants.js)
+    paintMask: null,            // greyscale canvas from the template's Mask layer: paintable = white (zones.js)
+    showUnpaintable: false,     // tint unpaintable template area red in the viewport
+    patternCar: null,           // car slug whose pattern catalogue (IndexedDB, patterns.js) this doc draws on
   };
+}
+
+// the paint mask travels as a PNG dataURL (greyscale, compresses to a few
+// KB). The canvas never changes after it's made, so the encode is memoized
+// on it — serializeDoc runs on every autosave and history snapshot.
+export function paintMaskToDataURL(mask) {
+  if (typeof mask === 'string') return mask;
+  if (mask._dataURL) return mask._dataURL;
+  try { mask._dataURL = mask.toDataURL('image/png'); } catch { return null; }
+  return mask._dataURL;
+}
+
+// ...and comes back as a canvas so getImageData stays cheap at any size
+export async function paintMaskFromDataURL(src) {
+  const img = await loadImage(src);
+  const c = document.createElement('canvas');
+  c.width = img.width; c.height = img.height;
+  c.getContext('2d').drawImage(img, 0, 0);
+  return c;
 }
 
 export function createImageLayer(img, src, name) {
@@ -264,6 +287,7 @@ export function createTextLayer() {
     italic: false,
     letterSpacing: 0,
     curve: 0,          // arc bend in degrees; 0 = straight, + arches up, − arches down
+    variable: null,    // driver variable: null | 'number' | 'name' | 'custom:<key>' (see variants.js)
     fx: null,          // optional layer effects (stroke/shadow/glow)
     x: SIZE / 2,
     y: SIZE / 2,
@@ -493,7 +517,62 @@ export function fillPaintStyle(ctx, layer, rx, ry, rw, rh) {
   return g;
 }
 
-export const isRegionLayer = (l) => l.type === 'pattern' || l.type === 'fill';
+// ---------- car pattern layer ----------
+// A full-sheet layer drawn from one of the kit's own colour-keyed designs
+// (see patterns.js). `img` is the KEYED pattern (red/green/blue slots);
+// what gets painted is the recoloured canvas, cached on the layer and
+// rebuilt only when the colours change.
+import { normalizeColors as normalizePatternColors, recolorPattern, DEFAULT_COLORS as PATTERN_DEFAULT_COLORS } from './patterns.js';
+
+export function createCarPatternLayer(patternId, img, colors, src) {
+  return {
+    id: newId(),
+    type: 'carpattern',
+    name: 'car pattern',
+    visible: true,
+    opacity: 1,
+    material: 'gloss',
+    fx: null,
+    patternId: patternId || null,
+    colors: normalizePatternColors(colors),
+    img,
+    // the keyed pattern travels inside the project JSON so it stays self-contained
+    src: src || (img && typeof img.src === 'string' && img.src.startsWith('data:') ? img.src : keyedPatternDataURL(img)),
+    x: SIZE / 2, y: SIZE / 2, scale: 1, rotation: 0, flipH: false, flipV: false,
+    rx: 0, ry: 0, rw: SIZE, rh: SIZE, // crop window — full sheet by default
+    _recolor: null,
+  };
+}
+
+function keyedPatternDataURL(img) {
+  if (!img) return null;
+  try {
+    const c = document.createElement('canvas');
+    c.width = img.naturalWidth || img.width; c.height = img.naturalHeight || img.height;
+    c.getContext('2d').drawImage(img, 0, 0);
+    return c.toDataURL('image/png');
+  } catch { return null; }
+}
+
+export function setCarPatternColors(layer, colors) {
+  layer.colors = normalizePatternColors(colors); // a fresh array — duplicates never share one
+  layer._recolor = null;
+  delete layer._albedo;
+  return layer.colors;
+}
+
+// the recoloured sheet, rebuilt when the colours or the keyed image change
+export function carPatternCanvas(layer) {
+  const colors = normalizePatternColors(layer.colors);
+  const key = colors.join(',');
+  const c = layer._recolor;
+  if (c && c.key === key && c.img === layer.img) return c.canvas;
+  const canvas = recolorPattern(layer.img, colors);
+  layer._recolor = { key, img: layer.img, canvas };
+  return canvas;
+}
+
+export const isRegionLayer = (l) => l.type === 'pattern' || l.type === 'fill' || l.type === 'carpattern';
 
 // Paint blend modes — separable modes only: on a transparent backdrop they
 // degrade to plain source-over, so the spec-map silhouette pass (which draws
@@ -535,6 +614,14 @@ function drawLayerContent(ctx, layer) {
     }
     ctx.fillStyle = fillPaintStyle(ctx, layer, rx, ry, rw, rh);
     ctx.fill(fillShapePath(layer.shape, rx, ry, rw, rh));
+    ctx.restore();
+  } else if (layer.type === 'carpattern') {
+    // the kit's own design, recoloured — full sheet, clipped to the crop window
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(layer.rx ?? 0, layer.ry ?? 0, layer.rw ?? SIZE, layer.rh ?? SIZE);
+    ctx.clip();
+    ctx.drawImage(carPatternCanvas(layer), 0, 0, SIZE, SIZE);
     ctx.restore();
   } else if (layer.type === 'pattern') {
     // tiling fill across a region (seamless textures, e.g. SimTex Pro)
@@ -595,6 +682,145 @@ export function fadeDotFrac(u, band) {
   return t <= 0 ? 0 : t >= 1 ? 1 : Math.sqrt(t);
 }
 
+// ---- seeded randomness for the rip / glitch styles ----
+// Both styles are "random" but must render identically on every frame, in
+// the paint AND spec passes, and after a reload — so everything derives from
+// one integer seed (fx.fadeSeed, else a hash of the layer id).
+export const FADE_STYLES = ['dots', 'lines', 'rip', 'scan', 'glitch'];
+
+export function hashSeed(str) { // FNV-1a, 32-bit
+  let h = 0x811c9dc5;
+  const s = String(str);
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  return h >>> 0;
+}
+
+export function fadeSeedOf(layer, fx) {
+  return Number.isFinite(fx && fx.fadeSeed) ? (fx.fadeSeed >>> 0) : hashSeed(layer.id || 'layer');
+}
+
+// integer lattice hash → [0, 1). (seed, i, k) must be stable, so no PRNG
+// state — any point can be evaluated on its own.
+function latticeHash(seed, i, k) {
+  let h = (seed ^ Math.imul(i | 0, 0x9E3779B1) ^ Math.imul((k | 0) + 1, 0x85EBCA77)) >>> 0;
+  h = Math.imul(h ^ (h >>> 15), 0x2C1B3C6D);
+  h = Math.imul(h ^ (h >>> 12), 0x297A2D39);
+  h ^= h >>> 15;
+  return (h >>> 0) / 4294967296;
+}
+
+// mulberry32 — a tiny seeded PRNG for the sequential plans (shreds, slices)
+function seededRng(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// 1-D value noise in [-1, 1]: `octaves` layers of smoothstep-interpolated
+// lattice values, each twice the frequency and half the amplitude of the
+// last. t is in "coarse wavelengths" — integer t hits a lattice point.
+export function ripNoise(seed, t, octaves = 3, persistence = 0.5) {
+  let sum = 0, norm = 0, amp = 1, f = 1;
+  for (let k = 0; k < octaves; k++) {
+    const x = t * f, i = Math.floor(x), fr = x - i;
+    // linear interpolation keeps the creases sharp (smoothstep reads as a
+    // wobble, not a tear)
+    const a = latticeHash(seed, i, k) * 2 - 1;
+    const b = latticeHash(seed, i + 1, k) * 2 - 1;
+    sum += (a + (b - a) * fr) * amp;
+    norm += amp; amp *= persistence; f *= 2;
+  }
+  return sum / norm;
+}
+
+// torn edge: the solid region ends at uStart; past it the paper tears along
+// a noise profile that wanders up to RIP_DEPTH of the band length. Returns
+// the edge sampled along v: [{ v, u }], every `step` px, covering the band
+// (plus padding) — u is always within [uStart, uStart + RIP_DEPTH * L].
+// Four octaves: a slow wander (8 cells) down to fibre-scale nicks (1 cell).
+export const RIP_DEPTH = 0.7;
+export function ripProfile(seed, band, cell) {
+  const L = Math.max(0, band.u1 - band.uStart);
+  const pad = cell;
+  const step = Math.max(1.5, cell / 5);
+  const wave = cell * 8; // coarse wavelength along the edge
+  const pts = [];
+  for (let v = band.v0 - pad; v <= band.v1 + pad + step; v += step) {
+    const n = ripNoise(seed, v / wave, 4, 0.55); // [-1, 1]
+    pts.push({ v, u: band.uStart + L * RIP_DEPTH * 0.5 * (1 + n) });
+  }
+  return pts;
+}
+
+// detached slivers past the tear — [{ u, v, w, h, rot }], w along u, h along
+// v. Each is placed past the local edge, a distance t into the remaining
+// gap; density falls off toward u1 (acceptance ∝ (1 - t)²).
+export function ripShreds(seed, band, cell) {
+  const L = Math.max(0, band.u1 - band.uStart);
+  const span = band.v1 - band.v0 + cell * 2;
+  if (L <= 0 || span <= 0) return [];
+  const rng = seededRng(seed ^ 0x5bd1e995);
+  const wave = cell * 8;
+  const candidates = Math.min(6000, Math.round((L * span) / (cell * cell) * 0.25));
+  const out = [];
+  for (let i = 0; i < candidates; i++) {
+    const t = rng();                       // distance past the local edge → u1
+    const keep = rng();
+    const v = band.v0 - cell + rng() * span;
+    const w = cell * (0.25 + rng() * 1.3);
+    const h = cell * (0.08 + rng() * 0.4);
+    const rot = (rng() - 0.5) * 0.9;
+    // irregular corners so the slivers read as torn bits, not confetti
+    const skew = [rng(), rng(), rng(), rng()].map(x => (x - 0.5) * 0.8);
+    if (keep > (1 - t) * (1 - t)) continue;
+    const edge = band.uStart + L * RIP_DEPTH * 0.5 * (1 + ripNoise(seed, v / wave, 4, 0.55));
+    const u = edge + w * 0.6 + t * Math.max(0, band.u1 - edge - w * 0.6);
+    out.push({ u, v, w, h, rot, skew });
+  }
+  return out;
+}
+
+// glitch plan: strips across the fade axis (random heights 0.5–3 cells),
+// each cut along u into segments that shift along the fade axis by an offset
+// growing toward u1 and drop out with probability rising to 1 at u1.
+// Returns [{ v, h, segs: [{ u, w, shift, keep }] }]; strips tile
+// [v0 - cell, v1 + cell] with no gaps, segments tile [uStart, u1].
+export function glitchSlices(seed, band, cell) {
+  const L = Math.max(0, band.u1 - band.uStart);
+  const vA = Math.floor(band.v0 - cell), vB = band.v1 + cell;
+  const rng = seededRng(seed ^ 0x27d4eb2f);
+  const maxShift = Math.max(cell, Math.min(L * 0.35, cell * 8));
+  const strips = [];
+  if (L <= 0) return strips;
+  for (let v = vA; v < vB;) {
+    // mostly thin strips with the odd tall one, like dropped scanlines
+    // whole-pixel heights/widths/shifts: fractional blits resample into
+    // semi-transparent hairlines, which the spec map must not pick up
+    const r = rng();
+    const h = Math.round(cell * (0.5 + 2.5 * r * r));
+    // ~30% of strips stay put so the glitch reads as broken rows, not a smear
+    const dir = rng() < 0.3 ? 0 : rng() < 0.5 ? -1 : 1;
+    const amt = 0.2 + rng() * 0.8;
+    const segs = [];
+    for (let u = Math.floor(band.uStart); u < band.u1;) {
+      // long runs along the fade axis so the rows read as rows, not tiles
+      const w = Math.min(band.u1 - u, Math.round(cell * (6 + rng() * 14)));
+      const t = (u + w / 2 - band.uStart) / L;    // 0 at the solid edge → 1 at u1
+      const keep = rng() < 1 - t;
+      const shift = Math.round(dir * amt * t * maxShift);
+      segs.push({ u, w, shift, keep });
+      u += w;
+    }
+    strips.push({ v, h: Math.min(h, vB - v), segs });
+    v += h;
+  }
+  return strips;
+}
+
 // paint the fade mask (white where the layer survives) into ctx (doc space)
 function paintFadeMask(ctx, layer, fx) {
   const band = fadeBand(layerCorners(layer), fx.fadeAngle || 0, fx.fade);
@@ -608,7 +834,52 @@ function paintFadeMask(ctx, layer, fx) {
   ctx.fillRect(band.u0 - pad, band.v0 - pad, band.uStart - band.u0 + pad, band.v1 - band.v0 + pad * 2);
   const path = new Path2D();
   const half = cell / 2;
-  if (fx.fadeStyle === 'lines') {
+  const span = band.v1 - band.v0 + pad * 2;
+  if (fx.fadeStyle === 'rip') {
+    // torn paper: one polygon from the solid edge out along the noise
+    // profile, then detached slivers. Hard edges only — no soft alpha — so
+    // the spec map tears in exactly the same place.
+    const seed = fadeSeedOf(layer, fx);
+    const prof = ripProfile(seed, band, cell);
+    path.moveTo(band.uStart - 1, prof[0].v);
+    for (const p of prof) path.lineTo(p.u, p.v);
+    path.lineTo(band.uStart - 1, prof[prof.length - 1].v);
+    path.closePath();
+    for (const s of ripShreds(seed, band, cell)) {
+      const c = Math.cos(s.rot), sn = Math.sin(s.rot);
+      const hw = s.w / 2, hh = s.h / 2, k = s.skew;
+      // quad in local (a along w, b along h) → rotated into band space
+      const corners = [[-hw, -hh * (1 + k[0])], [hw * (1 + k[1]), -hh], [hw, hh * (1 + k[2])], [-hw * (1 + k[3]), hh]];
+      corners.forEach(([a, b], i) => {
+        const x = s.u + a * c - b * sn, y = s.v + a * sn + b * c;
+        if (i === 0) path.moveTo(x, y); else path.lineTo(x, y);
+      });
+      path.closePath();
+    }
+  } else if (fx.fadeStyle === 'scan') {
+    // scanlines: rows ALONG the fade axis at the cell pitch, each tapering
+    // from a full cell (rows touch → flush with the solid region) to nothing
+    // at u1. Each row is one tapered polygon sampled every cell along u.
+    const L = band.u1 - band.uStart;
+    const steps = Math.max(2, Math.ceil(L / Math.max(2, cell / 2)));
+    const thick = u => {
+      const t = L > 0 ? Math.max(0, Math.min(1, (band.u1 - u) / L)) : 0;
+      return t > 0 ? cell * t + 0.6 : 0; // +0.6px: kill hairline seams between touching rows
+    };
+    for (let v = band.v0 - pad + half; v < band.v1 + pad; v += cell) {
+      path.moveTo(band.uStart - 1, v - thick(band.uStart) / 2);
+      for (let i = 0; i <= steps; i++) {
+        const u = band.uStart + (L * i) / steps;
+        path.lineTo(u, v - thick(u) / 2);
+      }
+      for (let i = steps; i >= 0; i--) {
+        const u = band.uStart + (L * i) / steps;
+        path.lineTo(u, v + thick(u) / 2);
+      }
+      path.lineTo(band.uStart - 1, v + thick(band.uStart) / 2);
+      path.closePath();
+    }
+  } else if (fx.fadeStyle === 'lines') {
     // bars across the fade direction, thinning toward the end
     for (let u = band.uStart; u < band.u1 + cell; u += cell) {
       const t = fadeDotFrac(u + half, band);
@@ -638,6 +909,76 @@ function paintFadeMask(ctx, layer, fx) {
   ctx.restore();
 }
 
+// band-space scratch canvases for the glitch pass (sized on demand to the
+// band's bbox: A = the layer rotated into band space, B/C = RGB-split work)
+const glitchBufs = [0, 1, 2].map(() => document.createElement('canvas'));
+function sizeGlitchBufs(w, h, count) {
+  for (let i = 0; i < count; i++) {
+    const c = glitchBufs[i];
+    if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+  }
+}
+
+// Glitch is a displacement, not a mask: the band is cut into strips and the
+// surviving segments are redrawn shifted along the fade axis. Works on the
+// doc-space layer buffer in place. Paint-only extra: an RGB split that draws
+// the R and B channels offset in opposite directions (channel isolation via
+// multiply-fill + destination-in, recombined additively).
+function glitchPass(rctx, layer, fx, forSpec) {
+  const band = fadeBand(layerCorners(layer), fx.fadeAngle || 0, fx.fade);
+  const cell = Math.max(4, Math.min(64, fx.fadeCell || 14));
+  const L = band.u1 - band.uStart;
+  if (L <= 0) return;
+  const split = forSpec ? 0 : Math.max(0, Math.min(12, fx.glitchSplit ?? 4));
+  const pad = cell, margin = 16;
+  // band-space buffer covers u ∈ [uStart - margin, u1 + pad], v ∈ [v0 - pad, v1 + pad]
+  // whole-pixel origin so strip blits land on the pixel grid (see glitchSlices)
+  const bu0 = Math.floor(band.uStart - margin), bv0 = Math.floor(band.v0 - pad);
+  const W = Math.min(4096, Math.ceil(band.u1 + pad - bu0));
+  const H = Math.min(4096, Math.ceil(band.v1 + pad - bv0));
+  sizeGlitchBufs(W, H, split > 0 ? 3 : 1);
+  const [bufA, bufB, bufC] = glitchBufs;
+  const actx = bufA.getContext('2d');
+  actx.save();
+  actx.clearRect(0, 0, W, H);
+  // doc → band: u = dx·x + dy·y - bu0, v = -dy·x + dx·y - bv0
+  actx.setTransform(band.dx, -band.dy, band.dy, band.dx, -bu0, -bv0);
+  actx.drawImage(fxScratch, 0, 0);
+  actx.restore();
+  let src = bufA;
+  if (split > 0) {
+    const bctx = bufB.getContext('2d'), cctx = bufC.getContext('2d');
+    cctx.clearRect(0, 0, W, H);
+    cctx.globalCompositeOperation = 'lighter';
+    for (const [color, off] of [['#ff0000', split], ['#00ff00', 0], ['#0000ff', -split]]) {
+      bctx.globalCompositeOperation = 'source-over';
+      bctx.clearRect(0, 0, W, H);
+      bctx.drawImage(bufA, off, 0);
+      bctx.globalCompositeOperation = 'multiply';
+      bctx.fillStyle = color;
+      bctx.fillRect(0, 0, W, H);
+      bctx.globalCompositeOperation = 'destination-in';
+      bctx.drawImage(bufA, off, 0);
+      cctx.drawImage(bufB, 0, 0);
+    }
+    bctx.globalCompositeOperation = 'source-over';
+    cctx.globalCompositeOperation = 'source-over';
+    src = bufC;
+  }
+  // redraw the band strip by strip into the doc-space buffer
+  rctx.save();
+  rctx.setTransform(band.dx, band.dy, -band.dy, band.dx, 0, 0);
+  rctx.clearRect(band.uStart, bv0, band.u1 + pad - band.uStart, H);
+  for (const strip of glitchSlices(fadeSeedOf(layer, fx), band, cell)) {
+    const sy = strip.v - bv0;
+    for (const seg of strip.segs) {
+      if (!seg.keep) continue;
+      rctx.drawImage(src, seg.u - bu0, sy, seg.w, strip.h, seg.u + seg.shift, strip.v, seg.w, strip.h);
+    }
+  }
+  rctx.restore();
+}
+
 export function drawLayer(ctx, layer, forSpec = false) {
   // layer effects apply only to raster layers (image/text). Stroke changes
   // the design silhouette so it renders in both paint and spec passes;
@@ -649,7 +990,7 @@ export function drawLayer(ctx, layer, forSpec = false) {
   const doShadow = hasImgFx && !forSpec && fx.shadow > 0;
   const doGlow = hasImgFx && !forSpec && fx.glow > 0;
   // halftone fade changes the silhouette, so it runs in paint AND spec passes
-  const doFade = fx && fx.fade > 0 && (isRaster || layer.type === 'fill' || layer.type === 'pattern');
+  const doFade = fx && fx.fade > 0 && (isRaster || isRegionLayer(layer));
   // neon halo: from the fx slider, or implied by the Neon material itself
   // (bloom matParam). Paint-only — the sim spec map has no emissive channel.
   const neonAmt = !forSpec && isRaster
@@ -680,7 +1021,11 @@ export function drawLayer(ctx, layer, forSpec = false) {
   const rctx = fxScratch.getContext('2d');
   rctx.clearRect(0, 0, SIZE, SIZE);
   drawLayerContent(rctx, layer);
-  if (doFade) {
+  if (doFade && fx.fadeStyle === 'glitch') {
+    // glitch displaces the buffer rather than masking it; same seed in the
+    // paint and spec passes keeps the two in step
+    glitchPass(rctx, layer, fx, forSpec);
+  } else if (doFade) {
     // punch the dot screen into the buffer first so every later effect
     // (shadow, glow, outline) follows the dots rather than the full shape
     paintFadeMask(fxTint.getContext('2d'), layer, fx);
@@ -1078,6 +1423,12 @@ export function serializeDoc(doc) {
     template: doc.template ? doc.template.src : null,
     customFonts: (doc.customFonts || []).map(f => ({ name: f.name, data: f.data })),
     regionMap: doc.regionMap || null,
+    drivers: (doc.drivers || []).map(d => ({
+      id: d.id, name: d.name, number: d.number, custid: d.custid, enabled: d.enabled !== false,
+    })),
+    paintMask: doc.paintMask ? paintMaskToDataURL(doc.paintMask) : null,
+    showUnpaintable: !!doc.showUnpaintable,
+    patternCar: typeof doc.patternCar === 'string' && doc.patternCar ? doc.patternCar : null,
     groups: (doc.groups || []).map(g => ({ id: g.id, name: g.name, collapsed: !!g.collapsed })),
     layers: doc.layers.map(l => ({
       id: l.id, type: l.type, name: l.name,
@@ -1094,10 +1445,14 @@ export function serializeDoc(doc) {
       shape: l.shape, fillType: l.fillType, color2: l.color2, gradAngle: l.gradAngle,
       colorMid: l.colorMid ?? null, midPos: l.midPos ?? 0.5,
       src: l.src,
+      // car pattern: which kit design + its three slot colours
+      patternId: l.type === 'carpattern' ? (l.patternId || null) : undefined,
+      colors: l.type === 'carpattern' && Array.isArray(l.colors) ? l.colors.slice(0, 3) : undefined,
       text: l.text, font: l.font, fontSize: l.fontSize,
       textColor: l.textColor, outlineColor: l.outlineColor, outlineWidth: l.outlineWidth,
       italic: l.italic, letterSpacing: l.letterSpacing,
       curve: l.curve || 0,
+      variable: l.variable || null,
       x: l.x, y: l.y, scale: l.scale, scaleY: l.scaleY ?? null, rotation: l.rotation,
       skewX: l.skewX || 0, skewY: l.skewY || 0,
       flipH: l.flipH, flipV: l.flipV,
@@ -1156,7 +1511,9 @@ function normalizeFx(fx) {
     fade: fx.fade ?? 0,
     fadeAngle: fx.fadeAngle ?? 0,
     fadeCell: fx.fadeCell ?? 14,
-    fadeStyle: fx.fadeStyle === 'lines' ? 'lines' : 'dots',
+    fadeStyle: FADE_STYLES.includes(fx.fadeStyle) ? fx.fadeStyle : 'dots',
+    fadeSeed: Number.isFinite(fx.fadeSeed) ? (fx.fadeSeed >>> 0) : null, // null = derive from layer id
+    glitchSplit: Math.max(0, Math.min(12, fx.glitchSplit ?? 4)),
   };
 }
 
@@ -1181,6 +1538,27 @@ export async function deserializeDoc(data) {
       doc.regionMap = parseRegionMap(data.regionMap);
     } catch { /* bad region map — drop it */ }
   }
+  // driver variants: tolerate junk rows, keep ids unique
+  if (Array.isArray(data.drivers)) {
+    const seen = new Set();
+    for (const d of data.drivers) {
+      if (!d || typeof d !== 'object') continue;
+      let id = typeof d.id === 'string' && d.id ? d.id : null;
+      if (!id || seen.has(id)) id = 'D' + newId();
+      seen.add(id);
+      doc.drivers.push({
+        id, name: String(d.name ?? ''), number: String(d.number ?? ''),
+        custid: String(d.custid ?? '').trim(), enabled: d.enabled !== false,
+      });
+    }
+  }
+  if (typeof data.paintMask === 'string' && data.paintMask) {
+    try {
+      doc.paintMask = await paintMaskFromDataURL(data.paintMask);
+    } catch { /* mask image failed — bleed checks just switch off */ }
+  }
+  doc.showUnpaintable = !!data.showUnpaintable;
+  doc.patternCar = typeof data.patternCar === 'string' && data.patternCar ? data.patternCar : null;
   // custom fonts must be live before text layers regenerate below
   doc.fontWarnings = [];
   for (const f of (data.customFonts || [])) {
@@ -1235,6 +1613,7 @@ export async function deserializeDoc(data) {
           outlineWidth: l.outlineWidth ?? 0,
           italic: !!l.italic, letterSpacing: l.letterSpacing ?? 0,
           curve: l.curve ?? 0,
+          variable: typeof l.variable === 'string' && l.variable ? l.variable : null,
           fx: normalizeFx(l.fx),
           x: l.x ?? SIZE / 2, y: l.y ?? SIZE / 2,
           scale: l.scale ?? 1, scaleY: Number.isFinite(l.scaleY) ? l.scaleY : null,
@@ -1249,6 +1628,23 @@ export async function deserializeDoc(data) {
         } catch { /* regeneration failed — fall through to the saved raster */ }
       }
       const img = await loadImage(l.src);
+      if (l.type === 'carpattern') {
+        doc.layers.push({
+          ...createCarPatternLayer(l.patternId, img, l.colors, l.src),
+          id: l.id || newId(), name: l.name || 'car pattern',
+          visible: l.visible !== false, locked: !!l.locked, opacity: l.opacity ?? 1,
+          material: l.material || 'gloss',
+          blend: BLEND_MODES[l.blend] ? l.blend : 'normal',
+          matParams: l.matParams || null,
+          specBlend: l.specBlend || 'replace',
+          specOnly: !!l.specOnly,
+          paintOnly: !!l.paintOnly,
+          lumSpec: normalizeLumSpec(l.lumSpec),
+          fx: normalizeFx(l.fx),
+          rx: l.rx ?? 0, ry: l.ry ?? 0, rw: l.rw ?? SIZE, rh: l.rh ?? SIZE,
+        });
+        continue;
+      }
       doc.layers.push({
         id: l.id || newId(),
         type: l.type === 'pattern' ? 'pattern' : 'image',

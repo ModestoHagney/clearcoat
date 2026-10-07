@@ -114,6 +114,7 @@ export function renderBall(canvas, materialKey, albedoHex, params = null) {
 // layers. Cached on the layer object.
 export function layerAlbedo(layer, fallback = '#9aa0ab') {
   if (layer && layer.type === 'fill') return layer.color || fallback;
+  if (layer && layer.type === 'carpattern') return (layer.colors && layer.colors[0]) || fallback; // slot 1 is the base
   if (!layer || !layer.img) return fallback;
   if (layer._albedo) return layer._albedo;
   try {

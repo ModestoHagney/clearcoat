@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Livery Brief — Clearcoat</title>
+<meta name="description" content="Tell your team's designer what livery you want. Two minutes, one file, three livery options back.">
+<meta name="theme-color" content="#0d0e11">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Khand:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/brief.css">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23101114'/%3E%3Cpath d='M6 22 L14 8 H20 L12 22 Z' fill='%23ff4d00'/%3E%3Cpath d='M16 22 L24 8 H26 L18 22 Z' fill='%23e8e6e1'/%3E%3C/svg%3E">
+</head>
+<body>
+
+<header class="brief-header">
+  <a class="brand" href="./" title="Clearcoat">
+    <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="6" fill="#101114"/><path d="M6 22 L14 8 H20 L12 22 Z" fill="#ff4d00"/><path d="M16 22 L24 8 H26 L18 22 Z" fill="#e8e6e1"/></svg>
+    <span><span class="brand-name">CLEARCOAT</span><span class="brand-sub">Livery brief</span></span>
+  </a>
+  <div class="header-right">
+    <span class="progress-pill" id="progress" aria-live="polite"><b>0</b> / 6 done</span>
+  </div>
+</header>
+
+<main class="brief-main">
+  <div class="intro">
+    <h1>Tell us what your <em>car</em> should look like.</h1>
+    <p>Two minutes. Your name, your colours, your sponsors. Your team's designer gets a file, and you get three livery options back to choose from.</p>
+  </div>
+
+  <div class="form-col">
+  <form id="brief-form" novalidate autocomplete="on">
+
+    <!-- 1 WHO -->
+    <section class="section" id="sec-who" aria-labelledby="h-who">
+      <div class="section-head"><span class="step-num">01</span><h2 id="h-who">Who</h2></div>
+      <div class="row who">
+        <div class="field">
+          <label for="f-name">Driver name</label>
+          <input class="ctrl" id="f-name" name="name" type="text" autocomplete="name" placeholder="R. Davenport" maxlength="60" required>
+          <div class="err" id="err-name"></div>
+        </div>
+        <div class="field">
+          <label for="f-number">Race number</label>
+          <input class="ctrl num" id="f-number" name="number" type="text" inputmode="numeric" placeholder="64" maxlength="3" required aria-describedby="err-number">
+          <div class="err" id="err-number"></div>
+        </div>
+      </div>
+      <div class="row two" style="margin-top:12px">
+        <div class="field">
+          <label for="f-custid">iRacing customer ID <span style="color:var(--ink-faint);font-weight:400">(optional)</span></label>
+          <input class="ctrl mono" id="f-custid" name="custid" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="1016399" maxlength="10" aria-describedby="hint-custid err-custid">
+          <div class="err" id="err-custid"></div>
+          <p class="hint" id="hint-custid">The number iRacing names your paint file after. It's shown under your name on your <a href="https://members-ng.iracing.com/web/racing/profile" target="_blank" rel="noopener">iRacing profile page</a> (Customer ID). Skip it if you don't know it.</p>
+        </div>
+        <div class="field">
+          <label for="f-team">Team <span style="color:var(--ink-faint);font-weight:400">(optional)</span></label>
+          <input class="ctrl" id="f-team" name="team" type="text" placeholder="OpMo Enduro Alpha" maxlength="60">
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 CAR -->
+    <section class="section" id="sec-car" aria-labelledby="h-car">
+      <div class="section-head"><span class="step-num">02</span><h2 id="h-car">Car</h2></div>
+      <div class="field">
+        <label for="f-car">Which car are you driving?</label>
+        <select class="ctrl" id="f-car" name="car" required></select>
+        <div class="err" id="err-car"></div>
+      </div>
+      <div class="field" id="car-other-wrap" hidden>
+        <label for="f-car-other">Car name</label>
+        <input class="ctrl" id="f-car-other" type="text" placeholder="e.g. Radical SR10" maxlength="60">
+      </div>
+    </section>
+
+    <!-- 3 COLOURS -->
+    <section class="section" id="sec-colours" aria-labelledby="h-colours">
+      <div class="section-head"><span class="step-num">03</span><h2 id="h-colours">Colours</h2></div>
+      <div class="seg" role="group" aria-label="How to choose colours">
+        <button type="button" id="pal-pick" aria-pressed="true">I'll pick three</button>
+        <button type="button" id="pal-mood" aria-pressed="false">Pick for me</button>
+      </div>
+
+      <div id="pal-colors">
+        <div class="swatch-grid">
+          <div class="swatch-field">
+            <label for="c-primary">Main body</label>
+            <span class="swatch-input" style="--sw:#0b1b3a"><input type="color" id="c-primary" value="#0b1b3a" aria-label="Main body colour"><span class="hex" id="hex-primary">#0b1b3a</span></span>
+          </div>
+          <div class="swatch-field">
+            <label for="c-secondary">Second colour</label>
+            <span class="swatch-input" style="--sw:#ff6a00"><input type="color" id="c-secondary" value="#ff6a00" aria-label="Second colour"><span class="hex" id="hex-secondary">#ff6a00</span></span>
+          </div>
+          <div class="swatch-field">
+            <label for="c-accent">Accent</label>
+            <span class="swatch-input" style="--sw:#ffffff"><input type="color" id="c-accent" value="#ffffff" aria-label="Accent colour"><span class="hex" id="hex-accent">#ffffff</span></span>
+          </div>
+        </div>
+        <p class="hint" style="margin-top:8px">Tap a swatch to change it. Main body covers most of the car; accent is for numbers and fine lines.</p>
+      </div>
+
+      <div id="pal-moods" hidden>
+        <p class="hint" style="margin:0 0 10px">Pick the vibe and the designer chooses a matching palette.</p>
+        <div class="chips moods" id="chips-mood" role="group" aria-label="Colour mood"></div>
+      </div>
+
+      <div class="err" id="err-palette"></div>
+      <div class="livery-preview" id="livery-preview" aria-hidden="true"></div>
+    </section>
+
+    <!-- 4 STYLE -->
+    <section class="section" id="sec-style" aria-labelledby="h-style">
+      <div class="section-head"><span class="step-num">04</span><h2 id="h-style">Style</h2></div>
+      <div class="chips styles" id="chips-style" role="group" aria-label="Livery style"></div>
+      <div class="err" id="err-style"></div>
+    </section>
+
+    <!-- 5 FINISH -->
+    <section class="section" id="sec-finish" aria-labelledby="h-finish">
+      <div class="section-head"><span class="step-num">05</span><h2 id="h-finish">Finish</h2></div>
+      <div class="chips finishes" id="chips-finish" role="group" aria-label="Paint finish"></div>
+      <div class="err" id="err-finish"></div>
+    </section>
+
+    <!-- 6 LOGOS -->
+    <section class="section" id="sec-logos" aria-labelledby="h-logos">
+      <div class="section-head"><span class="step-num">06</span><h2 id="h-logos">Logos</h2><span class="opt">optional</span></div>
+      <label class="drop" id="drop" for="f-logos" tabindex="0">
+        <strong>Add sponsor logos</strong>
+        <span>Tap to pick files, or drop them here</span>
+        <small>PNG with transparency is best · SVG and JPG also fine</small>
+        <input type="file" id="f-logos" accept="image/png,image/jpeg,image/webp,image/svg+xml,.png,.jpg,.jpeg,.webp,.svg" multiple>
+      </label>
+      <ol class="logo-list" id="logo-list" aria-label="Logos, in order of importance"></ol>
+      <div class="logo-foot" id="logo-foot" hidden>
+        <span>First logo = main sponsor. Drag or use the arrows to reorder.</span>
+        <span class="size" id="logo-size"></span>
+      </div>
+    </section>
+
+    <!-- 7 NOTES -->
+    <section class="section" id="sec-notes" aria-labelledby="h-notes">
+      <div class="section-head"><span class="step-num">07</span><h2 id="h-notes">Anything else?</h2><span class="opt">optional</span></div>
+      <div class="field">
+        <label for="f-notes" class="sr-only">Notes for the designer</label>
+        <textarea class="ctrl" id="f-notes" name="notes" maxlength="1000" placeholder="e.g. Keep the roof white so the spotter can see me. Flag on the rear wing. No camo please."></textarea>
+      </div>
+    </section>
+  </form>
+  </div>
+
+  <aside class="side-col">
+    <section class="section summary" id="sec-summary" aria-labelledby="h-summary">
+      <div class="section-head"><span class="eyebrow">Your brief</span><h2 id="h-summary" class="sr-only">Summary</h2></div>
+      <div class="summary-card">
+        <div class="sum-car" id="sum-car-wrap"><div id="sum-svg"></div><span class="sum-num" id="sum-num"></span></div>
+        <div>
+          <dl class="sum-list">
+            <dt>Driver</dt><dd id="sum-name" class="dim">—</dd>
+            <dt>Car</dt><dd id="sum-car" class="dim">—</dd>
+            <dt>Team</dt><dd id="sum-team" class="dim">—</dd>
+            <dt>Colours</dt><dd id="sum-palette" class="dim">—</dd>
+            <dt>Style</dt><dd id="sum-style" class="dim">—</dd>
+            <dt>Finish</dt><dd id="sum-finish" class="dim">—</dd>
+            <dt>Logos</dt><dd id="sum-logos" class="dim">—</dd>
+          </dl>
+        </div>
+      </div>
+      <div class="readiness" id="readiness" style="margin-top:14px" aria-live="polite"><span class="dot"></span><span id="readiness-text">Fill in the form to unlock the download.</span></div>
+      <div class="actions-bar">
+        <button type="button" class="btn accent" id="btn-download" disabled>Download brief</button>
+        <button type="button" class="btn" id="btn-copy" disabled>Copy JSON</button>
+        <button type="button" class="btn ghost" id="btn-reset">Start over</button>
+      </div>
+    </section>
+  </aside>
+
+  <footer class="next">
+    <h3>What happens next</h3>
+    <ol>
+      <li><span><b>Send the file</b> to your team's designer — Discord, email, whatever you use. It's named after you and your number.</span></li>
+      <li><span>The designer <b>loads it in Clearcoat</b>, which turns your brief into <b>three livery options</b> on your actual car template.</span></li>
+      <li><span><b>You pick one</b> (or ask for tweaks), and it goes on the car for the next race.</span></li>
+    </ol>
+    <p class="foot-meta">Nothing is uploaded — the brief is built on your device and saved only in this browser until you download it. <a href="./">Clearcoat</a> · <a href="https://github.com/OblivionsPeak/clearcoat" rel="noopener">source</a></p>
+  </footer>
+</main>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script type="module" src="js/brief-form.js"></script>
+</body>
+</html>

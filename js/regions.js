@@ -7,6 +7,13 @@
 
 export const REGIONS_FORMAT = 'clearcoat-regions/1';
 
+// how a mirror partner relates to its source panel:
+//   flip   — left/right reflection (hand-made maps; the default)
+//   flipV  — top/bottom reflection (template twins folded about the sheet axis)
+//   rot180 — the same panel turned 180° (no reflection at all)
+//   same   — a plain copy, same orientation
+export const MIRROR_KINDS = ['flip', 'flipV', 'rot180', 'same'];
+
 export function createRegionMap(car) {
   return { format: REGIONS_FORMAT, car: car || 'unknown car', regions: [] };
 }
@@ -46,6 +53,11 @@ export function parseRegionMap(data) {
       }
       out.points = r.points.map(q => ({ x: q.x, y: q.y }));
     }
+    // template-derived zones: what the rectangle is, how artwork reads in it,
+    // and how its twin relates (see zones.js)
+    if (r.kind === 'sponsor' || r.kind === 'number') out.kind = r.kind;
+    if ([90, 180, 270].includes(r.rot)) out.rot = r.rot;
+    if (MIRROR_KINDS.includes(r.mirrorKind) && out.mirror) out.mirrorKind = r.mirrorKind;
     return out;
   });
   for (const r of regions) {
@@ -99,49 +111,49 @@ export function regionAt(map, x, y) {
   return null;
 }
 
-// The ways a region can be a mirror image of its partner on the sheet, each
-// with the angle (degrees) of the line the mirroring happens across:
-//   h  side by side      (u, v) → (1 - u, v)
-//   v  one above another (u, v) → (u, 1 - v)
-//   d  turned a quarter  (u, v) → (v, u)
-//   a  turned the other  (u, v) → (1 - v, 1 - u)
-export const MIRROR_AXIS = { h: 90, v: 0, d: 45, a: 135 };
-const MIRROR_UV = {
-  h: (u, v) => [1 - u, v],
-  v: (u, v) => [u, 1 - v],
-  d: (u, v) => [v, u],
-  a: (u, v) => [1 - v, 1 - u],
-};
-
-// map a point through a mirror pair by relative position within the two
-// regions' boxes; `kind` says which way round the partner lies (see
-// mirrorKind) and defaults to side by side
-export function mirrorPoint(src, dst, x, y, kind = 'h') {
+// map a point through a mirror pair by relative position:
+// (u, v) within src → (1 - u, v) within dst
+export function mirrorPoint(src, dst, x, y) {
   const u = src.w ? (x - src.x) / src.w : 0;
   const v = src.h ? (y - src.y) / src.h : 0;
-  const [mu, mv] = MIRROR_UV[kind](u, v);
-  return { x: dst.x + mu * dst.w, y: dst.y + mv * dst.h };
+  return { x: dst.x + (1 - u) * dst.w, y: dst.y + v * dst.h };
 }
 
-// Which of the four mirrorings lays src's outline most closely over dst's.
-// Plain boxes fit every way equally, and then it is side by side, as before.
-export function mirrorKind(src, dst) {
+// Which relation (see MIRROR_KINDS) lays src's outline most closely over
+// dst's — how a pair of outlined regions should be mirrored when nothing has
+// recorded it yet. Plain boxes fit every way equally, and then it is 'flip',
+// the default.
+export function guessMirrorKind(src, dst) {
   const from = regionOutline(src), to = regionOutline(dst);
   const probes = [];
   for (let i = 0; i < from.length; i++) {
     const p = from[i], q = from[(i + 1) % from.length];
     probes.push(p, { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 });
   }
-  let best = 'h', bestD = Infinity;
-  for (const kind of ['h', 'v', 'd', 'a']) {
+  let best = 'flip', bestD = Infinity;
+  for (const kind of MIRROR_KINDS) {
     let d = 0;
     for (const p of probes) {
-      const m = mirrorPoint(src, dst, p.x, p.y, kind);
+      const m = mirrorPointKind(src, dst, p.x, p.y, kind);
       d += snapToOutline(to, m.x, m.y).d;
     }
     if (d < bestD - 1e-6) { best = kind; bestD = d; }
   }
   return best;
+}
+
+// the relation between a region and its mirror partner ('flip' when unset)
+export function mirrorKindOf(src) {
+  return MIRROR_KINDS.includes(src && src.mirrorKind) ? src.mirrorKind : 'flip';
+}
+
+// mirrorPoint generalized over the pair's relation
+export function mirrorPointKind(src, dst, x, y, kind) {
+  const u = src.w ? (x - src.x) / src.w : 0;
+  const v = src.h ? (y - src.y) / src.h : 0;
+  const fu = kind === 'flip' || kind === 'rot180' ? 1 - u : u;
+  const fv = kind === 'flipV' || kind === 'rot180' ? 1 - v : v;
+  return { x: dst.x + fu * dst.w, y: dst.y + fv * dst.h };
 }
 
 // the { src, dst } mirror pair containing a point, or null
@@ -153,12 +165,15 @@ export function mirrorPairAt(map, x, y) {
 }
 
 // given a layer whose center (x, y) lies in a region with a mirror partner,
-// the mirrored placement — the mirrored copy also gets flipH toggled
+// the mirrored placement. `kind` says how the copy must be transformed:
+// 'flip' toggles flipH (flip: true kept for older callers), 'flipV' toggles
+// flipV, 'rot180' adds 180° of rotation, 'same' copies as-is.
 export function mirrorLayerPlacement(map, layer) {
   const pair = mirrorPairAt(map, layer.x, layer.y);
   if (!pair) return null;
-  const p = mirrorPoint(pair.src, pair.dst, layer.x, layer.y);
-  return { x: Math.round(p.x), y: Math.round(p.y), flip: true };
+  const kind = mirrorKindOf(pair.src);
+  const p = mirrorPointKind(pair.src, pair.dst, layer.x, layer.y, kind);
+  return { x: Math.round(p.x), y: Math.round(p.y), flip: kind === 'flip', kind };
 }
 
 // ---------- centerline ----------
@@ -271,16 +286,22 @@ export function renameRegion(map, region, name) {
 
 // Pair a region with its mirror partner on the other side of the car (or,
 // with no partner id, unpair it). Pairs always point both ways, so whatever
-// either region was paired with before is released.
+// either region was paired with before is released. How the two lie on the
+// sheet is recorded as their mirrorKind, guessed from their outlines.
 export function setMirror(map, region, partnerId) {
   const partner = partnerId ? regionById(map, partnerId) : null;
   for (const r of [region, partner]) {
-    if (!r || !r.mirror) continue;
-    const old = regionById(map, r.mirror);
-    if (old && old.mirror === r.id) delete old.mirror;
+    if (!r) continue;
+    const old = r.mirror && regionById(map, r.mirror);
+    if (old && old.mirror === r.id) { delete old.mirror; delete old.mirrorKind; }
     delete r.mirror;
+    delete r.mirrorKind;
   }
-  if (partner && partner !== region) { region.mirror = partner.id; partner.mirror = region.id; }
+  if (partner && partner !== region) {
+    region.mirror = partner.id;
+    partner.mirror = region.id;
+    region.mirrorKind = partner.mirrorKind = guessMirrorKind(region, partner);
+  }
 }
 
 // the region's shape as corners: its outline, or the four corners of its box

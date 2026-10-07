@@ -1,0 +1,27 @@
+{
+  "format": "clearcoat-brief/1",
+  "car": "Dallara P217",
+  "team": "Ridgeline Endurance",
+  "driver": { "name": "A. Driver", "number": "64", "custid": "1016399" },
+  "palette": { "primary": "#0b1b3a", "secondary": "#ff6a00", "accent": "#ffffff" },
+  "style": "clean",
+  "finish": "satin",
+  "logos": [
+    {
+      "name": "Ridgeline",
+      "priority": 1,
+      "src": "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='600' height='140' viewBox='0 0 600 140'><path d='M0 0h600v140H0z' fill='none'/><path d='M14 120 L70 22 L110 84 L140 40 L200 120 Z' fill='%23ff6a00'/><text x='222' y='96' font-family='Arial Black, Arial, sans-serif' font-weight='900' font-size='74' letter-spacing='2' fill='%23ffffff'>RIDGELINE</text><rect x='222' y='108' width='364' height='8' fill='%23ff6a00'/></svg>"
+    },
+    {
+      "name": "Northwind Tyres",
+      "priority": 2,
+      "src": "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='560' height='120' viewBox='0 0 560 120'><circle cx='60' cy='60' r='48' fill='none' stroke='%23ffffff' stroke-width='14'/><circle cx='60' cy='60' r='18' fill='%23ffffff'/><text x='128' y='74' font-family='Arial Black, Arial, sans-serif' font-weight='900' font-size='48' fill='%23ffffff'>NORTHWIND</text><text x='130' y='108' font-family='Arial, sans-serif' font-size='26' letter-spacing='8' fill='%23ffffff'>TYRES</text></svg>"
+    },
+    {
+      "name": "Kestrel Fuels",
+      "priority": 3,
+      "src": "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='480' height='120' viewBox='0 0 480 120'><path d='M10 60 Q60 10 110 60 Q60 110 10 60 Z' fill='%23ffffff'/><path d='M38 60 Q60 38 82 60 Q60 82 38 60 Z' fill='%230b1b3a'/><text x='128' y='80' font-family='Arial Black, Arial, sans-serif' font-weight='900' font-size='56' fill='%23ffffff'>KESTREL</text><text x='364' y='80' font-family='Arial, sans-serif' font-size='30' fill='%23ffffff'>fuels</text></svg>"
+    }
+  ],
+  "notes": "Sample brief shipped with Clearcoat — a generic endurance team, no real brands. Main sponsor on both sides, number in every number zone."
+}

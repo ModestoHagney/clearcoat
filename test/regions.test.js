@@ -26,7 +26,7 @@ import {
   setMirror,
   trimShape,
   growOutline,
-  mirrorKind,
+  guessMirrorKind,
 } from '../js/regions.js';
 
 // Convenience builder: a valid raw map with two mirrored door rectangles.
@@ -293,7 +293,7 @@ test('mirrorLayerPlacement returns rounded mirrored coords with flip: true', () 
   // layer center at u=0.25, v=0.5 of door_l (x=175, y=275)
   const placed = mirrorLayerPlacement(map, { x: 175, y: 275 });
   // mirrored to u=0.75 of door_r: x = 900 + 0.75*300 = 1125, y = 200 + 0.5*150 = 275
-  assert.deepEqual(placed, { x: 1125, y: 275, flip: true });
+  assert.deepEqual(placed, { x: 1125, y: 275, flip: true, kind: 'flip' });
 });
 
 test('mirrorLayerPlacement rounds fractional results', () => {
@@ -305,7 +305,7 @@ test('mirrorLayerPlacement rounds fractional results', () => {
   }));
   const placed = mirrorLayerPlacement(map, { x: 1, y: 1 });
   // u = 1/3 → x = 10 + (2/3)*3 = 12, y = 10 + 1 = 11
-  assert.deepEqual(placed, { x: 12, y: 11, flip: true });
+  assert.deepEqual(placed, { x: 12, y: 11, flip: true, kind: 'flip' });
   assert.ok(Number.isInteger(placed.x));
   assert.ok(Number.isInteger(placed.y));
 });
@@ -606,23 +606,35 @@ test('trimShape is the whole region, or the clicked half when it has a centerlin
   assert.ok(top[3] > 50 && bottom[1] < 50);
 });
 
-// ---------------------------------------------------------------- mirror partners at any layout
+// ---------------------------------------------------------------- how a mirror partner lies
 
-test('mirrorKind tells how a partner lies: beside, above/below, or turned a quarter', () => {
+test('guessMirrorKind tells how a partner lies from the two outlines', () => {
   const at = (pts, dx, dy) => {
     const p = pts.map(q => ({ x: q.x + dx, y: q.y + dy }));
     const xs = p.map(q => q.x), ys = p.map(q => q.y);
     return { id: 'r', x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys), points: p };
   };
   const src = at(L_SHAPE, 0, 0);
-  const flipH = L_SHAPE.map(q => ({ x: 100 - q.x, y: q.y }));
-  const flipV = L_SHAPE.map(q => ({ x: q.x, y: 100 - q.y }));
-  const swap = L_SHAPE.map(q => ({ x: q.y, y: q.x }));
-  assert.equal(mirrorKind(src, at(flipH, 300, 0)), 'h');
-  assert.equal(mirrorKind(src, at(flipV, 0, 300)), 'v');
-  assert.equal(mirrorKind(src, at(swap, 300, 300)), 'd');
-  // two plain boxes fit every way, and then it is side by side, as it always was
-  assert.equal(mirrorKind({ id: 'a', x: 0, y: 0, w: 10, h: 10 }, { id: 'b', x: 50, y: 0, w: 10, h: 10 }), 'h');
-  // a partner lying below: a point near the top of one lands near the bottom of the other
-  assert.deepEqual(mirrorPoint(src, at(flipV, 0, 300), 20, 10, 'v'), { x: 20, y: 390 });
+  assert.equal(guessMirrorKind(src, at(L_SHAPE.map(q => ({ x: 100 - q.x, y: q.y })), 300, 0)), 'flip');
+  assert.equal(guessMirrorKind(src, at(L_SHAPE.map(q => ({ x: q.x, y: 100 - q.y })), 0, 300)), 'flipV');
+  assert.equal(guessMirrorKind(src, at(L_SHAPE.map(q => ({ x: 100 - q.x, y: 100 - q.y })), 300, 300)), 'rot180');
+  assert.equal(guessMirrorKind(src, at(L_SHAPE, 300, 300)), 'same');
+  // two plain boxes fit every way, and then it is the default
+  assert.equal(guessMirrorKind({ id: 'a', x: 0, y: 0, w: 10, h: 10 }, { id: 'b', x: 50, y: 0, w: 10, h: 10 }), 'flip');
+});
+
+test('setMirror records how the pair lies, and clears it when unpaired', () => {
+  const below = L_SHAPE.map(q => ({ x: q.x, y: 400 - q.y }));
+  const map = parseRegionMap(rawMap({
+    regions: [
+      { id: 'a', x: 0, y: 0, w: 100, h: 100, points: L_SHAPE },
+      { id: 'b', x: 0, y: 300, w: 100, h: 100, points: below },
+    ],
+  }));
+  const [a, b] = map.regions;
+  setMirror(map, a, 'b');
+  assert.deepEqual([a.mirrorKind, b.mirrorKind], ['flipV', 'flipV']);
+  assert.equal(parseRegionMap(map).regions[0].mirrorKind, 'flipV'); // survives a save and load
+  setMirror(map, a, null);
+  assert.deepEqual([a.mirrorKind, b.mirrorKind], [undefined, undefined]);
 });
