@@ -23,7 +23,7 @@
       <path d="M16 22 L24 8 H26 L18 22 Z" fill="#e8e6e1"/>
     </svg>
     <span class="brand-name">CLEARCOAT</span>
-    <span class="brand-sub">livery workbench <span id="app-version">v0.68-pieces.3</span></span>
+    <span class="brand-sub">livery workbench <span id="app-version">v0.68-pieces.4</span></span>
   </div>
 
   <input id="project-name" class="project-name" type="text" value="untitled livery" spellcheck="false" aria-label="Project name">
@@ -348,7 +348,8 @@
         <button id="ins-corner-reset" class="hud-btn" title="Re-centre the artwork and reset zoom">Centre</button>
       </div>
       <div class="template-row" style="margin:6px 0">
-        <button id="ins-trim" class="sm-btn wide" title="Show this layer only inside one region of the map: click this, then click the region on the sheet (on a region with a centerline, the half you click). The layer keeps all its artwork, so you can still move and scale it underneath. Click again to remove the trim.">Trim to piece</button>
+        <button id="ins-trim" class="sm-btn wide" title="Show this layer only inside chosen regions of the map: click this, then click each region on the sheet (on a region with a centerline, the half you click). Click a chosen one again to take it out, Enter when done. The layer keeps all its artwork, so you can still move and scale it underneath.">Trim to pieces</button>
+        <button id="ins-trim-clear" class="sm-btn icon" title="Remove the trim — the layer shows in full again" hidden>✕</button>
       </div>
       <div id="ins-lasso-row" class="template-row" hidden style="margin:6px 0">
         <button id="ins-edit-shape" class="sm-btn wide" title="Bring this layer's lasso outline back so the handles can be dragged. Press Enter to re-apply — the layer keeps its id, name, opacity and position in the stack.">Edit shape</button>

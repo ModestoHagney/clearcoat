@@ -979,6 +979,16 @@ function glitchPass(rctx, layer, fx, forSpec) {
   rctx.restore();
 }
 
+// A layer's trim as a list of windows, each a list of { x, y }. `clip` is
+// stored that way; a single flat outline (how the first trims were saved) is
+// still read as one window.
+export function clipPolys(layer) {
+  const c = layer.clip;
+  if (!Array.isArray(c) || !c.length) return [];
+  const polys = Array.isArray(c[0]) ? c : [c];
+  return polys.filter(p => Array.isArray(p) && p.length >= 3);
+}
+
 export function drawLayer(ctx, layer, forSpec = false) {
   // layer effects apply only to raster layers (image/text). Stroke changes
   // the design silhouette so it renders in both paint and spec passes;
@@ -999,14 +1009,17 @@ export function drawLayer(ctx, layer, forSpec = false) {
         : 0)))
     : 0;
   ctx.save();
-  if (layer.clip && layer.clip.length >= 3) {
-    // trim: a window fixed on the sheet. The layer keeps all of its artwork
-    // and can still be moved or scaled underneath; only what falls inside
-    // shows, in the paint and the spec map alike.
+  const windows = clipPolys(layer);
+  if (windows.length) {
+    // trim: windows fixed on the sheet, one per piece. The layer keeps all of
+    // its artwork and can still be moved or scaled underneath; only what
+    // falls inside a window shows, in the paint and the spec map alike.
     ctx.beginPath();
-    ctx.moveTo(layer.clip[0].x, layer.clip[0].y);
-    for (let i = 1; i < layer.clip.length; i++) ctx.lineTo(layer.clip[i].x, layer.clip[i].y);
-    ctx.closePath();
+    for (const poly of windows) {
+      ctx.moveTo(poly[0].x, poly[0].y);
+      for (let i = 1; i < poly.length; i++) ctx.lineTo(poly[i].x, poly[i].y);
+      ctx.closePath();
+    }
     ctx.clip();
   }
   ctx.globalAlpha = layer.opacity;
@@ -1135,9 +1148,32 @@ function paintBase(ctx, doc) {
   ctx.fillRect(0, 0, SIZE, SIZE);
 }
 
+// A layer and its Tint wash are painted as one: the layer is drawn off to the
+// side, its colour mixed toward the tint there, and the result composited
+// once. Washing the tint over a layer that was already on the sheet let the
+// layer's own colour show through on every soft edge pixel — a pale rim
+// round tinted white shapes (lasso, + Piece and wand recolour layers).
 function paintLayerInto(ctx, layer) {
-  drawLayer(ctx, layer, false);
-  applyTint(ctx, layer);
+  const p = layer.matParams;
+  const amt = (p?.tintAmt || 0) / 100;
+  const normal = (BLEND_MODES[layer.blend] || BLEND_MODES.normal).op === 'source-over';
+  if (!amt || !p.tint || !normal) {
+    // ponytail: layers with a blend mode keep the two-pass wash, whose look
+    // they were tuned against — fold them in here if a rim shows up on one.
+    drawLayer(ctx, layer, false);
+    applyTint(ctx, layer);
+    return;
+  }
+  const sctx = scratch.getContext('2d');
+  sctx.clearRect(0, 0, SIZE, SIZE);
+  drawLayer(sctx, layer, false);
+  sctx.save();
+  sctx.globalCompositeOperation = 'source-atop';
+  sctx.globalAlpha = amt;
+  sctx.fillStyle = p.tint;
+  sctx.fillRect(0, 0, SIZE, SIZE);
+  sctx.restore();
+  ctx.drawImage(scratch, 0, 0);
 }
 
 export function renderPaint(doc) {
@@ -1458,8 +1494,9 @@ export function serializeDoc(doc) {
       flipH: l.flipH, flipV: l.flipV,
       rx: l.rx, ry: l.ry, rw: l.rw, rh: l.rh,
       // trim window (see drawLayer), absolute doc space
-      clip: Array.isArray(l.clip) ? l.clip.map(q => ({ x: q.x, y: q.y })) : null,
-      clipAt: l.clipAt ? { x: l.clipAt.x, y: l.clipAt.y } : null,
+      clip: clipPolys(l).length ? clipPolys(l).map(p => p.map(q => ({ x: q.x, y: q.y }))) : null,
+      // the spot picked in each window: says which region (and half) it is
+      clipAt: [].concat(l.clipAt || []).map(q => ({ x: q.x, y: q.y })),
       // the traced outline, so a lasso layer can be re-shaped after a reload
       lassoPts: Array.isArray(l.lassoPts) ? l.lassoPts.map(q => ({ x: q.x, y: q.y })) : null,
       // corner-pin quad, absolute doc space
@@ -1682,12 +1719,12 @@ export async function deserializeDoc(data) {
   // trim windows apply to every layer type, so they are restored in one place
   const loaded = new Map(doc.layers.map(l => [l.id, l]));
   for (const l of (data.layers || [])) {
-    if (!l || !loaded.has(l.id) || !Array.isArray(l.clip)) continue;
-    const clip = l.clip.filter(q => q && Number.isFinite(q.x) && Number.isFinite(q.y)).map(q => ({ x: q.x, y: q.y }));
-    if (clip.length < 3) continue;
+    if (!l || !loaded.has(l.id)) continue;
+    const ok = (q) => q && Number.isFinite(q.x) && Number.isFinite(q.y);
+    const clip = clipPolys(l).map(p => p.filter(ok).map(q => ({ x: q.x, y: q.y }))).filter(p => p.length >= 3);
+    if (!clip.length) continue;
     loaded.get(l.id).clip = clip;
-    const at = l.clipAt;
-    if (at && Number.isFinite(at.x) && Number.isFinite(at.y)) loaded.get(l.id).clipAt = { x: at.x, y: at.y };
+    loaded.get(l.id).clipAt = [].concat(l.clipAt || []).filter(ok).map(q => ({ x: q.x, y: q.y }));
   }
   // groups are restored after the layers so broken/skipped layers can't leave
   // a group pointing at nothing: re-attach by id, then keep only groups that
