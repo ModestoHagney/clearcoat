@@ -23,7 +23,7 @@
       <path d="M16 22 L24 8 H26 L18 22 Z" fill="#e8e6e1"/>
     </svg>
     <span class="brand-name">CLEARCOAT</span>
-    <span class="brand-sub">livery workbench <span id="app-version">v0.68-pieces.2</span></span>
+    <span class="brand-sub">livery workbench <span id="app-version">v0.68-pieces.3</span></span>
   </div>
 
   <input id="project-name" class="project-name" type="text" value="untitled livery" spellcheck="false" aria-label="Project name">
@@ -347,11 +347,11 @@
         <span id="ins-corner-zoom-val" class="mono hud-readout" style="min-width:30px">1.0x</span>
         <button id="ins-corner-reset" class="hud-btn" title="Re-centre the artwork and reset zoom">Centre</button>
       </div>
-      <div style="margin:6px 0">
-        <button id="ins-trim" class="hud-btn" style="width:100%" title="Show this layer only inside one region of the map: click this, then click the region on the sheet (on a region with a centerline, the half you click). The layer keeps all its artwork, so you can still move and scale it underneath. Click again to remove the trim.">Trim to piece</button>
+      <div class="template-row" style="margin:6px 0">
+        <button id="ins-trim" class="sm-btn wide" title="Show this layer only inside one region of the map: click this, then click the region on the sheet (on a region with a centerline, the half you click). The layer keeps all its artwork, so you can still move and scale it underneath. Click again to remove the trim.">Trim to piece</button>
       </div>
-      <div id="ins-lasso-row" hidden style="margin:6px 0">
-        <button id="ins-edit-shape" class="hud-btn" style="width:100%" title="Bring this layer's lasso outline back so the handles can be dragged. Press Enter to re-apply — the layer keeps its id, name, opacity and position in the stack.">Edit shape</button>
+      <div id="ins-lasso-row" class="template-row" hidden style="margin:6px 0">
+        <button id="ins-edit-shape" class="sm-btn wide" title="Bring this layer's lasso outline back so the handles can be dragged. Press Enter to re-apply — the layer keeps its id, name, opacity and position in the stack.">Edit shape</button>
       </div>
       <label class="tb-check" title="The mirror of Material only: paint this layer's color but DON'T stamp its material — the finish of the layers beneath survives untouched. Perfect for semi-transparent tint/blend layers over pearl, flake or candy.">
         <input type="checkbox" id="ins-paint-only"> Paint only (keep finish below)
