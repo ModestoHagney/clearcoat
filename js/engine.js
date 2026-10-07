@@ -1176,6 +1176,17 @@ function paintLayerInto(ctx, layer) {
   ctx.drawImage(scratch, 0, 0);
 }
 
+// The given layers painted in stack order over a transparent sheet, exactly
+// as they appear in the paint (tint, opacity, effects and trim included) —
+// what Merge bakes into one image. Material-only layers paint nothing.
+export function paintLayers(layers) {
+  const c = document.createElement('canvas');
+  c.width = c.height = SIZE;
+  const ctx = c.getContext('2d');
+  for (const l of layers) if (inPaintMap(l)) paintLayerInto(ctx, l);
+  return c;
+}
+
 export function renderPaint(doc) {
   const ctx = paintCanvas.getContext('2d');
   ctx.clearRect(0, 0, SIZE, SIZE);

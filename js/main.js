@@ -8,7 +8,7 @@ import {
   serializeDoc, deserializeDoc, loadImage, cornersFromMatrix, layerMatrix,
   templateOverlay, defaultParams, resolveParams, mixHex, drawLayer,
   createCarPatternLayer, setCarPatternColors, carPatternCanvas, // car patterns
-  clipPolys,
+  clipPolys, paintLayers,
 } from './engine.js';
 // car patterns (see the "car patterns" block) — the kit's own colour-keyed designs
 import { buildCatalog, saveCatalog, loadCatalog, getPattern, patternRank, recolorPattern,
@@ -506,6 +506,8 @@ let annotateMode = false;
 // (next click on a region trims the selected layer to it)
 let regionTool = null;
 let centerClick = null;     // first twin corner clicked for a centerline: { region, x, y }
+let pressCycle = null;      // a press on the selected layer: { sx, sy, next } — a click (no drag) selects `next`
+let cycleSpot = null;       // where the selection was last cycled down to a covered layer: { id, sx, sy }
 let snapPreview = null;     // where a click would land right now, for the link and centerline tools
 let linkClicks = [];        // ends clicked so far for the link being made: { region, x, y }
 let seamHover = null;       // matchPoint() result under the pointer, for the marker
@@ -1296,17 +1298,37 @@ viewport.addEventListener('pointerdown', (e) => {
     return;
   }
 
-  // clicking again on an already-selected spot cycles down the stack
-  if (hits.length > 1) {
-    const idx = hits.findIndex(l => l.id === selectedId);
-    if (idx !== -1) hit = hits[(idx + 1) % hits.length];
+  // Which layer does a press grab? The top one under the pointer — except
+  // that the selected layer keeps the press when it was just cycled to at
+  // this spot, or when the pointer is inside its own box with nothing lying
+  // over it (text and graphics are full of see-through gaps). Cycling down
+  // the stack waits for a plain click: see pressCycle at pointerup. Doing it
+  // at the press meant dragging a selected layer grabbed the one beneath.
+  const cur = selectedIds.size <= 1 ? selectedLayer() : null;
+  pressCycle = null;
+  if (cur && cur.visible && !cur.locked) {
+    const z = (l) => doc.layers.indexOf(l);
+    const cycledHere = cycleSpot && cycleSpot.id === cur.id && hits.includes(cur)
+      && Math.hypot(sx - cycleSpot.sx, sy - cycleSpot.sy) <= 6;
+    // ponytail: the box rule is for small things; a layer whose box is most
+    // of the sheet (a trimmed full-sheet image) would swallow every pan
+    const box = !isRegionLayer(cur) && !hits.includes(cur) ? layerCorners(cur) : null;
+    const small = box && Math.hypot(box[1].x - box[0].x, box[1].y - box[0].y) * Math.hypot(box[3].x - box[0].x, box[3].y - box[0].y) <= SIZE * SIZE * 0.25;
+    const inGap = small && pointInQuad(p, box) && (!hit || z(hit) < z(cur));
+    if (cycledHere || inGap) hit = cur;
+    if (hit === cur) {
+      // a click here (no drag) moves the selection one layer down the stack
+      const i = hits.indexOf(cur);
+      const next = i === -1 ? hits[0] : hits.length > 1 ? hits[(i + 1) % hits.length] : null;
+      if (next && next !== cur) pressCycle = { sx, sy, next };
+    }
+  }
+  // dragging any member of a multi-selection moves the whole selection
+  if (selectedIds.size > 1 && hits.some(l => selectedIds.has(l.id))) {
+    beginMoveMulti(p);
+    return;
   }
   if (hit) {
-    // dragging within a multi-selection moves the whole selection
-    if (selectedIds.has(hit.id) && selectedIds.size > 1) {
-      beginMoveMulti(p);
-      return;
-    }
     selectLayer(hit.id);
     // selectLayer widened to a group — drag them as one
     if (selectedIds.size > 1) { beginMoveMulti(p); return; }
@@ -1330,6 +1352,7 @@ viewport.addEventListener('pointermove', (e) => {
   // seam marker: near a linked edge, show where that spot lands on the other piece
   const hover = (regionsView || regionTool === 'link') && doc.regionMap ? matchPoint(doc.regionMap, p.x, p.y, 10 / view.zoom) : null;
   if (hover || seamHover) { seamHover = hover; requestRender(); }
+  if (pressCycle && Math.hypot(sx - pressCycle.sx, sy - pressCycle.sy) > 3) pressCycle = null; // it became a drag
   // link and centerline tools: show where a click here would land
   const snap = regionTool === 'link' && !linkDrag
     ? linkSnap(p, linkClicks.length % 2 ? linkClicks[linkClicks.length - 1].region : null)
@@ -1574,6 +1597,9 @@ viewport.addEventListener('pointermove', (e) => {
 });
 
 window.addEventListener('pointerup', () => {
+  // a plain click on the selected layer: step the selection down the stack
+  const cycle = pressCycle;
+  pressCycle = null;
   if (lassoDragIdx !== null) { lassoDragIdx = null; draw(); }
   if (linkDrag) {
     const d = linkDrag;
@@ -1596,6 +1622,12 @@ window.addEventListener('pointerup', () => {
     requestRender();
   }
   viewport.classList.remove('panning');
+  if (cycle) {
+    selectLayer(cycle.next.id);
+    // remembered so the next press at this spot drags the layer just reached
+    cycleSpot = { id: cycle.next.id, sx: cycle.sx, sy: cycle.sy };
+    requestRender();
+  }
 });
 
 // select every unlocked visible layer whose bounds intersect the marquee rect
@@ -2422,6 +2454,7 @@ function syncInspector() {
       ? 'Mirror Clone (Ctrl+Shift+D) — copy every selected layer onto its partner panel, mirrored. Each layer\'s center must sit inside a mirrored region.'
       : 'Mirror Clone needs a region map — load one from the Template panel, or draw your own with Annotate.';
     $('ins-group').disabled = selectedIds.size < 2;
+    $('ins-merge').disabled = selectedIds.size < 2;
     $('ins-ungroup').disabled = !selectedLayers().some(l => l.groupId);
     syncRowButton(); // sponsor row
     const fitBtn = $('ins-fit-zone');
@@ -2952,6 +2985,70 @@ function mirrorSelected() {
 }
 
 $('ins-mirror').addEventListener('click', mirrorSelected);
+// Merge: the selected layers baked into one image layer that looks the same
+// on the sheet. Everything painted is kept (tint, opacity, effects, trims);
+// what is lost is the ability to edit the parts, and their separate finishes.
+async function mergeSelected() {
+  const ids = new Set(selectedLayers().map(l => l.id));
+  const picked = doc.layers.filter(l => ids.has(l.id) && l.visible); // stack order, bottom first
+  const targets = picked.filter(l => !l.specOnly && !(MATERIALS[l.material] || {}).ghost);
+  if (targets.length < 2) {
+    status(picked.length >= 2
+      ? 'Those layers only stamp a finish and paint nothing, so there is no picture to merge.'
+      : 'Select two or more visible layers to merge — Ctrl+click rows in the layer list, or Shift+drag on the sheet.', 'warn');
+    return;
+  }
+  const top = targets[targets.length - 1];
+  // undo steps are normally recorded a moment after an edit settles; record
+  // the state right now so Ctrl+Z after a merge always lands exactly here
+  captureHistory();
+  const sheet = paintLayers(targets);
+  // crop to what was actually painted, so the merged layer's box is its artwork
+  const px = sheet.getContext('2d').getImageData(0, 0, SIZE, SIZE).data;
+  let x0 = SIZE, y0 = SIZE, x1 = -1, y1 = -1;
+  for (let y = 0; y < SIZE; y++) {
+    for (let x = 0; x < SIZE; x++) {
+      if (px[(y * SIZE + x) * 4 + 3] > 0) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    }
+  }
+  if (x1 < 0) { status('Those layers paint nothing visible, so there is nothing to merge.', 'warn'); return; }
+  const crop = document.createElement('canvas');
+  crop.width = x1 - x0 + 1;
+  crop.height = y1 - y0 + 1;
+  crop.getContext('2d').drawImage(sheet, -x0, -y0);
+  const src = crop.toDataURL('image/png');
+  const merged = createImageLayer(await loadImage(src), src, `${top.name} (merged)`);
+  merged.x = x0 + crop.width / 2;
+  merged.y = y0 + crop.height / 2;
+  merged.scale = 1;
+  // one finish for the lot: the top layer's. Its tint is already in the picture.
+  merged.material = top.material;
+  merged.matParams = top.matParams ? { ...top.matParams, tintAmt: 0 } : null;
+  merged.specBlend = top.specBlend || 'replace';
+  merged.paintOnly = targets.every(l => l.paintOnly);
+  const blends = new Set(targets.map(l => l.blend || 'normal'));
+  merged.blend = blends.size === 1 ? [...blends][0] : 'normal';
+  const groups = new Set(targets.map(l => l.groupId || null));
+  merged.groupId = groups.size === 1 ? [...groups][0] : null;
+  // the merged layer takes the top one's place in the stack
+  const gone = new Set(targets.map(l => l.id));
+  const at = doc.layers.indexOf(top);
+  doc.layers.splice(at, 1, merged);
+  doc.layers = doc.layers.filter(l => !gone.has(l.id));
+  pruneGroups();
+  selectLayer(merged.id);
+  rebuildLayerList();
+  markDirty();
+  captureHistory(); // the merge is one undo step of its own
+  const finishes = new Set(targets.map(l => l.material));
+  const notes = [];
+  if (finishes.size > 1) notes.push(`they had ${finishes.size} different finishes, so it took the top layer's (${(MATERIALS[top.material] || {}).label || top.material})`);
+  if (blends.size > 1) notes.push('their blend modes differed, so it uses Normal');
+  if (picked.length > targets.length) notes.push(`${picked.length - targets.length} finish-only layer${picked.length - targets.length === 1 ? ' was' : 's were'} left as ${picked.length - targets.length === 1 ? 'it was' : 'they were'}`);
+  status(`Merged ${targets.length} layers into "${merged.name}"` + (notes.length ? ' — ' + notes.join('; ') + '.' : '.') + ' Ctrl+Z brings them back.', finishes.size > 1 || blends.size > 1 ? 'warn' : 'ok');
+}
+$('ins-merge').addEventListener('click', mergeSelected);
+
 $('ins-group').addEventListener('click', groupSelected);
 $('ins-ungroup').addEventListener('click', ungroupSelected);
 $('ins-delete').addEventListener('click', deleteSelected);
@@ -4018,6 +4115,7 @@ function rebuildFontSelect() {
     opt.textContent = f.name;
     group.appendChild(opt);
   }
+  group.hidden = !group.childElementCount; // an empty heading reads as a choice that does nothing
   const sel = selectedLayer();
   if (sel && sel.type === 'text') $('ins-text-font').value = sel.font;
 }
