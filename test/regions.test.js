@@ -621,6 +621,9 @@ test('guessMirrorKind tells how a partner lies from the two outlines', () => {
   assert.equal(guessMirrorKind(src, at(L_SHAPE, 300, 300)), 'same');
   // two plain boxes fit every way, and then it is the default
   assert.equal(guessMirrorKind({ id: 'a', x: 0, y: 0, w: 10, h: 10 }, { id: 'b', x: 50, y: 0, w: 10, h: 10 }), 'flip');
+  // narrowed to the two reflections: a stacked twin that is not in the same column is still top/bottom
+  assert.equal(guessMirrorKind(src, at(L_SHAPE.map(q => ({ x: q.x, y: 100 - q.y })), 40, 300), ['flip', 'flipV']), 'flipV');
+  assert.equal(guessMirrorKind(src, at(L_SHAPE.map(q => ({ x: 100 - q.x, y: 100 - q.y })), 300, 300), ['flip', 'flipV']) === 'rot180', false);
 });
 
 test('setMirror records how the pair lies, and clears it when unpaired', () => {

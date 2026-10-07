@@ -3149,8 +3149,10 @@ $('region-mirrored').addEventListener('change', () => {
   if (!r || !m) return;
   let kind;
   if ($('region-mirrored').checked) {
-    // a reflection: top/bottom when the twins share a column, else left/right
-    kind = Math.abs(r.x - m.x) <= 6 && Math.abs(r.w - m.w) <= 6 ? 'flipV' : 'flip';
+    // a reflection: outlined pieces say which by their shapes; plain boxes
+    // are top/bottom when the twins share a column, else left/right
+    kind = r.points && m.points ? guessMirrorKind(r, m, ['flip', 'flipV'])
+      : Math.abs(r.x - m.x) <= 6 && Math.abs(r.w - m.w) <= 6 ? 'flipV' : 'flip';
   } else {
     kind = 'rot180';
   }

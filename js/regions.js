@@ -122,16 +122,16 @@ export function mirrorPoint(src, dst, x, y) {
 // Which relation (see MIRROR_KINDS) lays src's outline most closely over
 // dst's — how a pair of outlined regions should be mirrored when nothing has
 // recorded it yet. Plain boxes fit every way equally, and then it is 'flip',
-// the default.
-export function guessMirrorKind(src, dst) {
+// the default. `kinds` narrows the choice, e.g. to the two reflections.
+export function guessMirrorKind(src, dst, kinds = MIRROR_KINDS) {
   const from = regionOutline(src), to = regionOutline(dst);
   const probes = [];
   for (let i = 0; i < from.length; i++) {
     const p = from[i], q = from[(i + 1) % from.length];
     probes.push(p, { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 });
   }
-  let best = 'flip', bestD = Infinity;
-  for (const kind of MIRROR_KINDS) {
+  let best = kinds[0], bestD = Infinity;
+  for (const kind of kinds) {
     let d = 0;
     for (const p of probes) {
       const m = mirrorPointKind(src, dst, p.x, p.y, kind);
