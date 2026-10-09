@@ -6,7 +6,7 @@
 // the reload that activates it. If VERSION doesn't change, returning users
 // keep being served the old cached shell.
 
-const VERSION = 'v0.68-pieces.5';
+const VERSION = 'v0.68-pieces.6';
 const CACHE = 'clearcoat-' + VERSION;
 
 // app shell — every path here must exist in the repo
@@ -98,6 +98,23 @@ self.addEventListener('fetch', (event) => {
   if (url.origin === self.location.origin) {
     // same-origin: cache-first, network fallback (caching what it fetches)
     event.respondWith((async () => {
+      // The new screen (next/) is still being built stage by stage, so it and
+      // everything it loads come fresh from the network, cache only offline.
+      // ponytail: drop this once next/ is the app and joins PRECACHE.
+      const client = event.clientId ? await self.clients.get(event.clientId) : null;
+      if (url.pathname.includes('/next/') || (client && new URL(client.url).pathname.includes('/next/'))) {
+        try {
+          const res = await fetch(req, { cache: 'no-cache' });
+          // only next/'s own files are stored: a shared module refreshed here
+          // must not end up beside an older main.js in the main app's shell
+          if (res && res.ok && url.pathname.includes('/next/')) (await caches.open(CACHE)).put(req, res.clone());
+          return res;
+        } catch (err) {
+          const cached = await caches.match(req);
+          if (cached) return cached;
+          throw err;
+        }
+      }
       const cached = await caches.match(req);
       if (cached) return cached;
       const res = await fetch(req);

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clearcoat</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="app.css">
+<link rel="icon" href="../icons/icon-192.png">
+</head>
+<body>
+<div class="app">
+  <header class="bar">
+    <span class="brand">Clearcoat</span>
+    <nav class="menus" id="menus" aria-label="Menus"></nav>
+    <div class="modes" id="modes" role="group" aria-label="Mode"></div>
+    <div class="right">
+      <button class="icon" id="btn-undo" title="Undo (Ctrl+Z)" aria-label="Undo" disabled><svg viewBox="0 0 20 20"><path d="M7 5 3 9l4 4"/><path d="M3 9h9a4 4 0 0 1 0 8h-1"/></svg></button>
+      <button class="icon" id="btn-redo" title="Redo (Ctrl+Y)" aria-label="Redo" disabled><svg viewBox="0 0 20 20"><path d="m13 5 4 4-4 4"/><path d="M17 9H8a4 4 0 0 0 0 8h1"/></svg></button>
+      <button class="pill" id="btn-live" aria-pressed="false" title="Send every change to the car in iRacing"><i></i>Live</button>
+    </div>
+  </header>
+  <nav class="tools" id="tools" aria-label="Tools"></nav>
+  <main class="stage" id="stage">
+    <canvas id="view"></canvas>
+    <div class="empty" id="empty" hidden>
+      <p>Load a car's template to start.</p>
+      <button class="btn main" id="btn-empty-template">Load template…</button>
+    </div>
+    <div class="foot"><div class="zoom"><button id="btn-zoom-out" title="Zoom out" aria-label="Zoom out">−</button><span id="zoom-readout">Fit</span><button id="btn-zoom-in" title="Zoom in" aria-label="Zoom in">+</button><button id="btn-fit" title="Fit to screen (F)" aria-label="Fit to screen">⤢</button></div>
+    <div class="hint" id="hint"></div></div>
+    <div class="toast" id="toast" role="status" hidden></div>
+    <aside class="dock" id="dock"></aside>
+  </main>
+</div>
+<dialog id="dlg"><form method="dialog"><h3 id="dlg-title"></h3><div class="dbody" id="dlg-body"></div><footer><button type="button" class="btn" id="dlg-cancel">Cancel</button><button class="btn main" id="dlg-ok" value="ok">OK</button></footer></form></dialog>
+<input type="file" id="file-template" accept=".psd,image/*" hidden>
+<script type="module" src="app.js"></script>
+</body>
+</html>

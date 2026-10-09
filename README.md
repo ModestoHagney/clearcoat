@@ -63,6 +63,16 @@ Drivers who have never opened Clearcoat describe the livery they want at [`brief
 | `Esc` | Exit tool / deselect |
 | Scroll / Space-drag or right-drag | Zoom / pan |
 
+## The new screen (`next/`)
+
+A second screen is being built in stages at `next/`, beside the original. It
+is written fresh on the same plumbing (`js/engine.js`, `js/psd.js`,
+`js/tga.js`, `js/persist.js`, `js/regions.js`), so projects open in either.
+Stage 1 is a shell: load a template and see its pieces, set an exact base
+colour, open a project, save to iRacing and live update. The drawing tools,
+Map and Finish modes follow. `js/iracing.js` and `js/template.js` hold the
+page-free halves of saving and template loading that it uses.
+
 ## Development
 
 Pure static site — no build step. Serve the folder with anything (`python -m http.server`) and open `index.html`. ES modules require http(s), not `file://`.
