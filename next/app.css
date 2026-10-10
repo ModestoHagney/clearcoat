@@ -205,3 +205,14 @@ dialog.wide { width: min(720px, calc(100% - 32px)); }
   .modes { margin-inline: 0; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* Finish mode */
+.seg { display: flex; gap: 6px; padding: 6px; }
+.fhead { display: flex; align-items: center; gap: 12px; padding: 6px; }
+.fhead canvas { width: 76px; height: 76px; flex: none; border-radius: 50%; }
+.ftarget { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; color: var(--muted); font-size: 12px; }
+.ftarget b { flex-basis: 100%; color: var(--fg); font-size: 15px; font-weight: 600; }
+.finishes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding: 6px; }
+.finishes button { padding: 6px 2px; border: 1px solid var(--line); border-radius: 7px; font-size: 12px; }
+.finishes button:hover { background: var(--hover); }
+.finishes button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }

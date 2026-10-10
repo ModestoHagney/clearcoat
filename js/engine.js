@@ -181,6 +181,7 @@ export function createDoc() {
     templateBold: true,         // thicken 1px linework
     customFonts: [],            // { name, data (base64) } — uploaded fonts travel with the project
     googleFonts: [],            // names of Google fonts added by name, beyond the built-in list
+    finishRules: [],            // { color, material }: every shape or text of that colour gets that finish (see finish.js)
     regionMap: null,            // parsed clearcoat-regions/1 map (see regions.js)
     drivers: [],                // driver variants { id, name, number, custid, enabled } (see variants.js)
     paintMask: null,            // greyscale canvas from the template's Mask layer: paintable = white (zones.js)
@@ -1571,6 +1572,7 @@ export function serializeDoc(doc) {
     palette: cleanPalette(doc.palette),
     baseRef: doc.baseRef || null,
     googleFonts: (doc.googleFonts || []).filter(f => typeof f === 'string' && f).slice(0, 60),
+    finishRules: cleanFinishRules(doc.finishRules),
     groups: (doc.groups || []).map(g => ({ id: g.id, name: g.name, collapsed: !!g.collapsed })),
     layers: doc.layers.map(l => ({
       id: l.id, type: l.type, name: l.name,
@@ -1592,6 +1594,9 @@ export function serializeDoc(doc) {
       // text and pictures keep reading the right way on the other side unless
       // this asks for a true mirror image
       mirrorFlip: l.mirrorFlip ? true : undefined,
+      // its finish was chosen for this layer itself, so it does not follow a
+      // colour's finish rule (see finish.js)
+      finishOwn: l.finishOwn ? true : undefined,
       pts: Array.isArray(l.pts) ? l.pts.map(q => (q.c ? { x: q.x, y: q.y, c: { x: q.c.x, y: q.c.y } } : { x: q.x, y: q.y })) : undefined,
       colorMid: l.colorMid ?? null, midPos: l.midPos ?? 0.5,
       src: l.src,
@@ -1621,6 +1626,16 @@ export function serializeDoc(doc) {
       cornerZoom: Number.isFinite(l.cornerZoom) ? l.cornerZoom : null,
     })),
   };
+}
+
+// finish rules, cleaned: a 6-digit hex and a material the engine knows
+export function cleanFinishRules(rules) {
+  if (!Array.isArray(rules)) return [];
+  const seen = new Set();
+  return rules
+    .filter(r => r && /^#[0-9a-f]{6}$/i.test(r.color || '') && MATERIALS[r.material])
+    .map(r => ({ color: r.color.toLowerCase(), material: r.material }))
+    .filter(r => !seen.has(r.color) && seen.add(r.color));
 }
 
 // the livery's saved colours, cleaned: { id, name, color } with a 6-digit hex
@@ -1727,6 +1742,7 @@ export async function deserializeDoc(data) {
   doc.showUnpaintable = !!data.showUnpaintable;
   doc.patternCar = typeof data.patternCar === 'string' && data.patternCar ? data.patternCar : null;
   doc.palette = cleanPalette(data.palette);
+  doc.finishRules = cleanFinishRules(data.finishRules);
   doc.googleFonts = Array.isArray(data.googleFonts) ? data.googleFonts.filter(f => typeof f === 'string' && f).slice(0, 60) : [];
   doc.baseRef = doc.palette.some(c => c.id === data.baseRef) ? data.baseRef : null;
   // custom fonts must be live before text layers regenerate below
@@ -1857,6 +1873,7 @@ export async function deserializeDoc(data) {
     if (!l || !loaded.has(l.id)) continue;
     if (l.mirrored) loaded.get(l.id).mirrored = true; // any layer type, like the trim
     if (l.mirrorFlip) loaded.get(l.id).mirrorFlip = true;
+    if (l.finishOwn) loaded.get(l.id).finishOwn = true;
     if (typeof l.colorRef === 'string' && l.type !== 'fill') loaded.get(l.id).colorRef = l.colorRef; // text follows a saved colour too
     const ok = (q) => q && Number.isFinite(q.x) && Number.isFinite(q.y);
     const clip = clipPolys(l).map(p => p.filter(ok).map(q => ({ x: q.x, y: q.y }))).filter(p => p.length >= 3);

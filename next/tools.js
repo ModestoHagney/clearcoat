@@ -11,6 +11,9 @@
 // Fill a panel: click a panel and it becomes a shape with that panel's
 // outline. Trimming (a state of the Select tool): click panels to choose the
 // windows the selected layer shows through.
+// In Finish mode the same tools draw *areas*: shapes that paint nothing and
+// only carry a finish. There, only areas can be moved or reshaped; a click on
+// anything else just picks it as what the finish applies to.
 // Text tool: click the sheet and a line of text is put there. A selected text
 // or picture has a handle on each corner to resize it and one above to turn it.
 
@@ -52,9 +55,11 @@ export function initTools(app, env) {
   let drag = null;
 
   const selLayer = () => app.doc.layers.find(l => l.id === app.sel) || null;
-  const selShape = () => { const l = selLayer(); return isShape(l) && !l.locked && l.visible ? l : null; };
-  const selBox = () => { const l = selLayer(); return isBox(l) && !l.locked && l.visible ? l : null; };
-  const selPic = () => { const l = selLayer(); return isPic(l) && !l.locked && l.visible ? l : null; };
+  // in Finish mode the paint is not to be disturbed: only areas can be changed
+  const editable = (l) => !!l && !l.locked && l.visible && (app.mode !== 'finish' || !!l.specOnly);
+  const selShape = () => { const l = selLayer(); return isShape(l) && editable(l) ? l : null; };
+  const selBox = () => { const l = selLayer(); return isBox(l) && editable(l) ? l : null; };
+  const selPic = () => { const l = selLayer(); return isPic(l) && editable(l) ? l : null; };
   // where the turn handle sits: out from the middle of the top edge
   function turnHandle(l) {
     const c = layerCorners(l).map(onScreen), top = { x: (c[0].x + c[1].x) / 2, y: (c[0].y + c[1].y) / 2 }, mid = onScreen(l);
@@ -75,6 +80,7 @@ export function initTools(app, env) {
     layer.shape = 'path';
     layer.name = r.name;
     setShape(layer, growOutline(regionOutline(r), 2).map(q => ({ x: Math.round(q.x * 10) / 10, y: Math.round(q.y * 10) / 10 })));
+    env.created(layer);
     app.doc.layers.push(layer);
     app.sel = layer.id; // the tool stays armed: click the next panel
     change({ now: true });
@@ -111,6 +117,7 @@ export function initTools(app, env) {
   }
   const bandEnd = (p, e) => (e.shiftKey && band ? snapAngle(band.a, p) : snapToPieces(p, e));
   function addLayer(layer) {
+    env.created(layer);
     app.doc.layers.push(layer);
     app.tool = 'select';
     app.sel = layer.id;
@@ -152,6 +159,7 @@ export function initTools(app, env) {
     for (let i = app.doc.layers.length - 1; i >= 0; i--) {
       const l = app.doc.layers[i];
       if (!l.visible || l.locked) continue;
+      if (l.specOnly && app.mode !== 'finish') continue; // an area belongs to Finish mode
       if (isShape(l)) { if (contains(l.pts, p.x, p.y)) return l; continue; }
       if (isRegionLayer(l)) {
         // ponytail: a sheet-sized layer would swallow every click, so it is
@@ -194,10 +202,11 @@ export function initTools(app, env) {
   function finish() {
     if (!draft || draft.length < 3) return false;
     const layer = createFillLayer(app.colour);
-    const n = app.doc.layers.filter(isShape).length + 1;
+    const n = app.doc.layers.filter(l => isShape(l) && !l.specOnly).length + 1;
     layer.name = 'Shape ' + n;
     layer.shape = 'path';
     setShape(layer, draft);
+    env.created(layer);
     app.doc.layers.push(layer);
     draft = null; cursor = null;
     app.tool = 'select';
@@ -254,6 +263,10 @@ export function initTools(app, env) {
       if (ci !== -1) { drag = { kind: 'size', layer: box, anchor: corners(box)[(ci + 2) % 4] }; return; }
     }
     const hit = layerAt(p);
+    if (app.mode === 'finish') {
+      env.finishPick(hit, p);               // what the finish will apply to
+      if (!hit || !hit.specOnly) return;    // and only an area can be dragged here
+    }
     if (!hit) {
       // a click on the mirrored side of a layer selects the layer it belongs to
       const owner = mirrorOwnerAt(p);
@@ -376,6 +389,12 @@ export function initTools(app, env) {
   const hint = () => {
     if (app.picking) return 'Click a colour on the sheet · Esc cancels';
     if (app.trimming) return 'Click panels to show it in · click again to take one out · Enter when done';
+    if (app.mode === 'finish') {
+      if (app.tool === 'piece') return 'Click a panel to give the whole panel a finish';
+      if (app.tool === 'pen') return draft && draft.length ? 'Enter to finish the area · Backspace undoes a point' : 'Click points round the area · Shift holds 45°';
+      if (app.tool === 'shape') return 'Drag out the area';
+      return 'Click a colour or a layer on the sheet, then choose its finish';
+    }
     if (app.tool === 'piece') return 'Click a panel to fill it';
     if (app.tool === 'text') return 'Click where the text goes';
     if (app.tool === 'select' && selPic()) return 'Drag a corner to resize · the round handle turns it · Shift turns in steps';
@@ -421,6 +440,35 @@ export function initTools(app, env) {
       ctx.strokeStyle = accent; ctx.lineWidth = 1.5; ctx.stroke();
     };
     const outline = (pts) => { ctx.beginPath(); pts.forEach((q, i) => { const a = onScreen(q); i ? ctx.lineTo(a.x, a.y) : ctx.moveTo(a.x, a.y); }); ctx.closePath(); };
+    if (app.mode === 'finish') {
+      // an area paints nothing, so it is drawn here: tinted, dashed. Whatever
+      // the finish is about to apply to gets a solid outline.
+      const edge = (l) => {
+        if (isShape(l)) path(l.pts, true);
+        else if (isRegionLayer(l)) {
+          const A = onScreen({ x: l.rx, y: l.ry }), B = onScreen({ x: l.rx + l.rw, y: l.ry + l.rh });
+          ctx.beginPath();
+          if (l.shape === 'ellipse') ctx.ellipse((A.x + B.x) / 2, (A.y + B.y) / 2, (B.x - A.x) / 2, (B.y - A.y) / 2, 0, 0, Math.PI * 2);
+          else if (l.shape === 'triangle') { ctx.moveTo((A.x + B.x) / 2, A.y); ctx.lineTo(B.x, B.y); ctx.lineTo(A.x, B.y); ctx.closePath(); }
+          else ctx.rect(A.x, A.y, B.x - A.x, B.y - A.y);
+        } else if (l.img) outline(layerCorners(l));
+        else ctx.beginPath();
+      };
+      const isTarget = env.finishTargets();
+      for (const l of app.doc.layers) {
+        if (!l.visible) continue;
+        if (l.specOnly) {
+          edge(l);
+          ctx.fillStyle = accent; ctx.globalAlpha = 0.16; ctx.fill(); ctx.globalAlpha = 1;
+          ctx.setLineDash([5, 4]); ctx.strokeStyle = accent; ctx.lineWidth = 1.5; ctx.stroke(); ctx.setLineDash([]);
+        }
+        if (isTarget(l)) {
+          edge(l);
+          ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 4; ctx.stroke();
+          ctx.strokeStyle = accent; ctx.lineWidth = 2; ctx.stroke();
+        }
+      }
+    }
     if (app.trimming) {
       const l = selLayer();
       for (const poly of (l ? clipPolys(l) : [])) { // the windows it shows through now

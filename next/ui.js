@@ -4,6 +4,8 @@
 
 import { pieces, hue } from './map.js';
 import { TEXT_FONTS, GOOGLE_FONTS } from '../js/engine.js';
+import { FINISHES, finishName, finishList, layerColour, isArea } from '../js/finish.js';
+import { renderBall } from '../js/shaderball.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -41,6 +43,13 @@ const TOOLS = [
   ['text', 'Text (T)', true],
   ['image', 'Picture or logo', true],
   ['piece', 'Fill a panel (G)', true],
+];
+// Finish mode: the same drawing tools, but what they draw is an area
+const FINISH_TOOLS = [
+  ['select', 'Pick what to finish (V)', true],
+  ['pen', 'Draw an area (P)', true],
+  ['shape', 'Area from a shape (S)', true],
+  ['piece', 'A whole panel (G)', true],
 ];
 const MAP_TOOLS = [
   ['mpick', 'Select a panel', true],
@@ -114,8 +123,8 @@ export function initUI(app, actions, version) {
   function drawChrome() {
     drawMenus();
     $('modes').innerHTML = [['map', 'Map'], ['paint', 'Paint'], ['finish', 'Finish']].map(([id, name]) =>
-      `<button data-mode="${id}" aria-pressed="${app.mode === id}"${id !== 'finish' ? '' : ` disabled title="Comes in a ${LATER}"`}>${name}</button>`).join('');
-    $('tools').innerHTML = (app.mode === 'map' ? MAP_TOOLS : TOOLS).map(([id, name, ready]) =>
+      `<button data-mode="${id}" aria-pressed="${app.mode === id}">${name}</button>`).join('');
+    $('tools').innerHTML = (app.mode === 'map' ? MAP_TOOLS : app.mode === 'finish' ? FINISH_TOOLS : TOOLS).map(([id, name, ready]) =>
       `<button class="tool" data-tool="${id}" data-tip="${ready ? name : `${name} · ${LATER}`}" aria-label="${name}" aria-pressed="${app.tool === id}"${ready ? '' : ' disabled'}>${svg(id === 'shape' ? app.shapeKind : id)}</button>`).join('');
     // the armed tool's own choices sit right beside the strip
     const opts = $('toolopts');
@@ -139,6 +148,7 @@ export function initUI(app, actions, version) {
     live.innerHTML = `<i></i>${paused ? 'Live paused' : 'Live'}`;
     live.title = paused ? 'Click to reconnect to the iRacing folder' : 'Send every change to the car in iRacing';
     for (const key of PANELS) panels[key].hidden = !app.show[key] || (key === 'colour' && app.mode !== 'paint');
+    $('f-ball') && app.mode !== 'finish' && $('f-ball').remove();
     $('dock').hidden = ![...$('dock').children].some((p) => !p.hidden);
   }
 
@@ -151,7 +161,7 @@ export function initUI(app, actions, version) {
   };
   function layersHtml() {
     const d = app.doc;
-    const rows = [...d.layers].reverse().map((l) =>
+    const rows = [...d.layers].reverse().filter((l) => !isArea(l)).map((l) => // an area is Finish mode's, and shows there
       `<div class="row${l.id === app.sel ? ' sel' : ''}" data-layer="${esc(l.id)}" draggable="true"><span class="sw" style="${swatch(l)}"></span><span class="name">${esc(l.name)}</span>${l.mirrored ? '<span class="tags"><i title="Mirrored">⇄</i></span>' : ''}<button class="eye${l.visible ? '' : ' off'}" data-eye="${esc(l.id)}" title="Show or hide" aria-label="Show or hide ${esc(l.name)}">${svg('eye')}</button></div>`);
     rows.push(`<div class="row${app.sel === 'base' ? ' sel' : ''}" data-layer="base"><span class="sw" style="background:${esc(d.baseColor)}"></span><span class="name">Base coat</span></div>`);
     return rows.join('');
@@ -199,6 +209,37 @@ export function initUI(app, actions, version) {
     return `<button class="btn${app.trimming ? ' main' : ''}" data-act="trim" title="Choose the panels it shows in">${app.trimming ? 'Done' : n ? `Trimmed to ${n}` : 'Trim to panels'}</button>` +
       (n ? '<button class="btn" data-act="trimClear" title="Show it everywhere again">Clear trim</button>' : '');
   }
+  // ---------- Finish mode's two panels ----------
+  // what has a finish of its own; everything else is gloss
+  function finishesHtml() {
+    const t = app.ftarget;
+    const rows = finishList(app.doc).map((f) => {
+      const key = f.kind === 'colour' ? f.colour : f.id;
+      const on = t && t.kind === f.kind && (f.kind === 'colour' ? t.colour === f.colour : t.id === f.id);
+      const layer = f.kind === 'colour' ? null : app.doc.layers.find((l) => l.id === f.id);
+      const sw = f.kind === 'colour' ? `background:${esc(f.colour)}` : f.kind === 'area' ? 'background:var(--accent-soft);border-style:dashed' : swatch(layer);
+      const what = f.kind === 'colour' ? `${finishName(f.material)}` : `${esc(f.name)} · ${finishName(f.material)}`;
+      const tag = f.kind === 'colour' ? (f.used ? 'colour' : 'unused') : f.kind;
+      return `<div class="row${on ? ' sel' : ''}" data-fin="${f.kind}:${esc(key)}"><span class="sw" style="${sw}"></span><span class="name">${what}</span><span class="tags"><i>${tag}</i></span><button class="eye" data-finx="${f.kind}:${esc(key)}" title="Back to gloss" aria-label="Remove this finish">${svg('close')}</button></div>`;
+    });
+    return rows.join('') + '<div class="note">Everything else is Gloss</div>';
+  }
+  function finishHtml() {
+    const t = app.ftarget, d = app.doc;
+    if (!t) return '<div class="note">Click a colour or a layer on the sheet</div>';
+    const layer = t.kind === 'colour' ? null : d.layers.find((l) => l.id === t.id);
+    // an area has no colour of its own (it paints nothing): show its finish on neutral grey
+    const colour = t.kind === 'colour' ? t.colour : (t.kind === 'layer' && layer && layerColour(layer)) || '#9aa0ab';
+    const now = actions.finishNow() || 'gloss';
+    const label = t.kind === 'colour' ? `<span class="dot" style="background:${esc(colour)}"></span>Everything this colour` : t.kind === 'area' ? esc(layer ? layer.name : 'Area') : `Just ${esc(layer ? layer.name : 'this layer')}`;
+    // a shape or text can be finished with its whole colour, or by itself
+    const canScope = (t.kind === 'colour' && t.layerId) || (t.kind === 'layer' && layer && layerColour(layer));
+    const scope = !canScope ? '' : `<div class="seg"><button data-scope="colour" aria-pressed="${t.kind === 'colour'}">All this colour</button><button data-scope="layer" aria-pressed="${t.kind === 'layer'}">Just this layer</button></div>`;
+    return `<div class="fhead"><canvas id="f-ball" data-finish="${esc(now)}" data-colour="${esc(colour)}" aria-hidden="true"></canvas><div class="ftarget">${label}<b>${finishName(now)}</b></div></div>` + scope +
+      `<div class="finishes">${FINISHES.map((k) => `<button data-finish="${k}" aria-pressed="${k === now}">${finishName(k)}</button>`).join('')}</div>` +
+      (t.kind === 'area' && layer ? `<label class="switch" title="The same area on the twin panel too, or across the centreline">Mirrored<input id="f-mirrored" type="checkbox"${layer.mirrored ? ' checked' : ''}></label>` : '');
+  }
+
   // ---------- Map mode's two panels ----------
   const opt = (v, label, on) => `<option value="${esc(v)}"${on ? ' selected' : ''}>${esc(label)}</option>`;
   function piecesHtml() {
@@ -239,13 +280,15 @@ export function initUI(app, actions, version) {
       (app.ways.RGB ? field('RGB', `<input data-colour="rgb" id="c-rgb" class="mono" type="text" spellcheck="false" value="${rgbOf(cur)}">`) : '');
   }
   function drawPanels() {
-    const inMap = app.mode === 'map';
-    panels.layers.querySelector('h2').textContent = inMap ? 'Panels' : 'Layers';
-    panels.props.querySelector('h2').textContent = inMap ? 'Panel' : 'Properties';
+    const inMap = app.mode === 'map', inFinish = app.mode === 'finish';
+    panels.layers.querySelector('h2').textContent = inMap ? 'Panels' : inFinish ? 'Finishes' : 'Layers';
+    panels.props.querySelector('h2').textContent = inMap ? 'Panel' : inFinish ? 'Finish' : 'Properties';
     panels.colour.querySelector('h2').textContent = 'Colour';
-    panels.layers.querySelector('.body').innerHTML = inMap ? piecesHtml() : layersHtml();
-    panels.props.querySelector('.body').innerHTML = inMap ? pieceHtml() : propsHtml();
+    panels.layers.querySelector('.body').innerHTML = inMap ? piecesHtml() : inFinish ? finishesHtml() : layersHtml();
+    panels.props.querySelector('.body').innerHTML = inMap ? pieceHtml() : inFinish ? finishHtml() : propsHtml();
     panels.colour.querySelector('.body').innerHTML = colourHtml();
+    const ball = $('f-ball'); // the preview: the chosen finish on a ball of the target's colour
+    if (ball) { try { renderBall(ball, ball.dataset.finish, ball.dataset.colour); } catch { ball.hidden = true; } }
     const cur = panels.layers.querySelector('.row.sel');
     if (inMap && cur) cur.scrollIntoView({ block: 'nearest' });
   }
@@ -501,6 +544,10 @@ export function initUI(app, actions, version) {
     if (!t || t.disabled) return;
     if (t.dataset.act !== undefined) { closeMenus(); return run(t.dataset.act); }
     if (t.dataset.mode) return actions.setMode(t.dataset.mode);
+    if (t.dataset.finx) { const [kind, key] = t.dataset.finx.split(/:(.*)/); return actions.finishRemove(kind, key); }
+    if (t.dataset.fin) { const [kind, key] = t.dataset.fin.split(/:(.*)/); return actions.finishSelect(kind, key); }
+    if (t.dataset.finish) return actions.setFinish(t.dataset.finish);
+    if (t.dataset.scope) return actions.finishScope(t.dataset.scope);
     if (t.dataset.piece) return actions.pickPiece(t.dataset.piece);
     if (t.dataset.tool === 'image') return actions.openLibrary(); // nothing to arm: it opens the library
     if (t.dataset.tool) return actions.setTool(t.dataset.tool);

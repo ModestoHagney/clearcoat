@@ -4,7 +4,8 @@
 // original screen, save to iRacing. Stage 2: shapes you draw and keep editing
 // (./tools.js), with exact colours. Stage 3: Map mode (./map.js) and the
 // tools that work from the map: fill a panel, trim to panels, mirror.
-// Stage 4: text and pictures (logos). Finish mode comes later.
+// Stage 4: text and pictures (logos). Stage 5: Finish mode (../js/finish.js):
+// finishes by colour, by layer, or by a drawn area.
 
 import {
   SIZE, GOOGLE_FONTS, createDoc, renderPaint, renderSpec,
@@ -21,11 +22,12 @@ import { initTools, isShape, moveLayer, setShape } from './tools.js';
 import { LIBRARY, libraryItemToLayerSource } from '../js/library.js';
 import { createFillLayer } from '../js/engine.js';
 import { moved } from '../js/shapes.js';
+import { withFinishes, setRule, ruleFor, layerColour, isArea, hasOwnFinish } from '../js/finish.js';
 import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.24 · stage 4';
+export const VERSION = 'v0.68-pieces.25 · stage 5';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -58,6 +60,10 @@ export const app = {
   centreFor: null,                    // Map mode: the panel a centreline is being set on, if fixed
   mapShow: { colours: true },         // Map mode: panel colours and names over the sheet
   font: 'Arial Black',                // what the next new text is set in
+  // Finish mode: what the next finish applies to —
+  // { kind: 'colour', colour, layerId? } | { kind: 'layer', id } | { kind: 'area', id }
+  ftarget: null,
+  finishKind: 'matte',                // the finish a newly drawn area starts with
 };
 let ui = null, tools = null, mapTools = null;
 const onSheet = () => (app.mode === 'map' ? mapTools : tools); // who the pointer talks to
@@ -144,7 +150,8 @@ function setZoom(z, cx = cv.clientWidth / 2, cy = cv.clientHeight / 2) {
 // the paint as it goes to the car: soft edges mixed the accurate way
 const paint = () => renderPaint(shown(), { linearEdges: true });
 // the livery with the other side of every Mirrored layer added: what is painted
-const shown = () => withMirrors(app.doc);
+// and with every layer carrying the finish it ends up with
+const shown = () => withMirrors(withFinishes(app.doc));
 let quick = false, quickTimer = null; // an edit is in full flow: draw fast, tidy up when it pauses
 let dirty = true;       // the paint composite needs re-rendering
 let composite = null;
@@ -414,6 +421,8 @@ async function setDoc(doc, projectId) {
 // lands any pending edit in its own project before the doc is swapped
 const flush = () => (saveTimer ? runSave() : Promise.resolve());
 
+// in Finish mode the paint is not to be disturbed: only an area may be changed
+const canChange = () => app.mode !== 'finish' || isArea(actions.selected());
 const toolChanged = () => cv.classList.toggle('draw', (app.tool !== 'select' && app.tool !== 'mpick') || app.picking || app.trimming);
 // the exact paint colour at a point on the sheet
 function sampleColour(p) {
@@ -563,11 +572,66 @@ const actions = {
     tools.cancel(); mapTools.cancel();
     app.mode = mode;
     app.tool = mode === 'map' ? 'mpick' : 'select';
+    app.ftarget = null;
+    if (mode !== 'finish' && isArea(actions.selected())) app.sel = null; // an area is Finish mode's to select
     app.picking = app.trimming = false;
     app.centreFor = null;
     toolChanged();
     requestDraw();
     ui.refresh();
+  },
+
+  // ---- finishes ----
+  // the layer a finish target is about, if it is about one
+  finishLayer() {
+    const t = app.ftarget;
+    return t && (t.kind === 'layer' || t.kind === 'area') ? app.doc.layers.find(l => l.id === t.id) || null : null;
+  },
+  // the finish the target has now
+  finishNow() {
+    const t = app.ftarget, l = actions.finishLayer();
+    if (!t) return null;
+    if (t.kind === 'colour') return (ruleFor(app.doc, t.colour) || { material: 'gloss' }).material;
+    return l ? l.material || 'gloss' : null;
+  },
+  setFinish(key) {
+    const t = app.ftarget, l = actions.finishLayer();
+    if (!t) return;
+    if (t.kind === 'colour') setRule(app.doc, t.colour, key);
+    else if (l) { l.material = key; l.finishOwn = true; l.matParams = null; }
+    else return;
+    app.finishKind = key === 'gloss' ? app.finishKind : key;
+    change({ now: true });
+  },
+  // "all of this colour" or "just this layer", for a target that came from a shape or text
+  finishScope(scope) {
+    const t = app.ftarget;
+    if (!t) return;
+    if (scope === 'layer' && t.kind === 'colour' && t.layerId) app.ftarget = { kind: 'layer', id: t.layerId };
+    else if (scope === 'colour' && t.kind === 'layer') {
+      const l = actions.finishLayer(), c = l && layerColour(l);
+      if (!c) return;
+      if (l.finishOwn || hasOwnFinish(l)) { l.finishOwn = false; l.material = 'gloss'; change({ now: true }); } // it follows its colour again
+      app.ftarget = { kind: 'colour', colour: c, layerId: l.id };
+    }
+    requestDraw();
+    ui.refresh();
+  },
+  // from the Finishes list
+  finishSelect(kind, key) {
+    if (kind === 'colour') { app.ftarget = { kind, colour: key }; app.sel = null; }
+    else { app.ftarget = { kind, id: key }; app.sel = key; }
+    requestDraw();
+    ui.refresh();
+  },
+  finishRemove(kind, key) {
+    const d = app.doc, l = d.layers.find(x => x.id === key);
+    if (kind === 'colour') setRule(d, key, 'gloss');
+    else if (kind === 'area' && l) d.layers.splice(d.layers.indexOf(l), 1);
+    else if (l) { l.finishOwn = false; l.material = 'gloss'; l.matParams = null; }
+    const t = app.ftarget;
+    if (t && ((t.kind === 'colour' && t.colour === key) || t.id === key)) { app.ftarget = null; if (kind !== 'colour') app.sel = null; }
+    change({ now: true });
   },
 
   // ---- the map ----
@@ -627,7 +691,7 @@ const actions = {
   // centreline) as well, and both sides follow every edit
   mirror() {
     const l = actions.selected();
-    if (!l) return;
+    if (!l || !canChange()) return;
     if (!l.mirrored) {
       const res = mirrorLayer(app.doc.regionMap, l); // only to find out whether it can be
       if (res.error) { ui.say(res.error, true); ui.refresh(); return; }
@@ -649,7 +713,7 @@ const actions = {
     change({ now: true });
   },
   trim() {
-    if (!actions.selected()) return;
+    if (!actions.selected() || app.mode !== 'paint') return;
     if (!app.doc.regionMap) { ui.say('Load a template first', true); return; }
     app.trimming = !app.trimming;
     toolChanged();
@@ -688,7 +752,7 @@ const actions = {
     if (l) { app.clipboard = cloneLayer(l); ui.refreshChrome(); }
   },
   paste(from = app.clipboard) {
-    if (!from) return;
+    if (!from || app.mode !== 'paint') return;
     const l = cloneLayer(from);
     if (!/ copy$/.test(l.name)) l.name += ' copy';
     moveLayer(l, 40, 40);
@@ -701,21 +765,22 @@ const actions = {
   duplicate() { const l = actions.selected(); if (l) actions.paste(cloneLayer(l)); },
   remove() {
     const i = app.doc.layers.findIndex(l => l.id === app.sel);
-    if (i === -1) return;
+    if (i === -1 || !canChange()) return;
+    if (app.mode === 'finish') app.ftarget = null;
     app.doc.layers.splice(i, 1);
     app.sel = null;
     change({ now: true });
   },
   order(dir) { // +1 forward, -1 back
     const L = app.doc.layers, i = L.findIndex(l => l.id === app.sel), j = i + dir;
-    if (i === -1 || j < 0 || j >= L.length) return;
+    if (i === -1 || j < 0 || j >= L.length || !canChange()) return;
     [L[i], L[j]] = [L[j], L[i]];
     change({ now: true });
   },
   // to the very front (+1) or the very back (-1)
   orderEnd(dir) {
     const L = app.doc.layers, i = L.findIndex(l => l.id === app.sel);
-    if (i === -1) return;
+    if (i === -1 || !canChange()) return;
     const [l] = L.splice(i, 1);
     dir > 0 ? L.push(l) : L.unshift(l);
     change({ now: true });
@@ -737,7 +802,7 @@ const actions = {
   backward: () => actions.order(-1),
   nudge(dx, dy) {
     const l = actions.selected();
-    if (!l || l.locked) return;
+    if (!l || l.locked || !canChange()) return;
     moveLayer(l, dx, dy);
     change({ panels: false });
   },
@@ -1023,6 +1088,7 @@ window.addEventListener('keydown', (e) => {
     else if (k === '?') ui.shortcuts();
     return;
   }
+  if (app.mode === 'finish' && mod) return; // copy, paste, order and mirror belong to Paint
   if (mod && k === 'm') { e.preventDefault(); actions.mirror(); return; }
   if (mod && k === 'c') { actions.copy(); return; }
   if (mod && k === 'v') { e.preventDefault(); actions.paste(); return; }
@@ -1042,10 +1108,10 @@ window.addEventListener('keydown', (e) => {
   if (k === 'v') actions.setTool('select');
   else if (k === 'p') actions.setTool('pen');
   else if (k === 's') actions.setTool('shape');
-  else if (k === 'b') actions.setTool('band');
+  else if (k === 'b' && app.mode === 'paint') actions.setTool('band');
   else if (k === 'g') actions.setTool('piece');
-  else if (k === 't') actions.setTool('text');
-  else if (k === 'i') actions.pickColour();
+  else if (k === 't' && app.mode === 'paint') actions.setTool('text');
+  else if (k === 'i' && app.mode === 'paint') actions.pickColour();
   else if (k === 'f') fit();
   else if (k === '+' || k === '=') actions.zoomBy(1.25);
   else if (k === '-') actions.zoomBy(0.8);
@@ -1130,6 +1196,38 @@ async function boot() {
     select: actions.select, setTool: actions.setTool, toolChanged,
     say: ui.say, refreshChrome: ui.refreshChrome,
     endTrim: actions.endTrim, addText: actions.addText,
+    // a shape made in Finish mode is an area: it paints nothing and carries a finish
+    created(layer) {
+      if (app.mode !== 'finish') return;
+      layer.specOnly = true;
+      layer.finishOwn = true;
+      layer.material = app.finishKind;
+      layer.name = 'Area ' + (app.doc.layers.filter(isArea).length + 1);
+      app.ftarget = { kind: 'area', id: layer.id };
+    },
+    // Finish mode: a click on the sheet says what the finish applies to
+    finishPick(hit, p) {
+      if (!hit) {
+        const inSheet = p.x >= 0 && p.y >= 0 && p.x <= SIZE && p.y <= SIZE;
+        app.ftarget = inSheet ? { kind: 'colour', colour: app.doc.baseColor.toLowerCase() } : null;
+        app.sel = null;
+      } else {
+        const c = layerColour(hit);
+        app.sel = hit.id;
+        app.ftarget = isArea(hit) ? { kind: 'area', id: hit.id }
+          : c && !hasOwnFinish(hit) ? { kind: 'colour', colour: c, layerId: hit.id } // by colour is the quick way in
+          : { kind: 'layer', id: hit.id };
+      }
+      requestDraw();
+      ui.refresh();
+    },
+    // which layers the target covers, for the outline on the sheet
+    finishTargets() {
+      const t = app.ftarget;
+      if (!t) return () => false;
+      if (t.kind === 'colour') return (l) => !isArea(l) && !hasOwnFinish(l) && layerColour(l) === t.colour;
+      return (l) => l.id === t.id;
+    },
     mirrorImage: (l) => (l.mirrored && app.doc.regionMap ? mirrorImage(app.doc.regionMap, l) : null),
     picked(p) { // the eyedropper's click, or null when cancelled
       app.picking = false;
