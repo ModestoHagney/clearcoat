@@ -3,6 +3,7 @@
 // app state and calls back into `actions`; it holds no livery state itself.
 
 import { pieces, hue } from './map.js';
+import { TEXT_FONTS, GOOGLE_FONTS } from '../js/engine.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -37,8 +38,8 @@ const TOOLS = [
   ['pen', 'Pen (P)', true],
   ['shape', 'Shape (S)', true],
   ['band', 'Straight band (B)', true],
-  ['text', 'Text', false],
-  ['image', 'Image or logo', false],
+  ['text', 'Text (T)', true],
+  ['image', 'Picture or logo', true],
   ['piece', 'Fill a panel (G)', true],
 ];
 const MAP_TOOLS = [
@@ -160,8 +161,26 @@ export function initUI(app, actions, version) {
     const l = app.doc.layers.find((x) => x.id === app.sel);
     if (!l) return '<div class="note">Nothing selected</div>';
     const colour = l.type === 'fill' && hexOf(l.color || '') ? colourField('f-colour', l.color) : '';
-    return colour + field('Name', `<input id="f-name" type="text" value="${esc(l.name)}">`) +
-      field('Opacity', `<input id="f-opacity" type="range" min="0" max="100" value="${Math.round((l.opacity ?? 1) * 100)}">`) +
+    const isText = l.type === 'text', isPic = (isText || l.type === 'image') && !l.corners;
+    const range = (id, min, max, v) => `<input id="${id}" type="range" min="${min}" max="${max}" value="${v}">`;
+    const fx = l.fx || {};
+    const fonts = [...TEXT_FONTS, ...GOOGLE_FONTS, ...(app.doc.customFonts || []).map((f) => f.name)];
+    const text = !isText ? '' :
+      field('Text', `<input id="f-text" type="text" value="${esc(l.text)}">`) +
+      field('Font', `<select id="f-font">${fonts.map((f) => opt(f, f, f === l.font)).join('')}${opt('__upload', 'Upload a font…', false)}</select>`) +
+      colourField('f-colour', hexOf(l.textColor || '') || '#ffffff') +
+      field('Size', range('f-fontSize', 40, 400, l.fontSize || 160)) +
+      field('Outline', `<span class="pair">${range('f-outlineWidth', 0, 30, l.outlineWidth || 0)}<input id="f-outlineColor" type="color" value="${esc(hexOf(l.outlineColor || '') || '#000000')}" aria-label="Outline colour"></span>`) +
+      field('Spacing', range('f-letterSpacing', 0, 40, l.letterSpacing || 0)) +
+      field('Curve', range('f-curve', -180, 180, l.curve || 0)) +
+      `<label class="switch">Italic<input id="f-italic" type="checkbox"${l.italic ? ' checked' : ''}></label>`;
+    const pic = !isPic ? '' :
+      field('Turn', range('f-rotation', -180, 180, Math.round(l.rotation || 0))) +
+      field('Shadow', `<span class="pair">${range('f-fx-shadow', 0, 60, fx.shadow || 0)}<input id="f-fx-shadowColor" type="color" value="${esc(hexOf(fx.shadowColor || '') || '#000000')}" aria-label="Shadow colour"></span>`) +
+      field('Shadow at', `<span class="pair">${range('f-fx-shadowDX', -60, 60, fx.shadowDX ?? 8)}${range('f-fx-shadowDY', -60, 60, fx.shadowDY ?? 8)}</span>`);
+    return colour + text + field('Name', `<input id="f-name" type="text" value="${esc(l.name)}">`) +
+      field('Opacity', `<input id="f-opacity" type="range" min="0" max="100" value="${Math.round((l.opacity ?? 1) * 100)}">`) + pic +
+      (l.mirrored && isPic ? `<label class="switch" title="Off: it reads the right way round on both sides. On: a true mirror image.">Reverse the other side<input id="f-mirrorFlip" type="checkbox"${l.mirrorFlip ? ' checked' : ''}></label>` : '') +
       (l.locked ? '' : `<label class="switch" title="Paint it on the twin panel too, or across the centreline (Ctrl+M)">Mirrored<input id="f-mirrored" type="checkbox"${l.mirrored ? ' checked' : ''}></label>` +
         `<div class="acts">${trimButtons(l)}${l.mirrored ? '<button class="btn" data-act="separate" title="Make the mirrored side a layer of its own">Separate</button>' : ''}</div>`);
   }
@@ -196,7 +215,7 @@ export function initUI(app, actions, version) {
     const n = new Map();
     const add = (c) => { const h = hexOf(c || ''); if (h) n.set(h, (n.get(h) || 0) + 1); };
     add(app.doc.baseColor);
-    for (const l of app.doc.layers) if (l.type === 'fill' && l.visible) add(l.color);
+    for (const l of app.doc.layers) if (l.visible) add(l.type === 'fill' ? l.color : l.type === 'text' ? l.textColor : null);
     return [...n].sort((a, b) => b[1] - a[1]).map((x) => x[0]).slice(0, 14);
   }
   function colourHtml() {
@@ -243,6 +262,14 @@ export function initUI(app, actions, version) {
   panels.props.addEventListener('input', (e) => {
     const t = e.target;
     const layer = app.doc.layers.find((x) => x.id === app.sel);
+    // plain settings: the control's id names the layer setting it sets
+    const m = /^f-(fx-)?(fontSize|outlineWidth|outlineColor|letterSpacing|curve|rotation|shadow|shadowColor|shadowDX|shadowDY|text)$/.exec(t.id || '');
+    if (m && layer) {
+      const v = t.type === 'range' ? +t.value : t.value;
+      actions.setProp((m[1] ? 'fx.' : '') + m[2], v);
+      if (m[2] === 'text') { const nm = $('f-name'); if (nm) nm.value = layer.name; const row = panels.layers.querySelector(`[data-layer="${CSS.escape(layer.id)}"] .name`); if (row) row.textContent = layer.name; }
+      return;
+    }
     if (t.id === 'f-opacity' && layer) {
       layer.opacity = t.value / 100;
       actions.change({ panels: false });
@@ -265,6 +292,9 @@ export function initUI(app, actions, version) {
   panels.props.addEventListener('change', (e) => {
     const id = e.target.id;
     if (id === 'f-mirrored') return actions.mirror();
+    if (id === 'f-font') return actions.setFont(e.target.value);
+    if (id === 'f-italic') { actions.setProp('italic', e.target.checked); return; }
+    if (id === 'f-mirrorFlip') { actions.setProp('mirrorFlip', e.target.checked); return; }
     if (id === 'm-name') return actions.mapRename(e.target.value.trim());
     if (id === 'm-pair') return actions.mapPair(e.target.value);
     if (id === 'm-colours') return actions.toggleMapColours();
@@ -356,7 +386,7 @@ export function initUI(app, actions, version) {
     title: 'Shortcuts', ok: 'Close', cancel: null,
     body: '<table>' + [
       ['Pan', 'Space-drag, middle-drag'], ['Zoom', 'Wheel, + and −'], ['Fit to screen', 'F'],
-      ['Select, Pen, Shape, Band, Fill a panel', 'V, P, S, B, G'], ['Mirrored on or off', 'Ctrl+M'], ['Pick a colour from the sheet', 'I'], ['Finish a pen shape', 'Enter'], ['Undo the last point', 'Backspace'], ['Hold 45°', 'Shift'],
+      ['Select, Pen, Shape, Band, Fill a panel, Text', 'V, P, S, B, G, T'], ['Mirrored on or off', 'Ctrl+M'], ['Pick a colour from the sheet', 'I'], ['Finish a pen shape', 'Enter'], ['Undo the last point', 'Backspace'], ['Hold 45°', 'Shift'],
       ['Copy, paste, duplicate', 'Ctrl+C, V, D'], ['Nudge 1 px, 10 px', 'Arrows, Shift+Arrows'], ['Forward, backward', 'Ctrl+], Ctrl+['], ['Delete', 'Del'],
       ['Undo, redo', 'Ctrl+Z, Ctrl+Y'], ['Save', 'Ctrl+S'],
     ].map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join('') + '</table>',
@@ -388,6 +418,7 @@ export function initUI(app, actions, version) {
     if (t.dataset.act !== undefined) { closeMenus(); return run(t.dataset.act); }
     if (t.dataset.mode) return actions.setMode(t.dataset.mode);
     if (t.dataset.piece) return actions.pickPiece(t.dataset.piece);
+    if (t.dataset.tool === 'image') return actions.pickImage(); // nothing to arm: it opens the file chooser
     if (t.dataset.tool) return actions.setTool(t.dataset.tool);
     if (t.dataset.edit) return actions.editColour(t.dataset.edit);
     if (t.dataset.pal) return actions.usePalette(t.dataset.pal);
@@ -450,5 +481,7 @@ export function initUI(app, actions, version) {
   });
   document.addEventListener('pointerup', () => { drag = null; });
 
-  return { refresh, refreshChrome, say, ask, askText, pickProject, carSetup, shortcuts, editColour };
+  // put the cursor in a Properties box, ready to type over what is there
+  const focusField = (id) => { const el = $(id); if (el) { el.focus(); if (el.select) el.select(); } };
+  return { refresh, refreshChrome, say, ask, askText, pickProject, carSetup, shortcuts, editColour, focusField };
 }

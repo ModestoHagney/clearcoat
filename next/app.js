@@ -4,11 +4,12 @@
 // original screen, save to iRacing. Stage 2: shapes you draw and keep editing
 // (./tools.js), with exact colours. Stage 3: Map mode (./map.js) and the
 // tools that work from the map: fill a panel, trim to panels, mirror.
-// Finish mode comes later.
+// Stage 4: text and pictures (logos). Finish mode comes later.
 
 import {
   SIZE, GOOGLE_FONTS, createDoc, renderPaint, renderSpec,
   serializeDoc, deserializeDoc, regenerateText, layerCorners, newId,
+  createTextLayer, createImageLayer, loadImage, registerCustomFont,
 } from '../js/engine.js';
 import { canvasToTGA } from '../js/tga.js';
 import * as persist from '../js/persist.js';
@@ -21,7 +22,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.19 · stage 3';
+export const VERSION = 'v0.68-pieces.20 · stage 4';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -53,6 +54,7 @@ export const app = {
   piece: null,                        // Map mode: the selected panel's id
   centreFor: null,                    // Map mode: the panel a centreline is being set on, if fixed
   mapShow: { colours: true },         // Map mode: panel colours and names over the sheet
+  font: 'Arial Black',                // what the next new text is set in
 };
 let ui = null, tools = null, mapTools = null;
 const onSheet = () => (app.mode === 'map' ? mapTools : tools); // who the pointer talks to
@@ -407,6 +409,9 @@ function sampleColour(p) {
   return '#' + [d[0], d[1], d[2]].map(v => v.toString(16).padStart(2, '0')).join('');
 }
 
+// settings of a text layer that change what its picture looks like
+const TEXT_KEYS = new Set(['text', 'font', 'fontSize', 'textColor', 'outlineColor', 'outlineWidth', 'italic', 'letterSpacing', 'curve']);
+
 // a copy that shares nothing editable with the original (pictures are shared:
 // they are never changed in place)
 function cloneLayer(l) {
@@ -697,12 +702,98 @@ const actions = {
     moveLayer(l, dx, dy);
     change({ panels: false });
   },
+  // ---- text and pictures ----
+  addText(p) {
+    const l = createTextLayer();
+    l.text = 'Text';
+    l.name = 'Text';
+    l.font = app.font;
+    l.textColor = app.colour;
+    l.x = Math.round(p.x); l.y = Math.round(p.y);
+    regenerateText(l);
+    app.doc.layers.push(l);
+    app.tool = 'select';
+    app.sel = l.id;
+    toolChanged();
+    ensureDocFonts();
+    change({ now: true });
+    // type straight away — once this press is over, or the sheet takes the focus back
+    setTimeout(() => ui.focusField('f-text'), 0);
+  },
+  // one setting of the selected layer; text settings redraw the text
+  setProp(key, value) {
+    const l = actions.selected();
+    if (!l) return;
+    if (key.startsWith('fx.')) l.fx = { ...(l.fx || {}), [key.slice(3)]: value };
+    else l[key] = value;
+    if (l.type === 'text' && TEXT_KEYS.has(key)) {
+      if (key === 'text') l.name = String(value).split('\n')[0].trim().slice(0, 24) || 'Text';
+      regenerateText(l);
+    }
+    change({ panels: false });
+  },
+  setFont(name) {
+    if (name === '__upload') { $('file-font').click(); ui.refresh(); return; }
+    const l = actions.selected();
+    app.font = name;
+    if (!l || l.type !== 'text') return;
+    l.font = name;
+    regenerateText(l);
+    ensureDocFonts(); // a Google font arrives a moment later and the text is redrawn in it
+    change({ now: true });
+  },
+  async uploadFont(file) {
+    if (file.size > 4 * 1024 * 1024) { ui.say('That font file is over 4 MB', true); return; }
+    const name = file.name.replace(/\.[^.]+$/, '').replace(/[^\w \-]+/g, ' ').trim() || 'custom font';
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let bin = '';
+      for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      const data = btoa(bin);
+      await registerCustomFont(name, data);
+      const d = app.doc;
+      d.customFonts = (d.customFonts || []).filter(f => f.name !== name); // a re-upload replaces
+      d.customFonts.push({ name, data });
+      actions.setFont(name);
+      if (!actions.selected()) change();
+      ui.say(`${name} added. It is saved with this livery.`);
+    } catch {
+      ui.say('That file is not a usable font', true);
+    }
+  },
+  pickImage: () => $('file-image').click(),
+  // at: where on the sheet its centre goes (the middle of the view if not given)
+  async addImageFile(file, at) {
+    try {
+      const src = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result);
+        r.onerror = () => reject(r.error);
+        r.readAsDataURL(file);
+      });
+      await actions.addImage(src, file.name.replace(/\.[^.]+$/, ''), at);
+    } catch {
+      ui.say('Could not read that picture', true);
+    }
+  },
+  async addImage(src, name, at) {
+    const l = createImageLayer(await loadImage(src), src, name || 'Picture');
+    const mid = at || screenToDoc(cv.clientWidth / 2, cv.clientHeight / 2);
+    l.x = Math.round(Math.max(0, Math.min(SIZE, mid.x)));
+    l.y = Math.round(Math.max(0, Math.min(SIZE, mid.y)));
+    app.doc.layers.push(l);
+    actions.setTool('select');
+    app.sel = l.id;
+    change({ now: true });
+  },
+
   // ---- colour ----
   // what the colour controls are showing: the selection's colour, else the
   // colour the next shape will get
   currentColour() {
     const l = actions.selected();
     if (app.sel === 'base') return app.doc.baseColor;
+    if (l && l.type === 'text') return l.textColor || app.colour;
     return l && l.type === 'fill' && l.color ? l.color : app.colour;
   },
   // Sets the selection's colour (base coat or a fill) and the colour for new
@@ -713,6 +804,7 @@ const actions = {
     app.colour = hex;
     if (app.sel === 'base') { app.doc.baseColor = hex; app.doc.baseRef = ref; syncLineColour(app.doc); }
     else if (l && l.type === 'fill') { l.color = hex; l.colorRef = ref; }
+    else if (l && l.type === 'text') { l.textColor = hex; l.colorRef = ref; regenerateText(l); }
     else { if (!typed) ui.refresh(); return; } // nothing to paint: just the next shape's colour
     change({ panels: !typed });
   },
@@ -742,7 +834,10 @@ const actions = {
     } else {
       c.name = res.name || c.name;
       c.color = res.color;
-      for (const l of d.layers) if (l.colorRef === id) l.color = c.color;   // everything following it changes with it
+      for (const l of d.layers) { // everything following it changes with it
+        if (l.colorRef !== id) continue;
+        if (l.type === 'text') { l.textColor = c.color; regenerateText(l); } else l.color = c.color;
+      }
       if (d.baseRef === id) { d.baseColor = c.color; syncLineColour(d); }
     }
     change({ now: true });
@@ -847,6 +942,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 's') actions.setTool('shape');
   else if (k === 'b') actions.setTool('band');
   else if (k === 'g') actions.setTool('piece');
+  else if (k === 't') actions.setTool('text');
   else if (k === 'i') actions.pickColour();
   else if (k === 'f') fit();
   else if (k === '+' || k === '=') actions.zoomBy(1.25);
@@ -860,8 +956,18 @@ $('stage').addEventListener('dragover', (e) => e.preventDefault());
 $('stage').addEventListener('drop', (e) => {
   e.preventDefault();
   const f = e.dataTransfer.files[0];
-  if (f) actions.loadTemplateFile(f);
+  if (!f) return;
+  // a kit's PSD is a template; any other picture dropped on the sheet is a logo
+  if (/\.psd$/i.test(f.name)) actions.loadTemplateFile(f);
+  else if (app.mode === 'paint') actions.addImageFile(f, screenToDoc(...Object.values(local(e))));
 });
+for (const [id, fn] of [['file-image', (f) => actions.addImageFile(f)], ['file-font', (f) => actions.uploadFont(f)]]) {
+  $(id).addEventListener('change', (e) => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (f) fn(f);
+  });
+}
 $('file-template').addEventListener('change', (e) => {
   const f = e.target.files[0];
   e.target.value = '';
@@ -917,7 +1023,7 @@ async function boot() {
     screenToDoc, docToScreen, change, requestDraw,
     select: actions.select, setTool: actions.setTool, toolChanged,
     say: ui.say, refreshChrome: ui.refreshChrome,
-    endTrim: actions.endTrim,
+    endTrim: actions.endTrim, addText: actions.addText,
     mirrorImage: (l) => (l.mirrored && app.doc.regionMap ? mirrorImage(app.doc.regionMap, l) : null),
     picked(p) { // the eyedropper's click, or null when cancelled
       app.picking = false;

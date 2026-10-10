@@ -96,3 +96,17 @@ test('withMirrors: a Mirrored layer is followed by its other side, made fresh ea
   assert.equal(mirrorImage(m, off), null);
   assert.equal(withMirrors({ ...doc, layers: [off] }).layers.length, 1);
 });
+
+test('text and pictures are carried across but stay readable, unless a true mirror is asked for', () => {
+  const m = map(); // left ↔ right is a top/bottom reflection; the roof has a level centreline
+  const pic = (x, y, extra = {}) => ({ id: 'p', type: 'image', name: 'Logo', img: { width: 100, height: 40 }, x, y, scale: 1, rotation: 10, flipH: false, flipV: false, ...extra });
+  const onTwin = mirrorLayer(m, pic(200, 50)).copy;
+  assert.deepEqual([onTwin.x, onTwin.y], [200, 750]);
+  // a top/bottom reflection with the reversal taken out is a half turn: flipped both ways
+  assert.deepEqual([onTwin.flipH, onTwin.flipV, onTwin.rotation], [true, true, -10]);
+  const trueMirror = mirrorLayer(m, pic(200, 50, { mirrorFlip: true })).copy;
+  assert.deepEqual([trueMirror.flipH, trueMirror.flipV], [false, true]);
+  const text = mirrorLayer(m, { ...pic(1100, 100), type: 'text' }).copy; // across the roof's centreline
+  assert.equal(text.flipH, false, 'not reversed');
+  assert.deepEqual([text.x, text.y], [1300, 100]);
+});

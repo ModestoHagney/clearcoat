@@ -86,6 +86,11 @@ export function mirrorLayer(map, sel) {
     skewX: reflect ? -(sel.skewX || 0) : (sel.skewX || 0),
     skewY: reflect ? -(sel.skewY || 0) : (sel.skewY || 0),
   };
+  // Words and logos have to read the right way round on both sides of the
+  // car, so by default they are carried across but not reversed: the flip a
+  // mirror gives them is taken back out, about their own upright. (On a twin
+  // that lies upside-down on the sheet that leaves them turned to match it.)
+  if ((sel.type === 'image' || sel.type === 'text') && !sel.mirrorFlip && !copy.corners) copy.flipH = !copy.flipH;
   if (isPath(sel)) {
     // a free shape is its points: carry each across and it is the mirror
     // image, with nothing left to flip

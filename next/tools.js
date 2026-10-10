@@ -11,8 +11,10 @@
 // Fill a panel: click a panel and it becomes a shape with that panel's
 // outline. Trimming (a state of the Select tool): click panels to choose the
 // windows the selected layer shows through.
+// Text tool: click the sheet and a line of text is put there. A selected text
+// or picture has a handle on each corner to resize it and one above to turn it.
 
-import { SIZE, createFillLayer, isRegionLayer, toLocal } from '../js/engine.js';
+import { SIZE, createFillLayer, isRegionLayer, toLocal, layerCorners } from '../js/engine.js';
 import { bounds, contains, moved, segmentAt, midOf, bendTo, insertAt, removeAt, snapAngle } from '../js/shapes.js';
 import { regionOutline, snapToOutline, trimShape, growOutline, pointInPolygon } from '../js/regions.js';
 import { clipPolys } from '../js/engine.js';
@@ -24,6 +26,8 @@ const SLOP = 3;        // px: a press that moves less than this is a click
 const BIG = 0.6;       // a layer covering more of the sheet than this is not grabbed by a click on the sheet
 
 export const isShape = (l) => !!l && l.type === 'fill' && l.shape === 'path' && Array.isArray(l.pts) && l.pts.length >= 3;
+// text or a picture: placed by a centre, a size and a turn (not pinned by corners)
+export const isPic = (l) => !!l && !!l.img && (l.type === 'image' || l.type === 'text') && !l.corners;
 // a ready-made fill (circle, box, triangle…): sized by its box, not by points
 export const isBox = (l) => !!l && l.type === 'fill' && !isShape(l);
 export const READY = { ellipse: 'Circle', rect: 'Box', triangle: 'Triangle' };
@@ -50,6 +54,13 @@ export function initTools(app, env) {
   const selLayer = () => app.doc.layers.find(l => l.id === app.sel) || null;
   const selShape = () => { const l = selLayer(); return isShape(l) && !l.locked && l.visible ? l : null; };
   const selBox = () => { const l = selLayer(); return isBox(l) && !l.locked && l.visible ? l : null; };
+  const selPic = () => { const l = selLayer(); return isPic(l) && !l.locked && l.visible ? l : null; };
+  // where the turn handle sits: out from the middle of the top edge
+  function turnHandle(l) {
+    const c = layerCorners(l).map(onScreen), top = { x: (c[0].x + c[1].x) / 2, y: (c[0].y + c[1].y) / 2 }, mid = onScreen(l);
+    const dx = top.x - mid.x, dy = top.y - mid.y, len = Math.hypot(dx, dy) || 1;
+    return { x: top.x + dx / len * 26, y: top.y + dy / len * 26, top };
+  }
   const corners = (l) => [[l.rx, l.ry], [l.rx + l.rw, l.ry], [l.rx + l.rw, l.ry + l.rh], [l.rx, l.ry + l.rh]].map(([x, y]) => ({ x, y }));
   let rubber = null;   // ready-made shape being dragged out: { a, b } doc points
   let band = null;     // band being placed: { a, b, pressed }
@@ -201,6 +212,7 @@ export function initTools(app, env) {
     if (app.picking) { env.picked(p); return; }
     if (app.trimming) { trimAt(p); return; }
     if (app.tool === 'piece') { fillPanel(p); return; }
+    if (app.tool === 'text') { env.addText(p); return; }
     if (app.tool === 'shape') { rubber = { a: p, b: p }; return; }
     if (app.tool === 'band') {
       if (band && !band.pressed) { band.b = bandEnd(p, e); finishBand(); return; } // the second click
@@ -226,6 +238,15 @@ export function initTools(app, env) {
       if (mi !== -1) { drag = { kind: 'bend', layer: shape, i: mi, start: s, went: false }; return; }
       const seg = segmentAt(pts, p.x, p.y, EDGE / app.view.zoom);
       if (seg) { drag = { kind: 'edge', layer: shape, seg, start: s, last: p, went: false }; return; }
+    }
+    const pic = selPic();
+    if (pic) {
+      const ang = Math.atan2(p.y - pic.y, p.x - pic.x);
+      if (far(turnHandle(pic), s) <= GRAB) { drag = { kind: 'turn', layer: pic, a0: ang, r0: pic.rotation || 0 }; return; }
+      if (layerCorners(pic).some(q => far(onScreen(q), s) <= GRAB)) {
+        drag = { kind: 'scale', layer: pic, d0: Math.hypot(p.x - pic.x, p.y - pic.y) || 1, s0: pic.scale, sy0: pic.scaleY ?? null };
+        return;
+      }
     }
     const box = selBox();
     if (box) {
@@ -256,6 +277,20 @@ export function initTools(app, env) {
     if (band) { band.b = bandEnd(p, e); requestDraw(); return; }
     if (!drag) return;
     const l = drag.layer;
+    if (drag.kind === 'turn') {
+      let r = drag.r0 + (Math.atan2(p.y - l.y, p.x - l.x) - drag.a0) * 180 / Math.PI;
+      if (e.shiftKey) r = Math.round(r / 15) * 15;
+      l.rotation = ((r + 180) % 360 + 360) % 360 - 180;
+      change({ panels: false });
+      return;
+    }
+    if (drag.kind === 'scale') { // from the centre, proportions kept
+      const k = Math.max(0.02, Math.hypot(p.x - l.x, p.y - l.y) / drag.d0);
+      l.scale = Math.max(0.01, Math.min(40, drag.s0 * k));
+      if (drag.sy0 !== null) l.scaleY = Math.max(0.01, Math.min(40, drag.sy0 * k));
+      change({ panels: false });
+      return;
+    }
     if (drag.kind === 'size') {
       const b = evenBox(drag.anchor, p, e.shiftKey);
       l.rx = b.x; l.ry = b.y; l.rw = Math.max(4, b.w); l.rh = Math.max(4, b.h);
@@ -327,7 +362,7 @@ export function initTools(app, env) {
       }
     }
     if (app.trimming && (e.key === 'Escape' || e.key === 'Enter')) { env.endTrim(); return true; }
-    if (e.key === 'Escape' && (app.picking || app.tool === 'shape' || app.tool === 'band' || app.tool === 'piece')) {
+    if (e.key === 'Escape' && (app.picking || ['shape', 'band', 'piece', 'text'].includes(app.tool))) {
       if (app.picking) env.picked(null);
       else if (band) { band = null; requestDraw(); }
       else env.setTool('select');
@@ -342,6 +377,8 @@ export function initTools(app, env) {
     if (app.picking) return 'Click a colour on the sheet · Esc cancels';
     if (app.trimming) return 'Click panels to show it in · click again to take one out · Enter when done';
     if (app.tool === 'piece') return 'Click a panel to fill it';
+    if (app.tool === 'text') return 'Click where the text goes';
+    if (app.tool === 'select' && selPic()) return 'Drag a corner to resize · the round handle turns it · Shift turns in steps';
     if (app.tool === 'shape') return 'Drag to draw · Shift keeps it even';
     if (app.tool === 'band') return band ? 'Click the end · Shift holds 45°' : 'Click the start, then the end · snaps to panel edges';
     if (app.tool === 'select' && selBox()) return 'Drag a corner to resize · Shift keeps it even';
@@ -423,6 +460,13 @@ export function initTools(app, env) {
       else ctx.beginPath();
       ctx.setLineDash([6, 4]); ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3.5; ctx.stroke();
       ctx.strokeStyle = accent; ctx.lineWidth = 1.5; ctx.stroke(); ctx.setLineDash([]);
+    }
+    const pic = app.tool === 'select' ? selPic() : null;
+    if (pic) {
+      const h = turnHandle(pic);
+      ctx.beginPath(); ctx.moveTo(h.top.x, h.top.y); ctx.lineTo(h.x, h.y); ctx.strokeStyle = accent; ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.beginPath(); ctx.arc(h.x, h.y, 5, 0, Math.PI * 2); ctx.fillStyle = '#ffffff'; ctx.fill(); ctx.strokeStyle = accent; ctx.lineWidth = 1.5; ctx.stroke();
+      layerCorners(pic).forEach((q) => square(onScreen(q), 4.5, accent));
     }
     const box = app.tool === 'select' ? selBox() : null;
     if (box) corners(box).forEach((q) => square(onScreen(q), 4.5, accent));
