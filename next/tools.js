@@ -8,10 +8,15 @@
 // Shape tool: drag out a circle, box or triangle (the engine's own fill
 // shapes; a selected one resizes by its corners). Band tool: a start and an
 // end make a straight stripe of a set width, as an ordinary editable shape.
+// Fill a panel: click a panel and it becomes a shape with that panel's
+// outline. Trimming (a state of the Select tool): click panels to choose the
+// windows the selected layer shows through.
 
 import { SIZE, createFillLayer, isRegionLayer, toLocal } from '../js/engine.js';
 import { bounds, contains, moved, segmentAt, midOf, bendTo, insertAt, removeAt, snapAngle } from '../js/shapes.js';
-import { regionOutline, snapToOutline } from '../js/regions.js';
+import { regionOutline, snapToOutline, trimShape, growOutline, pointInPolygon } from '../js/regions.js';
+import { clipPolys } from '../js/engine.js';
+import { pieceAt } from '../js/mirror.js';
 
 const GRAB = 9;        // px: how close counts as "on" a point or dot
 const EDGE = 6;        // px: how close counts as "on" a line
@@ -48,6 +53,38 @@ export function initTools(app, env) {
   const corners = (l) => [[l.rx, l.ry], [l.rx + l.rw, l.ry], [l.rx + l.rw, l.ry + l.rh], [l.rx, l.ry + l.rh]].map(([x, y]) => ({ x, y }));
   let rubber = null;   // ready-made shape being dragged out: { a, b } doc points
   let band = null;     // band being placed: { a, b, pressed }
+  let hover = null;    // the panel under the pointer, while a panel is being picked
+
+  // Fill a panel: the panel's outline as a shape, a hair over the edge so no
+  // bare line shows where the sim blends across panel edges
+  function fillPanel(p) {
+    const r = pieceAt(app.doc.regionMap, p.x, p.y);
+    if (!r) { env.say(app.doc.regionMap ? 'Click inside a panel' : 'Load a template first'); return; }
+    const layer = createFillLayer(app.colour);
+    layer.shape = 'path';
+    layer.name = r.name;
+    setShape(layer, growOutline(regionOutline(r), 2).map(q => ({ x: Math.round(q.x * 10) / 10, y: Math.round(q.y * 10) / 10 })));
+    app.doc.layers.push(layer);
+    app.sel = layer.id; // the tool stays armed: click the next panel
+    change({ now: true });
+  }
+  // Trim: each click adds the panel under it as a window, or takes it out again
+  function trimAt(p) {
+    const l = selLayer();
+    if (!l) { env.endTrim(); return; }
+    const polys = clipPolys(l).slice(), ats = [].concat(l.clipAt || []);
+    const had = polys.findIndex(poly => pointInPolygon(poly, p.x, p.y));
+    if (had !== -1) { polys.splice(had, 1); ats.splice(had, 1); }
+    else {
+      const r = pieceAt(app.doc.regionMap, p.x, p.y);
+      if (!r) { env.say('Click inside a panel'); return; }
+      polys.push(trimShape(r, p.x, p.y));
+      ats.push({ x: Math.round(p.x), y: Math.round(p.y) }); // the spot picked: says which panel (and half) this is
+    }
+    l.clip = polys.length ? polys : null;
+    l.clipAt = polys.length ? ats : null;
+    change({ now: true });
+  }
 
   // a band's ends stick to the nearest piece edge or corner when close (Alt: free)
   function snapToPieces(p, e) {
@@ -144,6 +181,8 @@ export function initTools(app, env) {
   function down(e, s) {
     const p = screenToDoc(s.x, s.y);
     if (app.picking) { env.picked(p); return; }
+    if (app.trimming) { trimAt(p); return; }
+    if (app.tool === 'piece') { fillPanel(p); return; }
     if (app.tool === 'shape') { rubber = { a: p, b: p }; return; }
     if (app.tool === 'band') {
       if (band && !band.pressed) { band.b = bandEnd(p, e); finishBand(); return; } // the second click
@@ -184,6 +223,11 @@ export function initTools(app, env) {
   function move(e, s) {
     const p = screenToDoc(s.x, s.y);
     if (app.tool === 'pen') { cursor = nextPoint(p, e.shiftKey); requestDraw(); return; }
+    if (app.trimming || app.tool === 'piece') {
+      const r = pieceAt(app.doc.regionMap, p.x, p.y);
+      if (r !== hover) { hover = r; requestDraw(); }
+      return;
+    }
     if (rubber) { rubber.b = p; rubber.even = e.shiftKey; requestDraw(); return; }
     if (band) { band.b = bandEnd(p, e); requestDraw(); return; }
     if (!drag) return;
@@ -258,7 +302,8 @@ export function initTools(app, env) {
         return true;
       }
     }
-    if (e.key === 'Escape' && (app.picking || app.tool === 'shape' || app.tool === 'band')) {
+    if (app.trimming && (e.key === 'Escape' || e.key === 'Enter')) { env.endTrim(); return true; }
+    if (e.key === 'Escape' && (app.picking || app.tool === 'shape' || app.tool === 'band' || app.tool === 'piece')) {
       if (app.picking) env.picked(null);
       else if (band) { band = null; requestDraw(); }
       else env.setTool('select');
@@ -267,10 +312,12 @@ export function initTools(app, env) {
     return false;
   }
 
-  function cancel() { draft = null; cursor = null; drag = null; rubber = null; band = null; }
+  function cancel() { draft = null; cursor = null; drag = null; rubber = null; band = null; hover = null; }
 
   const hint = () => {
     if (app.picking) return 'Click a colour on the sheet · Esc cancels';
+    if (app.trimming) return 'Click panels to show it in · click again to take one out · Enter when done';
+    if (app.tool === 'piece') return 'Click a panel to fill it';
     if (app.tool === 'shape') return 'Drag to draw · Shift keeps it even';
     if (app.tool === 'band') return band ? 'Click the end · Shift holds 45°' : 'Click the start, then the end · snaps to panel edges';
     if (app.tool === 'select' && selBox()) return 'Drag a corner to resize · Shift keeps it even';
@@ -312,6 +359,23 @@ export function initTools(app, env) {
       ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3.5; ctx.stroke();
       ctx.strokeStyle = accent; ctx.lineWidth = 1.5; ctx.stroke();
     };
+    const outline = (pts) => { ctx.beginPath(); pts.forEach((q, i) => { const a = onScreen(q); i ? ctx.lineTo(a.x, a.y) : ctx.moveTo(a.x, a.y); }); ctx.closePath(); };
+    if (app.trimming) {
+      const l = selLayer();
+      for (const poly of (l ? clipPolys(l) : [])) { // the windows it shows through now
+        outline(poly);
+        ctx.fillStyle = accent; ctx.globalAlpha = 0.18; ctx.fill(); ctx.globalAlpha = 1;
+        ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3.5; ctx.stroke();
+        ctx.strokeStyle = accent; ctx.lineWidth = 1.75; ctx.stroke();
+      }
+    }
+    if ((app.trimming || app.tool === 'piece') && hover) {
+      outline(regionOutline(hover));
+      if (app.tool === 'piece' && !app.trimming) { ctx.fillStyle = app.colour; ctx.globalAlpha = 0.45; ctx.fill(); ctx.globalAlpha = 1; }
+      ctx.setLineDash([6, 4]); ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3.5; ctx.stroke();
+      ctx.strokeStyle = accent; ctx.lineWidth = 1.75; ctx.stroke(); ctx.setLineDash([]);
+    }
+    if (app.trimming) return;
     if (rubber) {
       const b = evenBox(rubber.a, rubber.b, rubber.even), A = onScreen(b), B = onScreen({ x: b.x + b.w, y: b.y + b.h });
       ctx.beginPath();

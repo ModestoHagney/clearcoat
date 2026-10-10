@@ -2,6 +2,8 @@
 // the panel cards, dialogs, the right-click menu and the toast. It reads the
 // app state and calls back into `actions`; it holds no livery state itself.
 
+import { pieces, hue } from './map.js';
+
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -16,6 +18,7 @@ const I = { // 20x20 line icons
   text: '<path d="M4 5h12M10 5v11M8 16h4"/>',
   image: '<rect x="3" y="4" width="14" height="12" rx="2"/><circle cx="7.5" cy="8.5" r="1.3"/><path d="m4 14 4-3.5 3 2.5 2-1.5 3 2.5"/>',
   piece: '<path d="M3 13c2-6 5-8 9-8l5 3v5H3z"/><path d="M9 5.5V13"/>',
+  mcentre: '<path d="M10 2v3M10 8v4M10 15v3"/><path d="M4 6h3M13 6h3M4 14h3M13 14h3"/>',
   eye: '<path d="M2 10s3-5 8-5 8 5 8 5-3 5-8 5-8-5-8-5z"/><circle cx="10" cy="10" r="2.2"/>',
   float: '<rect x="4" y="4" width="9" height="9" rx="1.5"/><path d="M8 16h8V8"/>',
   dock: '<rect x="3" y="4" width="14" height="12" rx="1.5"/><path d="M12 4v12"/>',
@@ -23,6 +26,7 @@ const I = { // 20x20 line icons
   close: '<path d="m5 5 10 10M15 5 5 15"/>',
   dropper: '<path d="M4 16v-2.5l6.5-6.5 2.5 2.5L6.5 16z"/><path d="m9.5 6 4.5 4.5"/><path d="m12 7.5 2.2-2.2a1.6 1.6 0 0 1 2.3 2.3l-2.2 2.2"/>',
 };
+I.mpick = I.select;
 const svg = (name) => `<svg viewBox="0 0 20 20">${I[name]}</svg>`;
 
 // [id, name, built yet?] — the strip shows the whole Paint set so the layout
@@ -34,7 +38,11 @@ const TOOLS = [
   ['band', 'Straight band (B)', true],
   ['text', 'Text', false],
   ['image', 'Image or logo', false],
-  ['piece', 'Fill a piece', false],
+  ['piece', 'Fill a panel (G)', true],
+];
+const MAP_TOOLS = [
+  ['mpick', 'Select a panel', true],
+  ['mcentre', 'Centreline', true],
 ];
 const LATER = 'later stage';
 const PANELS = ['layers', 'props', 'colour'];
@@ -63,6 +71,7 @@ export function initUI(app, actions, version) {
   const layerItems = () => [
     ['Copy', 'Ctrl+C', 'copy', { off: !hasLayer() }], ['Paste', 'Ctrl+V', 'paste', { off: !app.clipboard }], ['Duplicate', 'Ctrl+D', 'duplicate', { off: !hasLayer() }], 0,
     ['Bring forward', 'Ctrl+]', 'forward', { off: !hasLayer() }], ['Send backward', 'Ctrl+[', 'backward', { off: !hasLayer() }], 0,
+    ['Mirror', 'Ctrl+M', 'mirror', { off: !hasLayer() }], ['Trim to panels', '', 'trim', { off: !hasLayer() }], 0,
     ['Delete', 'Del', 'remove', { off: !hasLayer() }],
   ];
   const menuDefs = () => ({
@@ -101,8 +110,8 @@ export function initUI(app, actions, version) {
   function drawChrome() {
     drawMenus();
     $('modes').innerHTML = [['map', 'Map'], ['paint', 'Paint'], ['finish', 'Finish']].map(([id, name]) =>
-      `<button data-mode="${id}" aria-pressed="${app.mode === id}"${id === 'paint' ? '' : ` disabled title="Comes in a ${LATER}"`}>${name}</button>`).join('');
-    $('tools').innerHTML = TOOLS.map(([id, name, ready]) =>
+      `<button data-mode="${id}" aria-pressed="${app.mode === id}"${id !== 'finish' ? '' : ` disabled title="Comes in a ${LATER}"`}>${name}</button>`).join('');
+    $('tools').innerHTML = (app.mode === 'map' ? MAP_TOOLS : TOOLS).map(([id, name, ready]) =>
       `<button class="tool" data-tool="${id}" data-tip="${ready ? name : `${name} · ${LATER}`}" aria-label="${name}" aria-pressed="${app.tool === id}"${ready ? '' : ' disabled'}>${svg(id === 'shape' ? app.shapeKind : id)}</button>`).join('');
     // the armed tool's own choices sit right beside the strip
     const opts = $('toolopts');
@@ -122,7 +131,7 @@ export function initUI(app, actions, version) {
     const live = $('btn-live');
     live.setAttribute('aria-pressed', app.live);
     live.classList.toggle('bad', app.live && app.liveBad);
-    for (const key of PANELS) panels[key].hidden = !app.show[key];
+    for (const key of PANELS) panels[key].hidden = !app.show[key] || (key === 'colour' && app.mode !== 'paint');
     $('dock').hidden = ![...$('dock').children].some((p) => !p.hidden);
   }
 
@@ -148,7 +157,34 @@ export function initUI(app, actions, version) {
     if (!l) return '<div class="note">Nothing selected</div>';
     const colour = l.type === 'fill' && hexOf(l.color || '') ? colourField('f-colour', l.color) : '';
     return colour + field('Name', `<input id="f-name" type="text" value="${esc(l.name)}">`) +
-      field('Opacity', `<input id="f-opacity" type="range" min="0" max="100" value="${Math.round((l.opacity ?? 1) * 100)}">`);
+      field('Opacity', `<input id="f-opacity" type="range" min="0" max="100" value="${Math.round((l.opacity ?? 1) * 100)}">`) +
+      (l.locked ? '' : `<div class="acts">${trimButtons(l)}<button class="btn" data-act="mirror" title="Copy it to the twin panel, or across the centreline (Ctrl+M)">Mirror</button></div>`);
+  }
+  const trimCount = (l) => (Array.isArray(l.clip) ? (Array.isArray(l.clip[0]) ? l.clip.length : 1) : 0);
+  function trimButtons(l) {
+    const n = trimCount(l);
+    return `<button class="btn${app.trimming ? ' main' : ''}" data-act="trim" title="Choose the panels it shows in">${app.trimming ? 'Done' : n ? `Trimmed to ${n}` : 'Trim to panels'}</button>` +
+      (n ? '<button class="btn" data-act="trimClear" title="Show it everywhere again">Clear trim</button>' : '');
+  }
+  // ---------- Map mode's two panels ----------
+  const opt = (v, label, on) => `<option value="${esc(v)}"${on ? ' selected' : ''}>${esc(label)}</option>`;
+  function piecesHtml() {
+    const list = pieces(app.doc.regionMap);
+    if (!list.length) return '<div class="note">Load a template to get a map</div>';
+    return list.map((r, i) => `<div class="row${r.id === app.piece ? ' sel' : ''}" data-piece="${esc(r.id)}"><span class="sw" style="background:${hue(i)}"></span><span class="name">${esc(r.name)}</span><span class="tags">${r.mirror ? '<i title="Has a twin">⇄</i>' : ''}${r.center ? '<i title="Has a centreline">┆</i>' : ''}</span></div>`).join('');
+  }
+  function pieceHtml() {
+    const m = app.doc.regionMap, list = pieces(m);
+    if (!list.length) return '<div class="note">Load a template to get a map</div>';
+    const r = list.find((x) => x.id === app.piece);
+    const top = !r ? '<div class="note">Click a panel</div>'
+      : field('Name', `<input id="m-name" type="text" value="${esc(r.name)}">`) +
+        field('Twin', `<select id="m-pair">${opt('', 'None', !r.mirror)}${list.filter((x) => x !== r).map((x) => opt(x.id, x.name, x.id === r.mirror)).join('')}</select>`) +
+        `<div class="acts">${r.center ? '<button class="btn" data-act="centreRemove">Remove centreline</button>' : '<button class="btn" data-act="centreStart" title="Two matching corners, one each side">Set centreline</button>'}</div>`;
+    return top + '<hr class="rule">' +
+      `<label class="switch">Panel colours<input id="m-colours" type="checkbox"${app.mapShow.colours ? ' checked' : ''}></label>` +
+      `<label class="switch" title="Paints the panel colours and names onto the car, so you can see which panel is which in the sim">Show on car<input id="m-guide" type="checkbox"${actions.guideOn() ? ' checked' : ''}></label>` +
+      '<div class="acts"><button class="btn" data-act="pickMapFile">Load map…</button><button class="btn" data-act="saveMap">Save map…</button></div>';
   }
   // colours in use, most used first
   function usedColours() {
@@ -170,12 +206,15 @@ export function initUI(app, actions, version) {
       (app.ways.RGB ? field('RGB', `<input data-colour="rgb" id="c-rgb" class="mono" type="text" spellcheck="false" value="${rgbOf(cur)}">`) : '');
   }
   function drawPanels() {
-    panels.layers.querySelector('h2').textContent = 'Layers';
-    panels.props.querySelector('h2').textContent = 'Properties';
+    const inMap = app.mode === 'map';
+    panels.layers.querySelector('h2').textContent = inMap ? 'Panels' : 'Layers';
+    panels.props.querySelector('h2').textContent = inMap ? 'Panel' : 'Properties';
     panels.colour.querySelector('h2').textContent = 'Colour';
-    panels.layers.querySelector('.body').innerHTML = layersHtml();
-    panels.props.querySelector('.body').innerHTML = propsHtml();
+    panels.layers.querySelector('.body').innerHTML = inMap ? piecesHtml() : layersHtml();
+    panels.props.querySelector('.body').innerHTML = inMap ? pieceHtml() : propsHtml();
     panels.colour.querySelector('.body').innerHTML = colourHtml();
+    const cur = panels.layers.querySelector('.row.sel');
+    if (inMap && cur) cur.scrollIntoView({ block: 'nearest' });
   }
   const refreshChrome = () => drawChrome();
   const refresh = () => { drawChrome(); drawPanels(); };
@@ -219,6 +258,11 @@ export function initUI(app, actions, version) {
   panels.colour.addEventListener('contextmenu', editChip);
   panels.colour.addEventListener('dblclick', editChip);
   panels.props.addEventListener('change', (e) => {
+    const id = e.target.id;
+    if (id === 'm-name') return actions.mapRename(e.target.value.trim());
+    if (id === 'm-pair') return actions.mapPair(e.target.value);
+    if (id === 'm-colours') return actions.toggleMapColours();
+    if (id === 'm-guide') return actions.toggleGuide();
     const layer = app.doc.layers.find((x) => x.id === app.sel);
     if (e.target.id === 'f-name' && layer && e.target.value.trim()) { layer.name = e.target.value.trim(); actions.change(); }
   });
@@ -306,7 +350,7 @@ export function initUI(app, actions, version) {
     title: 'Shortcuts', ok: 'Close', cancel: null,
     body: '<table>' + [
       ['Pan', 'Space-drag, middle-drag'], ['Zoom', 'Wheel, + and −'], ['Fit to screen', 'F'],
-      ['Select, Pen, Shape, Band', 'V, P, S, B'], ['Pick a colour from the sheet', 'I'], ['Finish a pen shape', 'Enter'], ['Undo the last point', 'Backspace'], ['Hold 45°', 'Shift'],
+      ['Select, Pen, Shape, Band, Fill a panel', 'V, P, S, B, G'], ['Mirror', 'Ctrl+M'], ['Pick a colour from the sheet', 'I'], ['Finish a pen shape', 'Enter'], ['Undo the last point', 'Backspace'], ['Hold 45°', 'Shift'],
       ['Copy, paste, duplicate', 'Ctrl+C, V, D'], ['Nudge 1 px, 10 px', 'Arrows, Shift+Arrows'], ['Forward, backward', 'Ctrl+], Ctrl+['], ['Delete', 'Del'],
       ['Undo, redo', 'Ctrl+Z, Ctrl+Y'], ['Save', 'Ctrl+S'],
     ].map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join('') + '</table>',
@@ -336,6 +380,8 @@ export function initUI(app, actions, version) {
     if (!t || !t.closest('.drop')) closeMenus();
     if (!t || t.disabled) return;
     if (t.dataset.act !== undefined) { closeMenus(); return run(t.dataset.act); }
+    if (t.dataset.mode) return actions.setMode(t.dataset.mode);
+    if (t.dataset.piece) return actions.pickPiece(t.dataset.piece);
     if (t.dataset.tool) return actions.setTool(t.dataset.tool);
     if (t.dataset.edit) return actions.editColour(t.dataset.edit);
     if (t.dataset.pal) return actions.usePalette(t.dataset.pal);

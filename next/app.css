@@ -146,6 +146,12 @@ input[type="color"] { width: 38px; height: 26px; padding: 0; border: 1px solid v
 .chipwrap:hover .chipedit, .chipedit:focus-visible { opacity: 1; }
 .field input.mono { font-family: var(--mono); text-transform: uppercase; }
 .note { padding: 4px 6px; color: var(--muted); font-size: 12px; }
+.acts { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 6px 2px; }
+.rule { border: 0; border-top: 1px solid var(--line); margin: 8px 6px; }
+.switch { display: flex; align-items: center; justify-content: space-between; padding: 5px 6px; cursor: pointer; }
+.switch input { accent-color: var(--accent); width: 16px; height: 16px; }
+.row .tags { display: flex; gap: 5px; color: var(--muted); font-size: 12px; flex: none; }
+.row .tags i { font-style: normal; }
 .btn { padding: 5px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--bar); }
 .btn:hover:not(:disabled) { background: var(--hover); }
 .btn.main { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); font-weight: 500; }

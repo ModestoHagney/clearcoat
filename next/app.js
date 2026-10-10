@@ -2,7 +2,9 @@
 // The refresh, built in stages on the existing plumbing (../js). Stage 1: load
 // a template, show the pieces, an exact base colour, open projects from the
 // original screen, save to iRacing. Stage 2: shapes you draw and keep editing
-// (./tools.js), with exact colours. Map and Finish modes come later.
+// (./tools.js), with exact colours. Stage 3: Map mode (./map.js) and the
+// tools that work from the map: fill a panel, trim to panels, mirror.
+// Finish mode comes later.
 
 import {
   SIZE, GOOGLE_FONTS, createDoc, renderPaint, renderSpec, templateOverlay,
@@ -15,8 +17,11 @@ import { loadTemplate } from '../js/template.js';
 import { saveToIracing, paintFilenames, validCustid } from '../js/iracing.js';
 import { initUI } from './ui.js';
 import { initTools, isShape, moveLayer } from './tools.js';
+import { initMap, syncGuide, guideLayer } from './map.js';
+import { mirrorLayer } from '../js/mirror.js';
+import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.12 · stage 2';
+export const VERSION = 'v0.68-pieces.13 · stage 3';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -44,8 +49,13 @@ export const app = {
   bandWidth: 60,                      // px on the sheet
   picking: false,                     // the next click on the sheet picks a colour
   ways: { Hex: true, RGB: false },    // which colour read-outs the Colour panel shows
+  trimming: false,                    // clicks on the sheet choose the selected layer's panels
+  piece: null,                        // Map mode: the selected panel's id
+  centreFor: null,                    // Map mode: the panel a centreline is being set on, if fixed
+  mapShow: { colours: true },         // Map mode: panel colours and names over the sheet
 };
-let ui = null, tools = null;
+let ui = null, tools = null, mapTools = null;
+const onSheet = () => (app.mode === 'map' ? mapTools : tools); // who the pointer talks to
 
 // ---------- the doc ----------
 
@@ -141,6 +151,12 @@ function draw() {
     pts.forEach((p, i) => { const q = docToScreen(p.x, p.y); i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y); });
     ctx.closePath();
   };
+  if (app.mode === 'map') {
+    if (mapTools) mapTools.drawOverlay(ctx, getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#1f5fe0');
+    $('zoom-readout').textContent = Math.round(app.view.zoom * 100) + '%';
+    $('empty').hidden = !!(doc.template || doc.layers.length);
+    return;
+  }
   if (app.show.outlines && doc.regionMap) {
     const onLight = luminance(doc.baseColor) > 0.5;
     ctx.lineJoin = 'round';
@@ -318,6 +334,9 @@ async function setDoc(doc, projectId) {
   await flush();
   syncLineColour(doc);
   if (tools) tools.cancel();
+  if (mapTools) mapTools.cancel();
+  app.piece = app.centreFor = null;
+  app.trimming = false;
   app.doc = doc;
   app.projectId = projectId;
   app.sel = 'base';
@@ -330,7 +349,7 @@ async function setDoc(doc, projectId) {
 // lands any pending edit in its own project before the doc is swapped
 const flush = () => (saveTimer ? runSave() : Promise.resolve());
 
-const toolChanged = () => cv.classList.toggle('draw', app.tool !== 'select' || app.picking);
+const toolChanged = () => cv.classList.toggle('draw', (app.tool !== 'select' && app.tool !== 'mpick') || app.picking || app.trimming);
 // the exact paint colour at a point on the sheet
 function sampleColour(p) {
   const x = Math.round(p.x), y = Math.round(p.y);
@@ -468,17 +487,112 @@ const actions = {
     renderPaint(app.doc).toBlob((b) => { if (b) download(b, safeName() + '.png'); }, 'image/png');
   },
 
+  setMode(mode) {
+    if (mode === app.mode) return;
+    tools.cancel(); mapTools.cancel();
+    app.mode = mode;
+    app.tool = mode === 'map' ? 'mpick' : 'select';
+    app.picking = app.trimming = false;
+    app.centreFor = null;
+    toolChanged();
+    requestDraw();
+    ui.refresh();
+  },
+
+  // ---- the map ----
+  pickPiece(id) { app.piece = id; requestDraw(); ui.refresh(); },
+  // every edit to the map ends here
+  async mapChanged(msg) {
+    if (guideLayer(app.doc)) await syncGuide(app.doc, true); // the guide on the car follows the map
+    change({ now: true });
+    if (msg) ui.say(msg);
+  },
+  mapRename(name) {
+    const r = regionById(app.doc.regionMap, app.piece);
+    if (!r || !name || name === r.name) return;
+    renameRegion(app.doc.regionMap, r, name);
+    app.piece = r.id; // the id follows the name
+    actions.mapChanged();
+  },
+  mapPair(id) {
+    const m = app.doc.regionMap, r = regionById(m, app.piece);
+    if (!r) return;
+    setMirror(m, r, id || null);
+    actions.mapChanged(id ? `${r.name} paired with ${regionById(m, id).name}` : `${r.name} unpaired`);
+  },
+  centreStart() { app.centreFor = app.piece; actions.setTool('mcentre'); },
+  centreRemove() {
+    const r = regionById(app.doc.regionMap, app.piece);
+    if (!r || !r.center) return;
+    delete r.center;
+    actions.mapChanged(`Centreline removed from ${r.name}`);
+  },
+  toggleMapColours() { app.mapShow.colours = !app.mapShow.colours; requestDraw(); ui.refresh(); },
+  async toggleGuide() {
+    await syncGuide(app.doc, !guideLayer(app.doc));
+    change({ now: true });
+    ui.say(guideLayer(app.doc) ? 'Panel colours are on the car. Switch this off before your real save.' : 'Panel colours are off the car');
+  },
+  guideOn: () => !!guideLayer(app.doc),
+  pickMapFile: () => $('file-map').click(),
+  async loadMapFile(file) {
+    try {
+      app.doc.regionMap = parseRegionMap(JSON.parse(await file.text()));
+      app.piece = null;
+      actions.mapChanged(`Map loaded: ${app.doc.regionMap.regions.length} regions`);
+    } catch (err) {
+      ui.say('Could not read that map: ' + (err.message || 'not a map file'), true);
+    }
+  },
+  saveMap() {
+    const m = app.doc.regionMap;
+    if (!m) return;
+    const name = (m.car || 'car').trim().replace(/[^\w\- ]+/g, '').replace(/\s+/g, '-').toLowerCase() || 'car';
+    download(new Blob([JSON.stringify(m, null, 2)], { type: 'application/json' }), name + '.regions.json');
+  },
+
+  // ---- painting from the map ----
+  mirror() {
+    const l = actions.selected();
+    if (!l) return;
+    const res = mirrorLayer(app.doc.regionMap, l);
+    if (res.error) { ui.say(res.error, true); return; }
+    app.doc.layers.splice(app.doc.layers.indexOf(l) + 1, 0, res.copy);
+    app.sel = res.copy.id;
+    change({ now: true });
+    ui.say(res.dst.mirror ? `Mirrored onto ${res.dst.name}` : `Mirrored across ${res.dst.name}'s centreline`);
+  },
+  trim() {
+    if (!actions.selected()) return;
+    if (!app.doc.regionMap) { ui.say('Load a template first', true); return; }
+    app.trimming = !app.trimming;
+    toolChanged();
+    requestDraw();
+    ui.refresh();
+  },
+  endTrim() { if (!app.trimming) return; app.trimming = false; toolChanged(); requestDraw(); ui.refresh(); },
+  trimClear() {
+    const l = actions.selected();
+    if (!l) return;
+    l.clip = null; l.clipAt = null;
+    app.trimming = false;
+    toolChanged();
+    change({ now: true });
+  },
+
   setTool(id) {
     if (tools) tools.cancel();
+    if (mapTools) mapTools.cancel();
     app.tool = id;
-    app.picking = false;
+    app.picking = app.trimming = false;
+    if (id !== 'mcentre') app.centreFor = null;
     toolChanged();
     requestDraw();
     ui.refresh();
   },
   setShapeKind(kind) { app.shapeKind = kind; requestDraw(); ui.refreshChrome(); },
   setBandWidth(n) { app.bandWidth = Math.max(2, Math.min(800, Math.round(n) || 60)); requestDraw(); },
-  hint: () => (tools ? tools.hint() : ''),
+  hint: () => (app.mode === 'map' ? (mapTools ? mapTools.hint() : '') : tools ? tools.hint() : ''),
 
   // ---- layers ----
   selected: () => app.doc.layers.find(l => l.id === app.sel) || null,
@@ -607,22 +721,22 @@ cv.addEventListener('pointerdown', (e) => {
     cv.classList.add('panning');
   } else if (e.button === 0) {
     cv.setPointerCapture(e.pointerId);
-    tools.down(e, local(e));
+    onSheet().down(e, local(e));
   }
 });
 cv.addEventListener('pointermove', (e) => {
-  if (!pan) { tools.move(e, local(e)); return; }
+  if (!pan) { onSheet().move(e, local(e)); return; }
   app.view.x += (e.clientX - pan.x) / app.view.zoom;
   app.view.y += (e.clientY - pan.y) / app.view.zoom;
   pan = { x: e.clientX, y: e.clientY };
   requestDraw();
 });
-const endPan = (e) => { if (!pan) tools.up(e, local(e)); pan = null; cv.classList.remove('panning'); };
+const endPan = (e) => { if (!pan && app.mode !== 'map') tools.up(e, local(e)); pan = null; cv.classList.remove('panning'); };
 cv.addEventListener('pointerup', endPan);
 cv.addEventListener('pointercancel', endPan);
 // right-click on a shape's point removes it; anywhere else the stage's menu opens
 cv.addEventListener('contextmenu', (e) => {
-  if (tools.context(local(e))) { e.preventDefault(); e.stopPropagation(); }
+  if (app.mode !== 'map' && tools.context(local(e))) { e.preventDefault(); e.stopPropagation(); }
 });
 
 // Shortcuts stay alive after a slider or colour box is used; only a box you
@@ -637,10 +751,19 @@ window.addEventListener('keydown', (e) => {
   if ($('dlg').open || typing()) return;
   const mod = e.ctrlKey || e.metaKey, k = (e.key || '').toLowerCase();
   if (e.code === 'Space') { spaceHeld = true; cv.classList.add('pan'); e.preventDefault(); return; }
-  if (!mod && tools.key(e)) { e.preventDefault(); return; }
+  if (!mod && onSheet().key(e)) { e.preventDefault(); return; }
   if (mod && k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
   if (mod && k === 'y') { e.preventDefault(); redo(); return; }
   if (mod && k === 's') { e.preventDefault(); actions.save(); return; }
+  if (app.mode === 'map') { // the layer keys below belong to Paint
+    if (mod) return;
+    if (k === 'f') fit();
+    else if (k === '+' || k === '=') actions.zoomBy(1.25);
+    else if (k === '-') actions.zoomBy(0.8);
+    else if (k === '?') ui.shortcuts();
+    return;
+  }
+  if (mod && k === 'm') { e.preventDefault(); actions.mirror(); return; }
   if (mod && k === 'c') { actions.copy(); return; }
   if (mod && k === 'v') { e.preventDefault(); actions.paste(); return; }
   if (mod && k === 'd') { e.preventDefault(); actions.duplicate(); return; }
@@ -659,6 +782,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'p') actions.setTool('pen');
   else if (k === 's') actions.setTool('shape');
   else if (k === 'b') actions.setTool('band');
+  else if (k === 'g') actions.setTool('piece');
   else if (k === 'i') actions.pickColour();
   else if (k === 'f') fit();
   else if (k === '+' || k === '=') actions.zoomBy(1.25);
@@ -678,6 +802,11 @@ $('file-template').addEventListener('change', (e) => {
   const f = e.target.files[0];
   e.target.value = '';
   if (f) actions.loadTemplateFile(f);
+});
+$('file-map').addEventListener('change', (e) => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if (f) actions.loadMapFile(f);
 });
 $('btn-empty-template').addEventListener('click', actions.pickTemplate);
 $('btn-undo').addEventListener('click', undo);
@@ -710,12 +839,18 @@ async function boot() {
     screenToDoc, docToScreen, change, requestDraw,
     select: actions.select, setTool: actions.setTool, toolChanged,
     say: ui.say, refreshChrome: ui.refreshChrome,
+    endTrim: actions.endTrim,
     picked(p) { // the eyedropper's click, or null when cancelled
       app.picking = false;
       toolChanged();
       const hex = p && sampleColour(p);
       if (hex) actions.applyColour(hex); else ui.refresh();
     },
+  });
+  mapTools = initMap(app, {
+    screenToDoc, docToScreen, requestDraw,
+    say: ui.say, refreshChrome: ui.refreshChrome,
+    setTool: actions.setTool, pickPiece: actions.pickPiece, mapChanged: actions.mapChanged,
   });
   ensureDocFonts();
   fit();
