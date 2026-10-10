@@ -163,7 +163,7 @@ export function joined(list) {
 // then a round-cornered version of each one that has corners (see roundedOf).
 // 'round' is the rounded box's name from before the others had one.
 const PLAIN = {
-  ellipse: 'Circle', rect: 'Box', triangle: 'Triangle', star: 'Star', diamond: 'Diamond', hexagon: 'Hexagon',
+  ellipse: 'Circle', rect: 'Square', triangle: 'Triangle', star: 'Star', diamond: 'Diamond', hexagon: 'Hexagon',
   chevron: 'Chevron', cross: 'Cross', arrow: 'Arrow', bolt: 'Lightning bolt', shield: 'Shield', flame: 'Flame', ring: 'Ring',
 };
 const NO_CORNERS = new Set(['ellipse', 'flame', 'ring']);
