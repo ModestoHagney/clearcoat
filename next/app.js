@@ -31,7 +31,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.34';
+export const VERSION = 'v0.68-pieces.35';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -156,7 +156,26 @@ function setZoom(z, cx = cv.clientWidth / 2, cy = cv.clientHeight / 2) {
 const paint = () => renderPaint(shown(), { linearEdges: true });
 // the livery with the other side of every Mirrored layer added: what is painted
 // and with every layer carrying the finish it ends up with
-const shown = () => withMirrors(withFinishes(app.doc));
+// A picture given a colour is painted as its own outline filled with that
+// colour. The picture itself is kept, so the colour can be taken off again.
+const tinted = new WeakMap(); // picture → { colour, canvas }: the last one made
+function tintedImage(img, colour) {
+  const had = tinted.get(img);
+  if (had && had.colour === colour) return had.canvas;
+  const canvas = document.createElement('canvas');
+  canvas.width = img.naturalWidth || img.width; canvas.height = img.naturalHeight || img.height;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  ctx.globalCompositeOperation = 'source-in';
+  ctx.fillStyle = colour;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  tinted.set(img, { colour, canvas });
+  return canvas;
+}
+const withTints = (doc) => (doc.layers.some(l => l.type === 'image' && l.color && l.img)
+  ? { ...doc, layers: doc.layers.map(l => (l.type === 'image' && l.color && l.img ? { ...l, img: tintedImage(l.img, l.color) } : l)) }
+  : doc);
+const shown = () => withMirrors(withTints(withFinishes(app.doc)));
 let quick = false, quickTimer = null; // an edit is in full flow: draw fast, tidy up when it pauses
 let dirty = true;       // the paint composite needs re-rendering
 let composite = null;
@@ -943,7 +962,7 @@ const actions = {
       return;
     }
     // their mirrored sides are part of what is painted, so they are part of the picture
-    const sheet = paintLayers(withMirrors({ ...app.doc, layers: targets }).layers, { linearEdges: true });
+    const sheet = paintLayers(withMirrors(withTints({ ...app.doc, layers: targets })).layers, { linearEdges: true });
     const px = sheet.getContext('2d').getImageData(0, 0, SIZE, SIZE).data;
     let x0 = SIZE, y0 = SIZE, x1 = -1, y1 = -1;
     for (let y = 0; y < SIZE; y++) {
@@ -1178,7 +1197,7 @@ const actions = {
     const l = actions.selected();
     if (app.sel === 'base') return app.doc.baseColor;
     if (l && l.type === 'text') return l.textColor || app.colour;
-    return l && l.type === 'fill' && l.color ? l.color : app.colour;
+    return l && (l.type === 'fill' || l.type === 'image') && l.color ? l.color : app.colour;
   },
   // Sets the selection's colour (base coat or a fill) and the colour for new
   // shapes. ref: the saved colour it now follows, or null for a one-off.
@@ -1190,11 +1209,17 @@ const actions = {
     else for (const l of selectedLayers()) { // every selected shape and text takes it
       if (l.type === 'fill') { l.color = hex; l.colorRef = ref; keepFadeOut(l); painted++; }
       else if (l.type === 'text') { l.textColor = hex; l.colorRef = ref; regenerateText(l); painted++; }
+      else if (l.type === 'image') { l.color = hex; l.colorRef = ref; painted++; } // the whole picture, one colour
     }
     if (!painted) { if (!typed) ui.refresh(); return; } // nothing to paint: just the next shape's colour
     change({ panels: !typed });
   },
   setColour: (hex) => actions.applyColour(hex, { typed: true }),
+  // a coloured picture back to its own colours
+  ownColours() {
+    for (const l of selectedLayers()) if (l.type === 'image') { l.color = undefined; l.colorRef = null; }
+    change();
+  },
   usePalette(id) {
     const c = app.doc.palette.find(x => x.id === id);
     if (c) actions.applyColour(c.color, { ref: id });

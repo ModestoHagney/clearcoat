@@ -188,7 +188,7 @@ export function initUI(app, actions, version) {
     }
     const l = app.doc.layers.find((x) => x.id === app.sel);
     if (!l) return '<div class="note">Nothing selected</div>';
-    const colour = l.type === 'fill' || l.type === 'text' ? colourNote() : '';
+    const colour = l.type === 'fill' || l.type === 'text' || l.type === 'image' ? colourNote() : '';
     const isText = l.type === 'text', isPic = (isText || l.type === 'image') && !l.corners;
     const range = (id, min, max, v) => `<input id="${id}" type="range" min="${min}" max="${max}" value="${v}">`;
     const fx = l.fx || {};
@@ -211,7 +211,7 @@ export function initUI(app, actions, version) {
     const acts = l.locked ? '' :
       `<label class="switch" title="Paint it on the twin panel too, or across the centreline (Ctrl+M)">Mirrored<input id="f-mirrored" type="checkbox"${l.mirrored ? ' checked' : ''}></label>` +
       (l.mirrored && isPic ? `<label class="switch" title="Off: it reads the right way round on both sides. On: a true mirror image.">Reverse the other side<input id="f-mirrorFlip" type="checkbox"${l.mirrorFlip ? ' checked' : ''}></label>` : '') +
-      `<div class="acts">${trimButtons(l)}${l.mirrored ? '<button class="btn" data-act="separate" title="Make the mirrored side a layer of its own">Separate</button>' : ''}${inPieces ? '<button class="btn" data-act="split" title="Undo a merge: one shape for each piece again">Split</button>' : ''}</div>`;
+      `<div class="acts">${trimButtons(l)}${l.mirrored ? '<button class="btn" data-act="separate" title="Make the mirrored side a layer of its own">Separate</button>' : ''}${inPieces ? '<button class="btn" data-act="split" title="Undo a merge: one shape for each piece again">Split</button>' : ''}${l.type === 'image' && l.color ? '<button class="btn" data-act="ownColours" title="Take the colour off again">Original colours</button>' : ''}</div>`;
     const more = (!isText ? '' :
       field('Outline', `<span class="pair">${range('f-outlineWidth', 0, 30, l.outlineWidth || 0)}<input id="f-outlineColor" type="color" value="${esc(hexOf(l.outlineColor || '') || '#000000')}" aria-label="Outline colour"></span>`) +
       field('Spacing', range('f-letterSpacing', 0, 40, l.letterSpacing || 0)) +
@@ -312,7 +312,7 @@ export function initUI(app, actions, version) {
     const n = new Map();
     const add = (c) => { const h = hexOf(c || ''); if (h) n.set(h, (n.get(h) || 0) + 1); };
     add(app.doc.baseColor);
-    for (const l of app.doc.layers) if (l.visible) add(l.type === 'fill' ? l.color : l.type === 'text' ? l.textColor : null);
+    for (const l of app.doc.layers) if (l.visible) add(layerColour(l));
     // in the order they sit in the livery (base coat, then back to front), so
     // a swatch does not jump about when a colour is used more or less
     return [...n.keys()].slice(0, 14);
@@ -358,6 +358,8 @@ export function initUI(app, actions, version) {
     const sw = panels.layers.querySelector(`[data-layer="${CSS.escape(String(app.sel))}"] .sw`);
     if (sw && (app.sel === 'base' || (actions.selected() || {}).type === 'fill')) sw.style.background = v;
     actions.setColour(v);
+    // a picture's first colour: Properties gains "Original colours" (the colour boxes are left alone, one is in use)
+    if (app.mode === 'paint' && (actions.selected() || {}).type === 'image' && !panels.props.querySelector('[data-act="ownColours"]')) panels.props.querySelector('.body').innerHTML = propsHtml();
   });
   panels.props.addEventListener('input', (e) => {
     const t = e.target;

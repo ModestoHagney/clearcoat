@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 globalThis.document = {
   createElement: () => ({ width: 0, height: 0, getContext: () => null }),
 };
-const { finishOf, baseFinish, withFinishes, setRule, clearRule, finishList, ruleFor, readFinish, writeFinish, finishLabel, presetOf, SPARKLE } = await import('../js/finish.js');
+const { finishOf, layerColour, baseFinish, withFinishes, setRule, clearRule, finishList, ruleFor, readFinish, writeFinish, finishLabel, presetOf, SPARKLE } = await import('../js/finish.js');
 const { createDoc, createFillLayer, serializeDoc, deserializeDoc, cleanFinishRules } = await import('../js/engine.js');
 
 function doc() {
@@ -147,4 +147,11 @@ test('a colour rule carries tweaked numbers and sparkle to its layers and the ba
   assert.deepEqual(back.finishRules, d.finishRules);
   clearRule(d, '#ffffff');
   assert.equal(ruleFor(d, '#ffffff'), null);
+});
+
+test('a picture has a colour only once it is given one, and then follows that colour\'s finish', () => {
+  const doc = { finishRules: [{ color: '#ff0000', material: 'matte' }], layers: [] };
+  assert.equal(layerColour({ type: 'image' }), null);
+  assert.equal(finishOf(doc, { type: 'image' }), 'gloss');
+  assert.equal(finishOf(doc, { type: 'image', color: '#FF0000' }), 'matte');
 });

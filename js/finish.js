@@ -56,8 +56,8 @@ export function finishLabel(material, params) {
 }
 
 const hex = (c) => (typeof c === 'string' ? c.toLowerCase() : null);
-// the one colour a layer is, if it has one (pictures do not)
-export const layerColour = (l) => hex(l.type === 'fill' ? l.color : l.type === 'text' ? l.textColor : null);
+// the one colour a layer is, if it has one (a picture only once it is given one)
+export const layerColour = (l) => hex(l.type === 'fill' || l.type === 'image' ? l.color : l.type === 'text' ? l.textColor : null);
 export const isArea = (l) => !!l && !!l.specOnly;
 // a layer whose finish was set for itself (older projects: any finish but gloss)
 export const hasOwnFinish = (l) => !!l.finishOwn || (!!l.material && l.material !== 'gloss');
