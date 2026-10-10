@@ -72,7 +72,8 @@ export function initUI(app, actions, version) {
   const hasLayer = () => app.sel !== null && app.sel !== 'base';
   const layerItems = () => [
     ['Copy', 'Ctrl+C', 'copy', { off: !hasLayer() }], ['Paste', 'Ctrl+V', 'paste', { off: !app.clipboard }], ['Duplicate', 'Ctrl+D', 'duplicate', { off: !hasLayer() }], 0,
-    ['Bring forward', 'Ctrl+]', 'forward', { off: !hasLayer() }], ['Send backward', 'Ctrl+[', 'backward', { off: !hasLayer() }], 0,
+    ['Bring to front', 'Ctrl+Shift+]', 'front', { off: !hasLayer() }], ['Bring forward', 'Ctrl+]', 'forward', { off: !hasLayer() }],
+    ['Send backward', 'Ctrl+[', 'backward', { off: !hasLayer() }], ['Send to back', 'Ctrl+Shift+[', 'back', { off: !hasLayer() }], 0,
     ['Save to library', '', 'saveShape', { off: (actions.selected() || {}).type !== 'fill' }],
     ['Mirrored', 'Ctrl+M', 'mirror', { off: !hasLayer(), tick: !!(actions.selected() || {}).mirrored }], ['Trim to panels', '', 'trim', { off: !hasLayer() }], 0,
     ['Delete', 'Del', 'remove', { off: !hasLayer() }],
@@ -151,7 +152,7 @@ export function initUI(app, actions, version) {
   function layersHtml() {
     const d = app.doc;
     const rows = [...d.layers].reverse().map((l) =>
-      `<div class="row${l.id === app.sel ? ' sel' : ''}" data-layer="${esc(l.id)}"><span class="sw" style="${swatch(l)}"></span><span class="name">${esc(l.name)}</span>${l.mirrored ? '<span class="tags"><i title="Mirrored">⇄</i></span>' : ''}<button class="eye${l.visible ? '' : ' off'}" data-eye="${esc(l.id)}" title="Show or hide" aria-label="Show or hide ${esc(l.name)}">${svg('eye')}</button></div>`);
+      `<div class="row${l.id === app.sel ? ' sel' : ''}" data-layer="${esc(l.id)}" draggable="true"><span class="sw" style="${swatch(l)}"></span><span class="name">${esc(l.name)}</span>${l.mirrored ? '<span class="tags"><i title="Mirrored">⇄</i></span>' : ''}<button class="eye${l.visible ? '' : ' off'}" data-eye="${esc(l.id)}" title="Show or hide" aria-label="Show or hide ${esc(l.name)}">${svg('eye')}</button></div>`);
     rows.push(`<div class="row${app.sel === 'base' ? ' sel' : ''}" data-layer="base"><span class="sw" style="background:${esc(d.baseColor)}"></span><span class="name">Base coat</span></div>`);
     return rows.join('');
   }
@@ -286,6 +287,39 @@ export function initUI(app, actions, version) {
     $('f-band-n').textContent = e.target.value;
     actions.setBandWidth(+e.target.value);
   });
+  // Layers list: drag a row up or down to change what is in front of what.
+  // The top of the list is the front of the sheet.
+  let dragId = null;
+  const dropMark = (row, cls) => { for (const r of panels.layers.querySelectorAll('.drop-above, .drop-below')) r.classList.remove('drop-above', 'drop-below'); if (row && cls) row.classList.add(cls); };
+  const dropSpot = (e) => {
+    const row = e.target.closest('.row[data-layer]');
+    if (!row || !dragId || row.dataset.layer === dragId) return null;
+    const box = row.getBoundingClientRect(), base = row.dataset.layer === 'base';
+    return { row, above: base || e.clientY < box.top + box.height / 2 }; // nothing goes behind the base coat
+  };
+  panels.layers.addEventListener('dragstart', (e) => {
+    const row = e.target.closest('.row[data-layer][draggable]');
+    if (!row || app.mode === 'map') { e.preventDefault(); return; }
+    dragId = row.dataset.layer;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', dragId);
+  });
+  panels.layers.addEventListener('dragover', (e) => {
+    const spot = dropSpot(e);
+    if (!spot) { dropMark(null); return; }
+    e.preventDefault();
+    dropMark(spot.row, spot.above ? 'drop-above' : 'drop-below');
+  });
+  panels.layers.addEventListener('drop', (e) => {
+    const spot = dropSpot(e);
+    dropMark(null);
+    if (!spot) return;
+    e.preventDefault();
+    // above a row in the list = in front of that layer on the sheet
+    actions.reorder(dragId, spot.row.dataset.layer, spot.above);
+  });
+  panels.layers.addEventListener('dragend', () => { dragId = null; dropMark(null); });
+
   // a saved colour is renamed, changed or deleted from its chip
   const editChip = (e) => {
     const chip = e.target.closest('.chipwrap');
@@ -435,7 +469,7 @@ export function initUI(app, actions, version) {
     body: '<table>' + [
       ['Pan', 'Space-drag, middle-drag'], ['Zoom', 'Wheel, + and −'], ['Fit to screen', 'F'],
       ['Select, Pen, Shape, Band, Fill a panel, Text', 'V, P, S, B, G, T'], ['Mirrored on or off', 'Ctrl+M'], ['Pick a colour from the sheet', 'I'], ['Finish a pen shape', 'Enter'], ['Undo the last point', 'Backspace'], ['Hold 45°', 'Shift'],
-      ['Copy, paste, duplicate', 'Ctrl+C, V, D'], ['Nudge 1 px, 10 px', 'Arrows, Shift+Arrows'], ['Forward, backward', 'Ctrl+], Ctrl+['], ['Delete', 'Del'],
+      ['Copy, paste, duplicate', 'Ctrl+C, V, D'], ['Nudge 1 px, 10 px', 'Arrows, Shift+Arrows'], ['Forward, backward', 'Ctrl+], Ctrl+['], ['To the front, to the back', 'Ctrl+Shift+], Ctrl+Shift+['], ['Delete', 'Del'],
       ['Undo, redo', 'Ctrl+Z, Ctrl+Y'], ['Save', 'Ctrl+S'],
     ].map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join('') + '</table>',
   });

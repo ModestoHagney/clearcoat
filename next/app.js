@@ -25,7 +25,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.22 · stage 4';
+export const VERSION = 'v0.68-pieces.23 · stage 4';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -711,6 +711,27 @@ const actions = {
     [L[i], L[j]] = [L[j], L[i]];
     change({ now: true });
   },
+  // to the very front (+1) or the very back (-1)
+  orderEnd(dir) {
+    const L = app.doc.layers, i = L.findIndex(l => l.id === app.sel);
+    if (i === -1) return;
+    const [l] = L.splice(i, 1);
+    dir > 0 ? L.push(l) : L.unshift(l);
+    change({ now: true });
+  },
+  front: () => actions.orderEnd(+1),
+  back: () => actions.orderEnd(-1),
+  // dragged in the Layers list: put layer `id` just in front of `targetId`
+  // (above it in the list), or just behind it; 'base' means the very back
+  reorder(id, targetId, inFront) {
+    const L = app.doc.layers, from = L.findIndex(l => l.id === id);
+    if (from === -1 || id === targetId) return;
+    const [l] = L.splice(from, 1);
+    const at = targetId === 'base' ? -1 : L.findIndex(x => x.id === targetId);
+    L.splice(targetId === 'base' ? 0 : at === -1 ? L.length : at + (inFront ? 1 : 0), 0, l);
+    app.sel = id;
+    change({ now: true });
+  },
   forward: () => actions.order(+1),
   backward: () => actions.order(-1),
   nudge(dx, dy) {
@@ -1005,8 +1026,9 @@ window.addEventListener('keydown', (e) => {
   if (mod && k === 'c') { actions.copy(); return; }
   if (mod && k === 'v') { e.preventDefault(); actions.paste(); return; }
   if (mod && k === 'd') { e.preventDefault(); actions.duplicate(); return; }
-  if (mod && k === ']') { e.preventDefault(); actions.forward(); return; }
-  if (mod && k === '[') { e.preventDefault(); actions.backward(); return; }
+  // e.key is } and { with Shift held on most keyboards, so go by the physical key
+  if (mod && e.code === 'BracketRight') { e.preventDefault(); e.shiftKey ? actions.front() : actions.forward(); return; }
+  if (mod && e.code === 'BracketLeft') { e.preventDefault(); e.shiftKey ? actions.back() : actions.backward(); return; }
   if (mod) return;
   if (k.startsWith('arrow')) {
     const step = e.shiftKey ? 10 : 1;
