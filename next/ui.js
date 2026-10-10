@@ -192,9 +192,12 @@ export function initUI(app, actions, version) {
   function patternHtml(l) {
     const mo = l.motif, key = mo ? (mo.kind === 'own' ? 'own:' + mo.id : mo.kind) : '';
     const range = (id, min, max, v) => `<input id="${id}" type="range" min="${min}" max="${max}" value="${v}">`;
+    const col = mo ? esc(hexOf(mo.color || '') || hexOf(l.color || '') || '#ffffff') : '';
     return field('Pattern', `<select id="f-pat">${opt('', 'None', !mo)}${motifOptions(key, mo && mo.kind === 'own' ? mo.name : null)}</select>`) +
       (!mo ? '' :
-        field('Its colour', `<input id="f-pat-color" type="color" value="${esc(hexOf(mo.color || '') || hexOf(l.color || '') || '#ffffff')}" aria-label="Pattern colour">`) +
+        `<label class="field wide"><span>Pattern colour</span><span class="pair"><input data-pat="pick" id="f-pat-color" type="color" value="${col}" aria-label="Pattern colour"><button type="button" class="icon${app.picking === 'pattern' ? ' on' : ''}" data-act="pickPatternColour" title="Pick the pattern's colour from the sheet" aria-label="Pick the pattern's colour from the sheet">${svg('dropper')}</button></span></label>` +
+        (app.ways.Hex ? field('Hex', `<input data-pat="hex" id="f-pat-hex" class="mono" type="text" maxlength="7" spellcheck="false" value="${col}">`) : '') +
+        (app.ways.RGB ? field('RGB', `<input data-pat="rgb" id="f-pat-rgb" class="mono" type="text" spellcheck="false" value="${rgbOf(col)}">`) : '') +
         field('Size', range('f-pat-size', 10, 400, Math.round(mo.size))) +
         field('Spacing', range('f-pat-gap', 0, 400, Math.round(mo.gap))) +
         field('Stagger', range('f-pat-stagger', 0, 100, Math.round(mo.stagger))) +
@@ -363,7 +366,7 @@ export function initUI(app, actions, version) {
     const used = usedColours();
     return `<div class="sub">Saved with this livery</div><div class="chips">${saved}<button class="chip add" data-act="saveColour" title="Save the current colour">+ Save</button></div>` +
       (used.length ? `<div class="sub">In this livery</div><div class="dots">${used.map((c) => `<button class="dot" data-col="${c}" style="background:${c}" title="${c.toUpperCase()}" aria-label="${c}"></button>`).join('')}</div>` : '') +
-      `<div class="cur"><input data-colour="pick" id="c-pick" type="color" value="${esc(cur)}" aria-label="Colour"><button class="icon${app.picking ? ' on' : ''}" data-act="pickColour" title="Pick a colour from the sheet (I)" aria-label="Pick a colour from the sheet">${svg('dropper')}</button><span class="ways">${Object.keys(app.ways).map((w) => `<button data-way="${w}" aria-pressed="${app.ways[w]}">${w}</button>`).join('')}</span></div>` +
+      `<div class="cur"><input data-colour="pick" id="c-pick" type="color" value="${esc(cur)}" aria-label="Colour"><button class="icon${app.picking === true ? ' on' : ''}" data-act="pickColour" title="Pick a colour from the sheet (I)" aria-label="Pick a colour from the sheet">${svg('dropper')}</button><span class="ways">${Object.keys(app.ways).map((w) => `<button data-way="${w}" aria-pressed="${app.ways[w]}">${w}</button>`).join('')}</span></div>` +
       (app.ways.Hex ? field('Hex', `<input data-colour="hex" id="c-hex" class="mono" type="text" maxlength="7" spellcheck="false" value="${esc(cur)}">`) : '') +
       (app.ways.RGB ? field('RGB', `<input data-colour="rgb" id="c-rgb" class="mono" type="text" spellcheck="false" value="${rgbOf(cur)}">`) : '');
   }
@@ -407,8 +410,16 @@ export function initUI(app, actions, version) {
     const fn = /^fn-(met|rough|clear|amount|size|strength)$/.exec(t.id || '');
     if (fn) { actions.tweakFinish(fn[1], +t.value); drawTile(); return; }
     if (t.id === 'f-fade-to') { actions.setFade('to', t.value); return; }
-    const pat = /^f-pat-(size|gap|stagger|turn|color)$/.exec(t.id || '');
-    if (pat) { actions.tweakMotif(pat[1], pat[1] === 'color' ? t.value : +t.value); return; }
+    // the pattern's colour: a colour box, a hex box and an RGB box, kept in step like the Colour panel's
+    if (t.dataset.pat) {
+      const v = t.dataset.pat === 'rgb' ? hexOfRgb(t.value) : hexOf(t.value);
+      if (!v) return; // half-typed
+      for (const el of panels.props.querySelectorAll('[data-pat]')) if (el !== t) el.value = el.dataset.pat === 'rgb' ? rgbOf(v) : v;
+      actions.tweakMotif('color', v);
+      return;
+    }
+    const pat = /^f-pat-(size|gap|stagger|turn)$/.exec(t.id || '');
+    if (pat) { actions.tweakMotif(pat[1], +t.value); return; }
     // plain settings: the control's id names the layer setting it sets
     const m = /^f-(fx-)?(fontSize|outlineWidth|outlineColor|letterSpacing|curve|rotation|shadow|shadowColor|shadowDX|shadowDY|text)$/.exec(t.id || '');
     if (m && layer) {
@@ -462,6 +473,37 @@ export function initUI(app, actions, version) {
   });
   panels.layers.addEventListener('dragend', () => { dragId = null; dropMark(null); });
 
+  // Chrome opens its colour pop-up from the box that was clicked, and lets it
+  // run off the window when that box is near the edge (the panels are). So a
+  // click opens it from a stand-in instead: an unseen colour box put where
+  // the whole pop-up fits, which hands every change back to the real one.
+  const stand = document.createElement('input');
+  stand.type = 'color'; stand.tabIndex = -1; stand.setAttribute('aria-hidden', 'true');
+  stand.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;border:0;padding:0';
+  document.body.appendChild(stand);
+  const POPUP = { w: 260, h: 370 }; // the room Chrome's pop-up takes, with some to spare
+  let standFor = null; // id of the box it stands in for (found again each time: panels are redrawn)
+  document.addEventListener('click', (e) => {
+    const t = e.target;
+    if (!(t instanceof HTMLInputElement) || t.type !== 'color' || t === stand || !t.id || !stand.showPicker) return;
+    if (t.closest('dialog')) return; // a dialog sits mid-window, and nothing outside it may be used while it is open
+    const r = t.getBoundingClientRect();
+    stand.style.left = Math.max(8, Math.min(r.left, innerWidth - POPUP.w)) + 'px';
+    stand.style.top = Math.max(8, Math.min(r.bottom + 4, innerHeight - POPUP.h)) + 'px';
+    stand.value = t.value;
+    try { stand.showPicker(); } catch { return; } // not allowed here: the box opens its own, as before
+    standFor = t.id;
+    e.preventDefault();
+  }, true);
+  const handBack = (type) => () => {
+    const t = standFor && $(standFor);
+    if (!t) return;
+    t.value = stand.value;
+    t.dispatchEvent(new Event(type, { bubbles: true }));
+  };
+  stand.addEventListener('input', handBack('input'));
+  stand.addEventListener('change', handBack('change'));
+
   // a saved colour is renamed, changed or deleted from its chip
   const editChip = (e) => {
     const chip = e.target.closest('.chipwrap');
@@ -481,7 +523,7 @@ export function initUI(app, actions, version) {
     if (id === 'f-fade') return actions.setFade('on', e.target.checked);
     if (id === 'f-pat') return actions.setMotif(e.target.value);
     if (id === 'f-pat-only') return actions.tweakMotif('only', e.target.checked);
-    if (id === 'f-pat-color') return refresh(); // the pattern's colour let go: "In this livery" picks it up
+    if (e.target.dataset.pat) return; // nothing is redrawn: that would swallow the click that took the focus away (the eyedropper, say)
     if (id === 'f-fade-out') return actions.setFade('out', e.target.checked);
     if (id === 'f-italic') { actions.setProp('italic', e.target.checked); return; }
     if (id === 'f-mirrorFlip') { actions.setProp('mirrorFlip', e.target.checked); return; }

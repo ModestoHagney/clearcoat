@@ -31,7 +31,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.37';
+export const VERSION = 'v0.68-pieces.38';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -1295,7 +1295,9 @@ const actions = {
     }
     change({ now: true });
   },
-  pickColour() { app.picking = !app.picking; toolChanged(); ui.refreshChrome(); },
+  // picking: true = for the selection (or the next shape), 'pattern' = for the selected pattern
+  pickColour() { app.picking = !app.picking; toolChanged(); ui.refresh(); },
+  pickPatternColour() { app.picking = app.picking === 'pattern' ? false : 'pattern'; toolChanged(); ui.refresh(); },
   setWay(w) {
     app.ways[w] = !app.ways[w];
     try { localStorage.setItem('next-ways', JSON.stringify(app.ways)); } catch { /* fine */ }
@@ -1540,10 +1542,12 @@ async function boot() {
     },
     mirrorImage: (l) => (l.mirrored && app.doc.regionMap ? mirrorImage(app.doc.regionMap, l) : null),
     picked(p) { // the eyedropper's click, or null when cancelled
+      const forPattern = app.picking === 'pattern';
       app.picking = false;
       toolChanged();
       const hex = p && sampleColour(p);
-      if (hex) actions.applyColour(hex); else ui.refresh();
+      if (hex && forPattern) { actions.tweakMotif('color', hex); ui.refresh(); }
+      else if (hex) actions.applyColour(hex); else ui.refresh();
     },
   });
   mapTools = initMap(app, {
