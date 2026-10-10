@@ -22,13 +22,13 @@ import { initTools, isShape, moveLayer, setShape } from './tools.js';
 import { LIBRARY, libraryItemToLayerSource } from '../js/library.js';
 import { createFillLayer } from '../js/engine.js';
 import { moved } from '../js/shapes.js';
-import { withFinishes, setRule, ruleFor, layerColour, isArea, hasOwnFinish, readFinish, writeFinish, presetOf, FINISHES, SPARKLE } from '../js/finish.js';
+import { withFinishes, setRule, clearRule, ruleFor, layerColour, isArea, hasOwnFinish, readFinish, writeFinish, presetOf, FINISHES, SPARKLE } from '../js/finish.js';
 import { MATERIALS } from '../js/engine.js';
 import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.26 · stage 5';
+export const VERSION = 'v0.68-pieces.27 · stage 5';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -654,7 +654,7 @@ const actions = {
   },
   finishRemove(kind, key) {
     const d = app.doc, l = d.layers.find(x => x.id === key);
-    if (kind === 'colour') setRule(d, key, 'gloss');
+    if (kind === 'colour') clearRule(d, key);
     else if (kind === 'area' && l) d.layers.splice(d.layers.indexOf(l), 1);
     else if (l) { l.finishOwn = false; l.material = 'gloss'; l.matParams = null; }
     const t = app.ftarget;

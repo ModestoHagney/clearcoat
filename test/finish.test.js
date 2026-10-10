@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 globalThis.document = {
   createElement: () => ({ width: 0, height: 0, getContext: () => null }),
 };
-const { finishOf, baseFinish, withFinishes, setRule, finishList, ruleFor, readFinish, writeFinish, finishLabel, presetOf, SPARKLE } = await import('../js/finish.js');
+const { finishOf, baseFinish, withFinishes, setRule, clearRule, finishList, ruleFor, readFinish, writeFinish, finishLabel, presetOf, SPARKLE } = await import('../js/finish.js');
 const { createDoc, createFillLayer, serializeDoc, deserializeDoc, cleanFinishRules } = await import('../js/engine.js');
 
 function doc() {
@@ -56,14 +56,19 @@ test('withFinishes hands the engine layers carrying their finish, without touchi
   assert.equal(shown.layers[2], d.layers[2], 'unchanged layers are the same objects');
 });
 
-test('setRule replaces a colour\'s rule; gloss removes it', () => {
+test('setRule replaces a colour\'s rule in place; gloss is kept as a choice; clearRule removes it', () => {
   const d = doc();
   setRule(d, '#111214', 'matte');
+  setRule(d, '#d7263d', 'pearl');
   setRule(d, '#111214', 'satin');
-  assert.deepEqual(d.finishRules, [{ color: '#111214', material: 'satin' }]);
-  setRule(d, '#111214', 'gloss');
-  assert.deepEqual(d.finishRules, []);
+  assert.deepEqual(d.finishRules, [{ color: '#111214', material: 'satin' }, { color: '#d7263d', material: 'pearl' }]);
+  setRule(d, '#111214', 'gloss'); // chosen on purpose: it stays listed
+  assert.deepEqual(d.finishRules[0], { color: '#111214', material: 'gloss' });
+  assert.equal(finishList(d)[0].material, 'gloss');
+  assert.deepEqual(d.layers.map(l => finishOf(d, l)), ['gloss', 'gloss', 'pearl', 'gloss']);
+  clearRule(d, '#111214');
   assert.equal(ruleFor(d, '#111214'), null);
+  assert.equal(d.finishRules.length, 1);
 });
 
 test('finishList: rules with how much they cover, then layers and areas with their own', () => {
@@ -134,6 +139,6 @@ test('a colour rule carries tweaked numbers and sparkle to its layers and the ba
   d.layers.pop();
   const back = await deserializeDoc(JSON.parse(JSON.stringify(serializeDoc(d))));
   assert.deepEqual(back.finishRules, d.finishRules);
-  setRule(d, '#ffffff', 'gloss'); // plain gloss again: no rule
+  clearRule(d, '#ffffff');
   assert.equal(ruleFor(d, '#ffffff'), null);
 });

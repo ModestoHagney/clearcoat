@@ -98,13 +98,20 @@ export function withFinishes(doc) {
   return ownBase ? { ...doc, layers } : { ...doc, layers, baseMaterial: base.material, baseMatParams: base.params };
 }
 
-// "everything this colour is <material>"; plain gloss is the absence of a rule
+// "everything this colour is <material>". A colour set to plain gloss keeps
+// its rule: it is something the user chose, and it stays in the Finishes list
+// until they take it out (clearRule).
 export function setRule(doc, colour, material, params = null) {
   const c = hex(colour);
-  if (!c) return;
+  if (!c || !material) return;
+  const rule = params ? { color: c, material, params: { ...params } } : { color: c, material };
+  const at = (doc.finishRules || []).findIndex(r => r.color === c);
+  if (at === -1) doc.finishRules = [...(doc.finishRules || []), rule];
+  else doc.finishRules[at] = rule; // it keeps its place in the list
+}
+export function clearRule(doc, colour) {
+  const c = hex(colour);
   doc.finishRules = (doc.finishRules || []).filter(r => r.color !== c);
-  if (!material || (material === 'gloss' && !params)) return;
-  doc.finishRules.push(params ? { color: c, material, params: { ...params } } : { color: c, material });
 }
 
 // Everything that has a finish of its own, for the Finishes list:
