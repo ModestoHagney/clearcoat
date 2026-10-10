@@ -126,6 +126,18 @@ button:disabled { cursor: default; opacity: .38; }
 input[type="color"].mini { width: 24px; height: 24px; }
 .pair.wrap { gap: 4px; }
 .pair select { flex: 1; min-width: 0; }
+/* a pattern's shapes and colours: small tiles in a row, each with a x that shows when pointed at */
+.field.tiles { grid-template-columns: 52px minmax(0, 1fr); } /* a narrower label: more room for the row, which need not line up with the sliders */
+.mwrap { position: relative; display: inline-flex; flex: none; }
+.mtile { width: 24px; height: 24px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 6px; background: var(--bar); color: var(--fg); }
+.mtile svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.mtile svg path[fill="currentColor"] { stroke: none; }
+.mx { position: absolute; right: -6px; top: -6px; width: 14px; height: 14px; display: grid; place-items: center; border-radius: 50%; background: var(--fg); color: var(--bar); opacity: 0; transition: opacity .12s; }
+.mx svg { width: 8px; height: 8px; fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; }
+.mwrap:hover .mx, .mx:focus-visible { opacity: 1; }
+.pair select.plus { flex: none; width: 24px; height: 24px; padding: 0; border: 0; background: none; color: var(--muted); font-size: 17px; text-align: center; text-align-last: center; appearance: none; cursor: pointer; border-radius: 6px; }
+.pair select.plus:hover { background: var(--hover); color: var(--fg); }
+.pair select.plus option, .pair select.plus optgroup { font-size: 13px; color: var(--fg); background: var(--panel); text-align: left; }
 .pair > .icon { width: 24px; height: 26px; flex: none; font-size: 17px; line-height: 1; }
 .pair.wrap .icon { width: 22px; height: 24px; font-size: 17px; line-height: 1; }
 .pair { display: flex; gap: 6px; align-items: center; min-width: 0; }

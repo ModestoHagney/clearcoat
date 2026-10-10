@@ -580,7 +580,7 @@ export function cleanMotif(m) {
   const shape = cleanMotifShape(m);
   if (!shape) return null;
   const out = { ...shape, size: num(m.size, 4, 2048, 80), gap: num(m.gap, 0, 2048, 40), stagger: num(m.stagger, 0, 100, 0), turn: num(m.turn, -360, 360, 0) };
-  const more = (Array.isArray(m.more) ? m.more : []).map(cleanMotifShape).filter(Boolean).slice(0, 3);
+  const more = (Array.isArray(m.more) ? m.more : []).map(cleanMotifShape).filter(Boolean).slice(0, 6);
   if (more.length) out.more = more; // the other shapes it takes turns with
   // color: what the pattern is painted in, over the shape's own paint; only: that paint is left out
   if (/^#[0-9a-f]{6}$/i.test(m.color || '')) { out.color = m.color.toLowerCase(); out.only = !!m.only; }

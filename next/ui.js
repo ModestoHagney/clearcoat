@@ -42,6 +42,23 @@ const I = { // 20x20 line icons
 };
 I.mpick = I.select;
 const svg = (name) => `<svg viewBox="0 0 20 20">${I[name]}</svg>`;
+// a shape's own outline, drawn small: { pts, w, h } or a ready-made { shape, w, h }
+const shapeSvg = (it) => {
+  const pad = Math.max(it.w, it.h) * 0.06, box = `${-pad} ${-pad} ${it.w + 2 * pad} ${it.h + 2 * pad}`;
+  let d;
+  if (it.pts) { // a point marked `m` starts a separate piece
+    let start = 0;
+    d = it.pts.map((a, i) => {
+      const head = !i || a.m ? ((start = i), `M${a.x} ${a.y}`) : '';
+      const last = i + 1 === it.pts.length || !!it.pts[i + 1].m, b = it.pts[last ? start : i + 1];
+      return head + (a.c ? `Q${a.c.x} ${a.c.y} ${b.x} ${b.y}` : `L${b.x} ${b.y}`) + (last ? 'Z' : '');
+    }).join('');
+  }
+  else if (it.shape === 'ellipse') d = `M0 ${it.h / 2}A${it.w / 2} ${it.h / 2} 0 1 0 ${it.w} ${it.h / 2}A${it.w / 2} ${it.h / 2} 0 1 0 0 ${it.h / 2}Z`;
+  else if (it.shape === 'triangle') d = `M${it.w / 2} 0L${it.w} ${it.h}L0 ${it.h}Z`;
+  else d = `M0 0H${it.w}V${it.h}H0Z`;
+  return `<svg viewBox="${box}" aria-hidden="true"><path d="${d}" fill="currentColor" fill-rule="nonzero"/></svg>`;
+};
 
 // [id, name, built yet?] — the strip shows the whole Paint set so the layout
 // is the final one; tools from later stages are dimmed.
@@ -205,18 +222,21 @@ export function initUI(app, actions, version) {
     const range = (id, min, max, v) => `<input id="${id}" type="range" min="${min}" max="${max}" value="${v}">`;
     const col = mo ? esc(hexOf(mo.color || '') || hexOf(l.color || '') || '#ffffff') : '';
     const cols = mo ? mo.colors || [] : [];
-    const minus = (attr, k, what) => `<button type="button" class="icon" ${attr}="${k}" title="Take this ${what} out" aria-label="Take ${what} ${k + 2} out of the pattern">−</button>`;
-    // The shape that repeats is always in view. Everything else about the
-    // pattern folds away: more shapes and colours (+ adds one, each on a row
-    // of its own; the copies take turns with them, or pick between them when
-    // Random is on), then how it is laid out.
-    return `<div class="field"><span>Pattern</span><span class="pair"><select id="f-pat">${opt('', 'None', !mo)}${motifOptions(key, mo ? kept(mo) : null)}</select>` +
-        (mo && more.length < 3 ? `<button type="button" class="icon" data-act="addMotifShape" title="Add another shape: they take turns, or mix when Random is on" aria-label="Add another shape to the pattern">+</button>` : '') + `</span></div>` +
+    // one small tile for each shape, one swatch for each colour; all but the first carry a × to take them out
+    const out = (attr, k, what) => `<button type="button" class="mx" ${attr}="${k}" title="Take this ${what} out" aria-label="Take ${what} ${k + 2} out of the pattern">${svg('close')}</button>`;
+    const tile = (sh, k) => `<span class="mwrap"><span class="mtile" title="${esc(sh.kind === 'own' ? sh.name : KINDS[sh.kind])}">${sh.kind === 'own' ? shapeSvg(sh) : svg(sh.kind)}</span>${k < 0 ? '' : out('data-patdrop', k, 'shape')}</span>`;
+    // The Pattern list turns the pattern on and sets its first shape; it is
+    // always in view. Everything else folds away: the shapes and colours the
+    // copies take turns with (or pick between, when Random is on), a row
+    // each, then how the pattern is laid out.
+    return field('Pattern', `<select id="f-pat">${opt('', 'None', !mo)}${motifOptions(key, mo ? kept(mo) : null)}</select>`) +
       (!mo ? '' : `<details class="more fold" id="f-patfold"${patOpen ? ' open' : ''}><summary>Pattern settings</summary>` +
-        more.map((sh, k) => `<div class="field"><span></span><span class="pair"><select data-patshape="${k}" id="f-pat-s${k}" aria-label="Shape ${k + 2} of the pattern">${motifOptions(keyOf(sh), kept(sh))}</select>${minus('data-patdrop', k, 'shape')}</span></div>`).join('') +
-        `<div class="field wide"><span>Pattern colour</span><span class="pair"><input data-pat="pick" id="f-pat-color" type="color" value="${col}" aria-label="Pattern colour"><button type="button" class="icon${app.picking === 'pattern' ? ' on' : ''}" data-act="pickPatternColour" title="Pick the pattern's colour from the sheet" aria-label="Pick the pattern's colour from the sheet">${svg('dropper')}</button>` +
-          (cols.length < 6 ? `<button type="button" class="icon" data-act="addPatternColour" title="Add another colour: they take turns, or mix when Random is on" aria-label="Add another colour to the pattern">+</button>` : '') + `</span></div>` +
-        cols.map((c, k) => `<div class="field wide"><span style="visibility:hidden" aria-hidden="true">Pattern colour</span><span class="pair"><input data-patc="${k}" id="f-pat-c${k}" type="color" value="${esc(c)}" aria-label="Colour ${k + 2} of the pattern">${minus('data-patcdrop', k, 'colour')}</span></div>`).join('') +
+        `<div class="field tiles"><span>Shapes</span><span class="pair wrap">${tile(mo, -1)}${more.map(tile).join('')}` +
+          (more.length < 6 ? `<select id="f-pat-add" class="plus" title="Add another shape: they take turns, or mix when Random is on" aria-label="Add another shape to the pattern">${opt('', '+', true)}${motifOptions('', null)}</select>` : '') + `</span></div>` +
+        `<div class="field tiles"><span>Colours</span><span class="pair wrap"><input class="mini" data-pat="pick" id="f-pat-color" type="color" value="${col}" aria-label="Pattern colour">` +
+          cols.map((c, k) => `<span class="mwrap"><input class="mini" data-patc="${k}" id="f-pat-c${k}" type="color" value="${esc(c)}" aria-label="Colour ${k + 2} of the pattern">${out('data-patcdrop', k, 'colour')}</span>`).join('') +
+          (cols.length < 6 ? `<button type="button" class="icon" data-act="addPatternColour" title="Add another colour: they take turns, or mix when Random is on" aria-label="Add another colour to the pattern">+</button>` : '') +
+          `<button type="button" class="icon${app.picking === 'pattern' ? ' on' : ''}" data-act="pickPatternColour" title="Pick the first colour from the sheet" aria-label="Pick the pattern's first colour from the sheet">${svg('dropper')}</button></span></div>` +
         (TYPED_COLOURS && app.ways.Hex ? field('Hex', `<input data-pat="hex" id="f-pat-hex" class="mono" type="text" maxlength="7" spellcheck="false" value="${col}">`) : '') +
         (TYPED_COLOURS && app.ways.RGB ? field('RGB', `<input data-pat="rgb" id="f-pat-rgb" class="mono" type="text" spellcheck="false" value="${rgbOf(col)}">`) : '') +
         field('Size', range('f-pat-size', 0, 1000, toSlider('size', mo.size))) +
@@ -553,7 +573,7 @@ export function initUI(app, actions, version) {
     if (id === 'f-font') return actions.setFont(e.target.value);
     if (id === 'f-fade') return actions.setFade('on', e.target.checked);
     if (id === 'f-pat') { if (e.target.value) patOpen = true; return actions.setMotif(e.target.value); }
-    if (e.target.dataset.patshape !== undefined) return actions.setMotifShape(+e.target.dataset.patshape, e.target.value);
+    if (id === 'f-pat-add') { if (e.target.value) actions.addMotifShape(e.target.value); return; }
     if (id === 'f-pat-only') return actions.tweakMotif('only', e.target.checked);
     if (id === 'f-pat-random') return actions.motifRandom(e.target.checked);
     if (e.target.dataset.pat) return; // nothing is redrawn: that would swallow the click that took the focus away (the eyedropper, say)
@@ -651,22 +671,6 @@ export function initUI(app, actions, version) {
   // → { kind: 'logos' | 'graphics' | 'shapes' | 'file', item } or null
   async function library(lib, builtIn, { remove }) {
     let tab = lib.logos.length ? 'logos' : 'graphics', picked = null;
-    const shapeSvg = (it) => {
-      const pad = Math.max(it.w, it.h) * 0.06, box = `${-pad} ${-pad} ${it.w + 2 * pad} ${it.h + 2 * pad}`;
-      let d;
-      if (it.pts) { // a point marked `m` starts a separate piece
-        let start = 0;
-        d = it.pts.map((a, i) => {
-          const head = !i || a.m ? ((start = i), `M${a.x} ${a.y}`) : '';
-          const last = i + 1 === it.pts.length || !!it.pts[i + 1].m, b = it.pts[last ? start : i + 1];
-          return head + (a.c ? `Q${a.c.x} ${a.c.y} ${b.x} ${b.y}` : `L${b.x} ${b.y}`) + (last ? 'Z' : '');
-        }).join('');
-      }
-      else if (it.shape === 'ellipse') d = `M0 ${it.h / 2}A${it.w / 2} ${it.h / 2} 0 1 0 ${it.w} ${it.h / 2}A${it.w / 2} ${it.h / 2} 0 1 0 0 ${it.h / 2}Z`;
-      else if (it.shape === 'triangle') d = `M${it.w / 2} 0L${it.w} ${it.h}L0 ${it.h}Z`;
-      else d = `M0 0H${it.w}V${it.h}H0Z`;
-      return `<svg viewBox="${box}" aria-hidden="true"><path d="${d}" fill="currentColor" fill-rule="nonzero"/></svg>`;
-    };
     const tile = (kind, it, art, own) => `<span class="tilewrap"><button type="button" class="tile" data-lib="${kind}:${esc(it.id)}" title="${esc(it.name)}">${art}<span>${esc(it.name)}</span></button>${own ? `<button type="button" class="tilex" data-libx="${kind}:${esc(it.id)}" title="Remove from the library" aria-label="Remove ${esc(it.name)}">${svg('close')}</button>` : ''}</span>`;
     const draw = () => {
       const tabs = [['logos', `Your pictures${lib.logos.length ? ' · ' + lib.logos.length : ''}`], ['graphics', 'Graphics'], ['shapes', `Your shapes${lib.shapes.length ? ' · ' + lib.shapes.length : ''}`]];
@@ -734,7 +738,6 @@ export function initUI(app, actions, version) {
     if (!act) return;
     if (act.startsWith('show:')) { const k = act.slice(5); app.show[k] = !app.show[k]; actions.redraw(); return; } // a view choice: nothing in the livery changes
     if (act.startsWith('theme:')) return actions.setTheme(act.slice(6));
-    if (act === 'addMotifShape') patOpen = true; // its row is among the settings
     if (act === 'shortcuts') return shortcuts();
     if (act === 'about') return about();
     return actions[act]();

@@ -31,7 +31,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.47';
+export const VERSION = 'v0.68-pieces.48';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -924,14 +924,10 @@ const actions = {
     if (eachMotif(() => ({ [key]: v }))) change({ panels: false });
   },
   // more shapes for the pattern to take turns with (or, with Random on, pick between)
-  addMotifShape() {
-    const fresh = (m) => ({ kind: Object.keys(SHAPES).find(k => ![m, ...(m.more || [])].some(x => x.kind === k)) || 'ellipse' });
-    if (eachMotif(m => ({ more: [...(m.more || []), fresh(m)].slice(0, 3) }))) change();
-  },
-  setMotifShape(k, key) {
+  addMotifShape(key) {
     const shape = motifOf(key);
     if (!shape) return ui.refresh();
-    if (eachMotif(m => ({ more: (m.more || []).map((x, i) => (i === k ? shape : x)) }))) change();
+    if (eachMotif(m => ({ more: [...(m.more || []), shape].slice(0, 6) }))) change();
   },
   dropMotifShape(k) {
     if (eachMotif(m => ({ more: (m.more || []).filter((_, i) => i !== k) }))) change();
