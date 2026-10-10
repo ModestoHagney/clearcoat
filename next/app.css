@@ -217,3 +217,10 @@ dialog.wide { width: min(720px, calc(100% - 32px)); }
 .finishes button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
 /* Properties (and the Finish panel in its place) may run longer than the lists; the dock scrolls if they do not all fit */
 .panel[data-panel="props"] .body { max-height: 70vh; }
+
+/* several layers selected, groups, fades */
+.row.grouped { box-shadow: inset 3px 0 0 var(--accent); }
+.row.grouped.drop-above { box-shadow: inset 3px 0 0 var(--accent), inset 0 2px 0 var(--accent); }
+.row.grouped.drop-below { box-shadow: inset 3px 0 0 var(--accent), inset 0 -2px 0 var(--accent); }
+.inline { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); white-space: nowrap; }
+.inline input { accent-color: var(--accent); width: 15px; height: 15px; }

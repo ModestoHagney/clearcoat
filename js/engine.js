@@ -1180,8 +1180,10 @@ let linearEdges = false; // on for the length of one renderPaint that asked for 
 // Only shapes and text at full strength: their see-through pixels are edges.
 // A picture's own transparency, and a layer faded with Opacity, keep the
 // ordinary mix people expect from every other paint program.
+// (A picture made by merging such layers says so with linearMix, so that it
+// keeps the look its parts had.)
 function edgesInLinear(layer, normal) {
-  return normal && (layer.type === 'fill' || layer.type === 'text') && (layer.opacity ?? 1) === 1;
+  return normal && (layer.type === 'fill' || layer.type === 'text' || layer.linearMix) && (layer.opacity ?? 1) === 1;
 }
 
 // where a layer can leave pixels, as whole-pixel bounds inside the sheet
@@ -1266,11 +1268,14 @@ function paintLayerInto(ctx, layer) {
 // The given layers painted in stack order over a transparent sheet, exactly
 // as they appear in the paint (tint, opacity, effects and trim included) —
 // what Merge bakes into one image. Material-only layers paint nothing.
-export function paintLayers(layers) {
+export function paintLayers(layers, { linearEdges: lin = false } = {}) {
   const c = document.createElement('canvas');
   c.width = c.height = SIZE;
   const ctx = c.getContext('2d');
-  for (const l of layers) if (inPaintMap(l)) paintLayerInto(ctx, l);
+  linearEdges = lin; // where one of them lies over another, as in renderPaint
+  try {
+    for (const l of layers) if (inPaintMap(l)) paintLayerInto(ctx, l);
+  } finally { linearEdges = false; }
   return c;
 }
 
@@ -1597,6 +1602,7 @@ export function serializeDoc(doc) {
       // its finish was chosen for this layer itself, so it does not follow a
       // colour's finish rule (see finish.js)
       finishOwn: l.finishOwn ? true : undefined,
+      linearMix: l.linearMix ? true : undefined, // a merged picture whose soft pixels mix as its parts' did
       pts: Array.isArray(l.pts) ? l.pts.map(q => (q.c ? { x: q.x, y: q.y, c: { x: q.c.x, y: q.c.y } } : { x: q.x, y: q.y })) : undefined,
       colorMid: l.colorMid ?? null, midPos: l.midPos ?? 0.5,
       src: l.src,
@@ -1881,6 +1887,7 @@ export async function deserializeDoc(data) {
     if (l.mirrored) loaded.get(l.id).mirrored = true; // any layer type, like the trim
     if (l.mirrorFlip) loaded.get(l.id).mirrorFlip = true;
     if (l.finishOwn) loaded.get(l.id).finishOwn = true;
+    if (l.linearMix) loaded.get(l.id).linearMix = true;
     if (typeof l.colorRef === 'string' && l.type !== 'fill') loaded.get(l.id).colorRef = l.colorRef; // text follows a saved colour too
     const ok = (q) => q && Number.isFinite(q.x) && Number.isFinite(q.y);
     const clip = clipPolys(l).map(p => p.filter(ok).map(q => ({ x: q.x, y: q.y }))).filter(p => p.length >= 3);

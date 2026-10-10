@@ -97,7 +97,10 @@ export function initUI(app, actions, version) {
     Edit: [
       ['Undo', 'Ctrl+Z', 'undo', { off: !app.canUndo }], ['Redo', 'Ctrl+Y', 'redo', { off: !app.canRedo }], 0,
       ...layerItems(), 0,
-      ['Merge layers', '', '', { off: true }],
+      ['Select all', 'Ctrl+A', 'selectAll'], 0,
+      ['Merge layers', 'Ctrl+E', 'merge', { off: actions.selectedLayers().length < 2 }],
+      ['Group', 'Ctrl+G', 'group', { off: actions.selectedLayers().length < 2 }],
+      ['Ungroup', 'Ctrl+Shift+G', 'ungroup', { off: !actions.selectedLayers().some((l) => l.groupId) }],
     ],
     View: [
       ['Layers', '', 'show:layers', { tick: app.show.layers }], ['Properties', '', 'show:props', { tick: app.show.props }], ['Colour', '', 'show:colour', { tick: app.show.colour }], 0,
@@ -162,8 +165,9 @@ export function initUI(app, actions, version) {
   };
   function layersHtml() {
     const d = app.doc;
+    const picked = new Set(actions.selectedLayers().map((l) => l.id));
     const rows = [...d.layers].reverse().filter((l) => !isArea(l)).map((l) => // an area is Finish mode's, and shows there
-      `<div class="row${l.id === app.sel ? ' sel' : ''}" data-layer="${esc(l.id)}" draggable="true"><span class="sw" style="${swatch(l)}"></span><span class="name">${esc(l.name)}</span>${l.mirrored ? '<span class="tags"><i title="Mirrored">⇄</i></span>' : ''}<button class="eye${l.visible ? '' : ' off'}" data-eye="${esc(l.id)}" title="Show or hide" aria-label="Show or hide ${esc(l.name)}">${svg('eye')}</button></div>`);
+      `<div class="row${picked.has(l.id) ? ' sel' : ''}${l.groupId ? ' grouped' : ''}" data-layer="${esc(l.id)}" draggable="true"><span class="sw" style="${swatch(l)}"></span><span class="name">${esc(l.name)}</span>${l.mirrored ? '<span class="tags"><i title="Mirrored">⇄</i></span>' : ''}<button class="eye${l.visible ? '' : ' off'}" data-eye="${esc(l.id)}" title="Show or hide" aria-label="Show or hide ${esc(l.name)}">${svg('eye')}</button></div>`);
     rows.push(`<div class="row${app.sel === 'base' ? ' sel' : ''}" data-layer="base"><span class="sw" style="background:${esc(d.baseColor)}"></span><span class="name">Base coat</span></div>`);
     return rows.join('');
   }
@@ -173,6 +177,14 @@ export function initUI(app, actions, version) {
   const colourNote = () => (app.show.colour ? '' : '<div class="acts"><button class="btn" data-act="show:colour">Show the Colour panel</button></div>');
   function propsHtml() {
     if (app.sel === 'base') return colourNote() || '<div class="note">Its colour is in the Colour panel</div>';
+    const many = actions.selectedLayers();
+    if (many.length > 1) { // several: what can be done to them together
+      const grouped = many.some((x) => x.groupId);
+      return `<div class="note">${many.length} layers selected</div>` + colourNote() +
+        `<label class="switch" title="Paint them on the twin panel too, or across the centreline (Ctrl+M)">Mirrored<input id="f-mirrored" type="checkbox"${many.every((x) => x.mirrored) ? ' checked' : ''}></label>` +
+        `<div class="acts"><button class="btn" data-act="merge" title="Make them one picture (Ctrl+E)">Merge</button>` +
+        `<button class="btn" data-act="${grouped ? 'ungroup' : 'group'}" title="${grouped ? 'They stop being picked up together (Ctrl+Shift+G)' : 'Pick them up together from now on (Ctrl+G)'}">${grouped ? 'Ungroup' : 'Group'}</button></div>`;
+    }
     const l = app.doc.layers.find((x) => x.id === app.sel);
     if (!l) return '<div class="note">Nothing selected</div>';
     const colour = l.type === 'fill' || l.type === 'text' ? colourNote() : '';
@@ -181,7 +193,15 @@ export function initUI(app, actions, version) {
     const fx = l.fx || {};
     const fonts = [...new Set([...TEXT_FONTS, ...GOOGLE_FONTS, ...(app.doc.googleFonts || []), ...(app.doc.customFonts || []).map((f) => f.name)])];
     // what you reach for first, then the switch and buttons, then the rest folded away
-    const main = !isText ? colour :
+    // a shape's fill can fade to a second colour, or to nothing
+    const fading = l.type === 'fill' && (l.fillType === 'linear' || l.fillType === 'radial');
+    const out = fading && typeof l.color2 === 'string' && l.color2.length === 9 && l.color2.endsWith('00');
+    const fade = l.type !== 'fill' ? '' :
+      `<label class="switch">Fade<input id="f-fade" type="checkbox"${fading ? ' checked' : ''}></label>` + (!fading ? '' :
+        `<div class="seg"><button data-fade="linear" aria-pressed="${l.fillType === 'linear'}">Across</button><button data-fade="radial" aria-pressed="${l.fillType === 'radial'}">From the middle</button></div>` +
+        field('Fades to', `<span class="pair"><input id="f-fade-to" type="color" value="${esc(out ? '#ffffff' : hexOf(l.color2 || '') || '#ffffff')}"${out ? ' disabled' : ''} aria-label="The colour it fades to"><label class="inline"><input id="f-fade-out" type="checkbox"${out ? ' checked' : ''}>Nothing</label></span>`) +
+        (l.fillType === 'linear' ? field('Direction', range('f-fade-angle', 0, 360, l.gradAngle || 0)) : ''));
+    const main = !isText ? colour + fade :
       field('Text', `<input id="f-text" type="text" value="${esc(l.text)}">`) +
       field('Font', `<select id="f-font">${fonts.map((f) => opt(f, f, f === l.font)).join('')}${opt('__google', 'Google font by name…', false)}${opt('__upload', 'Upload a font file…', false)}</select>`) +
       colour +
@@ -341,6 +361,8 @@ export function initUI(app, actions, version) {
     // Finish mode's sliders: the finish's numbers; the preview follows in place
     const fn = /^fn-(met|rough|clear|amount|size|strength)$/.exec(t.id || '');
     if (fn) { actions.tweakFinish(fn[1], +t.value); drawTile(); return; }
+    if (t.id === 'f-fade-to') { actions.setFade('to', t.value); return; }
+    if (t.id === 'f-fade-angle') { actions.setFade('angle', +t.value); return; }
     // plain settings: the control's id names the layer setting it sets
     const m = /^f-(fx-)?(fontSize|outlineWidth|outlineColor|letterSpacing|curve|rotation|shadow|shadowColor|shadowDX|shadowDY|text)$/.exec(t.id || '');
     if (m && layer) {
@@ -408,6 +430,8 @@ export function initUI(app, actions, version) {
     if (/^fn-/.test(id)) return refresh(); // a slider let go: Reset comes or goes, the list's name updates
     if (id === 'f-mirrored') return actions.mirror();
     if (id === 'f-font') return actions.setFont(e.target.value);
+    if (id === 'f-fade') return actions.setFade('on', e.target.checked);
+    if (id === 'f-fade-out') return actions.setFade('out', e.target.checked);
     if (id === 'f-italic') { actions.setProp('italic', e.target.checked); return; }
     if (id === 'f-mirrorFlip') { actions.setProp('mirrorFlip', e.target.checked); return; }
     if (id === 'm-name') return actions.mapRename(e.target.value.trim());
@@ -543,7 +567,8 @@ export function initUI(app, actions, version) {
     body: '<table>' + [
       ['Pan', 'Space-drag, middle-drag'], ['Zoom', 'Wheel, + and −'], ['Fit to screen', 'F'],
       ['Select, Pen, Shape, Band, Fill a panel, Text', 'V, P, S, B, G, T'], ['Mirrored on or off', 'Ctrl+M'], ['Pick a colour from the sheet', 'I'], ['Finish a pen shape', 'Enter'], ['Undo the last point', 'Backspace'], ['Hold 45°', 'Shift'],
-      ['Copy, paste, duplicate', 'Ctrl+C, V, D'], ['Nudge 1 px, 10 px', 'Arrows, Shift+Arrows'], ['Forward, backward', 'Ctrl+], Ctrl+['], ['To the front, to the back', 'Ctrl+Shift+], Ctrl+Shift+['], ['Delete', 'Del'],
+      ['Copy, paste, duplicate', 'Ctrl+C, V, D'], ['Nudge 1 px, 10 px', 'Arrows, Shift+Arrows'], ['Select several', 'Ctrl+click, or drag a box'], ['Select all', 'Ctrl+A'], ['Merge', 'Ctrl+E'], ['Group, ungroup', 'Ctrl+G, Ctrl+Shift+G'],
+      ['Forward, backward', 'Ctrl+], Ctrl+['], ['To the front, to the back', 'Ctrl+Shift+], Ctrl+Shift+['], ['Delete', 'Del'],
       ['Undo, redo', 'Ctrl+Z, Ctrl+Y'], ['Save', 'Ctrl+S'],
     ].map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join('') + '</table>',
   });
@@ -577,6 +602,7 @@ export function initUI(app, actions, version) {
     if (t.dataset.fin) { const [kind, key] = t.dataset.fin.split(/:(.*)/); return actions.finishSelect(kind, key); }
     if (t.dataset.finish) return actions.setFinish(t.dataset.finish);
     if (t.dataset.scope) return actions.finishScope(t.dataset.scope);
+    if (t.dataset.fade) return actions.setFade('style', t.dataset.fade);
     if (t.dataset.piece) return actions.pickPiece(t.dataset.piece);
     if (t.dataset.tool === 'image') return actions.openLibrary(); // nothing to arm: it opens the library
     if (t.dataset.tool) return actions.setTool(t.dataset.tool);
@@ -590,7 +616,7 @@ export function initUI(app, actions, version) {
       if (l) { l.visible = !l.visible; actions.change(); }
       return;
     }
-    if (t.dataset.layer) return actions.select(t.dataset.layer);
+    if (t.dataset.layer) return actions.select(t.dataset.layer, e.ctrlKey || e.metaKey || e.shiftKey); // Ctrl or Shift: add it to the selection
     if (t.dataset.p) {
       const p = t.closest('.panel'), key = p.dataset.panel;
       if (t.dataset.p === 'fold') p.querySelector('.body').hidden = !p.querySelector('.body').hidden;

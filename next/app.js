@@ -22,13 +22,15 @@ import { initTools, isShape, moveLayer, setShape } from './tools.js';
 import { LIBRARY, libraryItemToLayerSource } from '../js/library.js';
 import { createFillLayer } from '../js/engine.js';
 import { moved } from '../js/shapes.js';
+import { paintLayers } from '../js/engine.js';
+import { finishSpec } from '../js/finish.js';
 import { withFinishes, setRule, clearRule, ruleFor, layerColour, isArea, hasOwnFinish, readFinish, writeFinish, presetOf, FINISHES, SPARKLE } from '../js/finish.js';
 import { MATERIALS } from '../js/engine.js';
 import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.29 · stage 5';
+export const VERSION = 'v0.68-pieces.30';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -40,6 +42,7 @@ export const app = {
   mode: 'paint',
   tool: 'select',
   sel: 'base',                        // a layer id, 'base', or null
+  sels: [],                           // every selected layer's id when there are several (it includes sel)
   // the template's own linework already draws every piece's border, so the
   // computed piece outlines start off here; they are Map mode's to show
   show: { layers: true, props: true, colour: true, outlines: false, lines: true, mesh: true },
@@ -422,6 +425,28 @@ async function setDoc(doc, projectId) {
 // lands any pending edit in its own project before the doc is swapped
 const flush = () => (saveTimer ? runSave() : Promise.resolve());
 
+// Every selected layer, back to front. `sels` only counts while it holds the
+// primary selection, so code that just sets app.sel never leaves a stale set.
+function selectedLayers() {
+  const ids = app.sels.length > 1 && app.sels.includes(app.sel) ? app.sels : app.sel && app.sel !== 'base' ? [app.sel] : [];
+  return app.doc.layers.filter(l => ids.includes(l.id));
+}
+// the ids picked up with this one: its group, or just itself
+function groupOf(id) {
+  const l = app.doc.layers.find(x => x.id === id);
+  return l && l.groupId ? app.doc.layers.filter(x => x.groupId === l.groupId).map(x => x.id) : [id];
+}
+// a group needs two members to mean anything
+function pruneGroups() {
+  const d = app.doc, n = new Map();
+  for (const l of d.layers) if (l.groupId) n.set(l.groupId, (n.get(l.groupId) || 0) + 1);
+  for (const l of d.layers) if (l.groupId && n.get(l.groupId) < 2) l.groupId = null;
+  d.groups = (d.groups || []).filter(g => n.get(g.id) >= 2);
+}
+// a fill that fades to nothing ends in its own colour, see-through: keep that true when the colour changes
+function keepFadeOut(l) {
+  if (typeof l.color2 === 'string' && l.color2.length === 9 && l.color2.endsWith('00')) l.color2 = l.color + '00';
+}
 // in Finish mode the paint is not to be disturbed: only an area may be changed
 const canChange = () => app.mode !== 'finish' || isArea(actions.selected());
 const toolChanged = () => cv.classList.toggle('draw', (app.tool !== 'select' && app.tool !== 'mpick') || app.picking || app.trimming);
@@ -442,7 +467,7 @@ const TEXT_KEYS = new Set(['text', 'font', 'fontSize', 'textColor', 'outlineColo
 // a copy that shares nothing editable with the original (pictures are shared:
 // they are never changed in place)
 function cloneLayer(l) {
-  const c = { ...l, id: newId() };
+  const c = { ...l, id: newId(), groupId: null }; // a copy does not join the original's group
   for (const k of ['pts', 'lassoPts', 'corners', 'clipAt']) if (Array.isArray(l[k])) c[k] = l[k].map(q => (q.c ? { ...q, c: { ...q.c } } : { ...q }));
   if (Array.isArray(l.clip)) c.clip = l.clip.map(poly => (Array.isArray(poly) ? poly.map(q => ({ ...q })) : { ...poly }));
   for (const k of ['matParams', 'lumSpec', 'fx', 'cornerPan']) if (l[k]) c[k] = { ...l[k] };
@@ -717,15 +742,34 @@ const actions = {
   // Mirrored: the layer is painted on its twin panel (or across its
   // centreline) as well, and both sides follow every edit
   mirror() {
-    const l = actions.selected();
+    const l = actions.selected(), ls = selectedLayers();
     if (!l || !canChange()) return;
-    if (!l.mirrored) {
-      const res = mirrorLayer(app.doc.regionMap, l); // only to find out whether it can be
-      if (res.error) { ui.say(res.error, true); ui.refresh(); return; }
-      ui.say(res.dst.mirror ? `Mirrored onto ${res.dst.name}` : `Mirrored across ${res.dst.name}'s centreline`);
+    if (l.mirrored) { for (const x of ls) x.mirrored = false; change({ now: true }); return; }
+    // every selected layer that has somewhere to mirror onto
+    let done = 0, first = null;
+    for (const x of ls) {
+      const res = mirrorLayer(app.doc.regionMap, x); // only to find out whether it can be
+      if (res.error) { first = first || res.error; continue; }
+      x.mirrored = true; done++;
+      if (x === l) ui.say(res.dst.mirror ? `Mirrored onto ${res.dst.name}` : `Mirrored across ${res.dst.name}'s centreline`);
     }
-    l.mirrored = !l.mirrored;
+    if (!done) { ui.say(first, true); ui.refresh(); return; }
     change({ now: true });
+  },
+  // ---- fades ----
+  // A shape's fill fades from its colour to a second one, or to nothing.
+  // part: on | style ('linear' | 'radial') | to (a hex) | out (to nothing) | angle
+  setFade(part, value) {
+    const l = actions.selected();
+    if (!l || l.type !== 'fill') return;
+    // switched on, it starts as the usual want: a smooth fade to nothing
+    // (the engine's own default second colour means none has been chosen yet)
+    if (part === 'on') { l.fillType = value ? 'linear' : 'solid'; if (value && (!l.color2 || l.color2 === '#101114')) l.color2 = l.color + '00'; }
+    else if (part === 'style') l.fillType = value === 'radial' ? 'radial' : 'linear';
+    else if (part === 'to') l.color2 = value;
+    else if (part === 'out') l.color2 = value ? l.color + '00' : '#ffffff'; // the same colour, see-through
+    else if (part === 'angle') l.gradAngle = value;
+    change(part === 'to' || part === 'angle' ? { panels: false } : { now: true });
   },
   // the mirrored side becomes a layer of its own, to be changed separately
   separate() {
@@ -774,29 +818,101 @@ const actions = {
 
   // ---- layers ----
   selected: () => app.doc.layers.find(l => l.id === app.sel) || null,
+  selectedLayers,
+  // several at once: the last one is the one Properties shows
+  selectMany(ids) {
+    const all = new Set();
+    for (const id of ids) for (const m of groupOf(id)) all.add(m);
+    app.sels = app.doc.layers.filter(l => all.has(l.id)).map(l => l.id);
+    app.sel = app.sels[app.sels.length - 1] || null;
+    if (app.sels.length < 2) app.sels = [];
+    requestDraw();
+    ui.refresh();
+  },
+  selectAll() { if (app.mode === 'paint') actions.selectMany(app.doc.layers.filter(l => l.visible && !l.locked && !isArea(l)).map(l => l.id)); },
   copy() {
-    const l = actions.selected();
-    if (l) { app.clipboard = cloneLayer(l); ui.refreshChrome(); }
+    const ls = selectedLayers();
+    if (ls.length) { app.clipboard = ls.map(cloneLayer); ui.refreshChrome(); }
   },
   paste(from = app.clipboard) {
-    if (!from || app.mode !== 'paint') return;
-    const l = cloneLayer(from);
-    if (!/ copy$/.test(l.name)) l.name += ' copy';
-    moveLayer(l, 40, 40);
+    if (!from || !from.length || app.mode !== 'paint') return;
+    const made = from.map((src) => {
+      const l = cloneLayer(src);
+      if (!/ copy$/.test(l.name)) l.name += ' copy';
+      moveLayer(l, 40, 40);
+      return l;
+    });
     // a second paste lands beside the first, not on top of it
-    if (from === app.clipboard) moveLayer(app.clipboard, 40, 40);
-    app.doc.layers.push(l);
-    app.sel = l.id;
+    if (from === app.clipboard) for (const src of from) moveLayer(src, 40, 40);
+    app.doc.layers.push(...made);
+    app.sel = made[made.length - 1].id;
+    app.sels = made.length > 1 ? made.map(l => l.id) : [];
     change({ now: true });
   },
-  duplicate() { const l = actions.selected(); if (l) actions.paste(cloneLayer(l)); },
+  duplicate() { const ls = selectedLayers(); if (ls.length) actions.paste(ls.map(cloneLayer)); },
   remove() {
-    const i = app.doc.layers.findIndex(l => l.id === app.sel);
-    if (i === -1 || !canChange()) return;
+    const gone = new Set(selectedLayers().map(l => l.id));
+    if (!gone.size || !canChange()) return;
     if (app.mode === 'finish') app.ftarget = null;
-    app.doc.layers.splice(i, 1);
-    app.sel = null;
+    app.doc.layers = app.doc.layers.filter(l => !gone.has(l.id));
+    app.sel = null; app.sels = [];
+    pruneGroups();
     change({ now: true });
+  },
+  // Group: the layers are picked up together from then on
+  group() {
+    const ls = selectedLayers();
+    if (ls.length < 2 || app.mode !== 'paint') return;
+    const id = 'g' + newId();
+    app.doc.groups = [...(app.doc.groups || []), { id, name: 'Group', collapsed: false }];
+    for (const l of ls) l.groupId = id;
+    pruneGroups();
+    change({ now: true });
+  },
+  ungroup() {
+    const ls = selectedLayers().filter(l => l.groupId);
+    if (!ls.length) return;
+    for (const l of ls) l.groupId = null;
+    pruneGroups();
+    change({ now: true });
+  },
+  // Merge: the selected layers become one picture, in the top one's place
+  async merge() {
+    if (app.mode !== 'paint') return;
+    const ids = new Set(selectedLayers().map(l => l.id));
+    const targets = app.doc.layers.filter(l => ids.has(l.id) && l.visible && !isArea(l)); // back to front
+    if (targets.length < 2) { ui.say('Select two or more layers to merge. Ctrl+click them, or drag a box round them.'); return; }
+    const top = targets[targets.length - 1], spec = finishSpec(app.doc, top);
+    // their mirrored sides are part of what is painted, so they are part of the picture
+    const sheet = paintLayers(withMirrors({ ...app.doc, layers: targets }).layers, { linearEdges: true });
+    const px = sheet.getContext('2d').getImageData(0, 0, SIZE, SIZE).data;
+    let x0 = SIZE, y0 = SIZE, x1 = -1, y1 = -1;
+    for (let y = 0; y < SIZE; y++) {
+      for (let x = 0; x < SIZE; x++) {
+        if (px[(y * SIZE + x) * 4 + 3] > 0) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      }
+    }
+    if (x1 < 0) { ui.say('Those layers paint nothing, so there is nothing to merge'); return; }
+    const crop = document.createElement('canvas'); // just what was painted, so the layer's box is its artwork
+    crop.width = x1 - x0 + 1;
+    crop.height = y1 - y0 + 1;
+    crop.getContext('2d').drawImage(sheet, -x0, -y0);
+    const src = crop.toDataURL('image/png');
+    const merged = createImageLayer(await loadImage(src), src, `${top.name} (merged)`);
+    merged.x = x0 + crop.width / 2;
+    merged.y = y0 + crop.height / 2;
+    merged.scale = 1;
+    merged.linearMix = true; // its soft edges and fades go on mixing the way its parts' did
+    // one finish for the lot: the top layer's
+    merged.material = spec.material; merged.matParams = spec.params ? { ...spec.params } : null; merged.finishOwn = spec.material !== 'gloss' || !!spec.params;
+    const at = app.doc.layers.indexOf(top);
+    app.doc.layers.splice(at, 1, merged);
+    app.doc.layers = app.doc.layers.filter(l => !targets.includes(l));
+    pruneGroups();
+    app.sel = merged.id; app.sels = [];
+    change({ now: true });
+    const finishes = new Set(targets.map(l => JSON.stringify(finishSpec(app.doc, l))));
+    ui.say(finishes.size > 1 ? `Merged ${targets.length} layers. They had different finishes, so it took the top one's.` : `Merged ${targets.length} layers. Ctrl+Z brings them back.`);
   },
   order(dir) { // +1 forward, -1 back
     const L = app.doc.layers, i = L.findIndex(l => l.id === app.sel), j = i + dir;
@@ -828,9 +944,9 @@ const actions = {
   forward: () => actions.order(+1),
   backward: () => actions.order(-1),
   nudge(dx, dy) {
-    const l = actions.selected();
-    if (!l || l.locked || !canChange()) return;
-    moveLayer(l, dx, dy);
+    const ls = selectedLayers().filter(l => !l.locked);
+    if (!ls.length || !canChange()) return;
+    for (const l of ls) moveLayer(l, dx, dy);
     change({ panels: false });
   },
   // ---- text and pictures ----
@@ -992,12 +1108,14 @@ const actions = {
   // shapes. ref: the saved colour it now follows, or null for a one-off.
   // typed: it came from a control the user is still holding, so panels stay.
   applyColour(hex, { ref = null, typed = false } = {}) {
-    const l = actions.selected();
     app.colour = hex;
-    if (app.sel === 'base') { app.doc.baseColor = hex; app.doc.baseRef = ref; syncLineColour(app.doc); }
-    else if (l && l.type === 'fill') { l.color = hex; l.colorRef = ref; }
-    else if (l && l.type === 'text') { l.textColor = hex; l.colorRef = ref; regenerateText(l); }
-    else { if (!typed) ui.refresh(); return; } // nothing to paint: just the next shape's colour
+    let painted = 0;
+    if (app.sel === 'base') { app.doc.baseColor = hex; app.doc.baseRef = ref; syncLineColour(app.doc); painted = 1; }
+    else for (const l of selectedLayers()) { // every selected shape and text takes it
+      if (l.type === 'fill') { l.color = hex; l.colorRef = ref; keepFadeOut(l); painted++; }
+      else if (l.type === 'text') { l.textColor = hex; l.colorRef = ref; regenerateText(l); painted++; }
+    }
+    if (!painted) { if (!typed) ui.refresh(); return; } // nothing to paint: just the next shape's colour
     change({ panels: !typed });
   },
   setColour: (hex) => actions.applyColour(hex, { typed: true }),
@@ -1028,7 +1146,7 @@ const actions = {
       c.color = res.color;
       for (const l of d.layers) { // everything following it changes with it
         if (l.colorRef !== id) continue;
-        if (l.type === 'text') { l.textColor = c.color; regenerateText(l); } else l.color = c.color;
+        if (l.type === 'text') { l.textColor = c.color; regenerateText(l); } else { l.color = c.color; keepFadeOut(l); }
       }
       if (d.baseRef === id) { d.baseColor = c.color; syncLineColour(d); }
     }
@@ -1050,7 +1168,24 @@ const actions = {
     ui.refreshChrome();
   },
 
-  select(id) { app.sel = id === 'base' || app.doc.layers.some(l => l.id === id) ? id : null; requestDraw(); ui.refresh(); },
+  // add: Ctrl- or Shift-click — it joins the selection, or leaves it
+  select(id, add = false) {
+    const real = id !== 'base' && app.doc.layers.some(l => l.id === id);
+    if (id !== 'base' && !real) { app.sel = null; app.sels = []; }
+    else if (add && real && app.sel && app.sel !== 'base') {
+      const cur = new Set(selectedLayers().map(l => l.id)), had = cur.has(id);
+      for (const m of groupOf(id)) had ? cur.delete(m) : cur.add(m);
+      app.sels = app.doc.layers.filter(l => cur.has(l.id)).map(l => l.id);
+      app.sel = had ? app.sels[app.sels.length - 1] || null : id;
+      if (app.sels.length < 2) app.sels = [];
+    } else {
+      const g = real ? groupOf(id) : [];
+      app.sel = id;
+      app.sels = g.length > 1 ? g : []; // one of a group brings the rest
+    }
+    requestDraw();
+    ui.refresh();
+  },
   setBase: (hex) => actions.applyColour(hex, { typed: true }),
 };
 
@@ -1120,6 +1255,9 @@ window.addEventListener('keydown', (e) => {
   if (mod && k === 'c') { actions.copy(); return; }
   if (mod && k === 'v') { e.preventDefault(); actions.paste(); return; }
   if (mod && k === 'd') { e.preventDefault(); actions.duplicate(); return; }
+  if (mod && k === 'a') { e.preventDefault(); actions.selectAll(); return; }
+  if (mod && k === 'g') { e.preventDefault(); e.shiftKey ? actions.ungroup() : actions.group(); return; }
+  if (mod && k === 'e') { e.preventDefault(); actions.merge(); return; }
   // e.key is } and { with Shift held on most keyboards, so go by the physical key
   if (mod && e.code === 'BracketRight') { e.preventDefault(); e.shiftKey ? actions.front() : actions.forward(); return; }
   if (mod && e.code === 'BracketLeft') { e.preventDefault(); e.shiftKey ? actions.back() : actions.backward(); return; }
@@ -1223,6 +1361,7 @@ async function boot() {
     select: actions.select, setTool: actions.setTool, toolChanged,
     say: ui.say, refreshChrome: ui.refreshChrome,
     endTrim: actions.endTrim, addText: actions.addText,
+    selectedLayers, selectMany: actions.selectMany,
     // a shape made in Finish mode is an area: it paints nothing and carries a finish
     created(layer) {
       if (app.mode !== 'finish') return;

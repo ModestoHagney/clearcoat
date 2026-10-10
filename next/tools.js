@@ -56,7 +56,8 @@ export function initTools(app, env) {
 
   const selLayer = () => app.doc.layers.find(l => l.id === app.sel) || null;
   // in Finish mode the paint is not to be disturbed: only areas can be changed
-  const editable = (l) => !!l && !l.locked && l.visible && (app.mode !== 'finish' || !!l.specOnly);
+  // …and with several layers selected there are no handles: they move as one
+  const editable = (l) => !!l && !l.locked && l.visible && (app.mode !== 'finish' || !!l.specOnly) && env.selectedLayers().length < 2;
   const selShape = () => { const l = selLayer(); return isShape(l) && editable(l) ? l : null; };
   const selBox = () => { const l = selLayer(); return isBox(l) && editable(l) ? l : null; };
   const selPic = () => { const l = selLayer(); return isPic(l) && editable(l) ? l : null; };
@@ -196,6 +197,14 @@ export function initTools(app, env) {
     return null;
   }
 
+  // a layer's bounding box on the sheet
+  function boxOf(l) {
+    try {
+      const cs = layerCorners(l), xs = cs.map(q => q.x), ys = cs.map(q => q.y);
+      return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
+    } catch { return null; }
+  }
+
   const closable = (s) => draft && draft.length >= 3 && far(onScreen(draft[0]), s) <= GRAB + 2;
   const nextPoint = (p, shift) => (shift && draft && draft.length ? snapAngle(draft[draft.length - 1], p) : p);
 
@@ -267,11 +276,18 @@ export function initTools(app, env) {
       env.finishPick(hit, p);               // what the finish will apply to
       if (!hit || !hit.specOnly) return;    // and only an area can be dragged here
     }
+    const adding = e.shiftKey || e.ctrlKey || e.metaKey;
     if (!hit) {
       // a click on the mirrored side of a layer selects the layer it belongs to
       const owner = mirrorOwnerAt(p);
-      if (owner) { if (owner.id !== app.sel) env.select(owner.id); return; }
-      if (app.sel !== null) env.select(null);
+      if (owner) { if (owner.id !== app.sel) env.select(owner.id, adding); return; }
+      // empty sheet: a drag draws a box round the layers to select; a plain click selects nothing
+      drag = { kind: 'marquee', a: p, b: p, start: s, went: false };
+      return;
+    }
+    if (adding) { env.select(hit.id, true); return; } // joins the selection, or leaves it
+    if (env.selectedLayers().some(l => l.id === hit.id)) { // one of several: they all move
+      drag = { kind: 'move', layer: hit, start: s, last: p, went: false };
       return;
     }
     if (hit.id !== app.sel) env.select(hit.id);
@@ -318,6 +334,7 @@ export function initTools(app, env) {
       return;
     }
     if (!drag.went && far(drag.start, s) < SLOP) return;
+    if (drag.kind === 'marquee') { drag.went = true; drag.b = p; requestDraw(); return; }
     if (drag.kind === 'bend') {
       drag.went = true;
       setShape(l, bendTo(l.pts, drag.i, p, 4 / app.view.zoom));
@@ -326,7 +343,8 @@ export function initTools(app, env) {
     }
     // 'edge' that moves is a move, like a press anywhere else on the layer
     drag.went = true;
-    moveLayer(l, p.x - drag.last.x, p.y - drag.last.y);
+    const many = env.selectedLayers(), moving = many.some(m => m.id === l.id) ? many : [l];
+    for (const m of moving) if (!m.locked) moveLayer(m, p.x - drag.last.x, p.y - drag.last.y);
     drag.last = p;
     change({ panels: false });
   }
@@ -341,6 +359,17 @@ export function initTools(app, env) {
     if (!drag) return;
     const d = drag;
     drag = null;
+    if (d.kind === 'marquee') {
+      if (!d.went) { if (app.sel !== null) env.select(null); return; }
+      const x0 = Math.min(d.a.x, d.b.x), x1 = Math.max(d.a.x, d.b.x), y0 = Math.min(d.a.y, d.b.y), y1 = Math.max(d.a.y, d.b.y);
+      env.selectMany(app.doc.layers.filter((l) => {
+        if (!l.visible || l.locked || l.specOnly) return false;
+        const b = boxOf(l);
+        return b && b.x0 <= x1 && b.x1 >= x0 && b.y0 <= y1 && b.y1 >= y0; // touches the box
+      }).map(l => l.id));
+      requestDraw();
+      return;
+    }
     if (!d.went && d.kind === 'bend') setShape(d.layer, insertAt(d.layer.pts, d.i, 0.5));       // a click on the dot: a point there
     else if (!d.went && d.kind === 'edge') setShape(d.layer, insertAt(d.layer.pts, d.seg.i, d.seg.t)); // a click on the line
     else if (d.kind === 'move' && !d.went) return;
@@ -398,6 +427,7 @@ export function initTools(app, env) {
     }
     if (app.tool === 'piece') return 'Click a panel to fill it';
     if (app.tool === 'text') return 'Click where the text goes';
+    if (app.tool === 'select' && env.selectedLayers().length > 1) return `${env.selectedLayers().length} layers · drag to move them · Ctrl+E merges · Ctrl+G groups`;
     if (app.tool === 'select' && selPic()) return 'Drag a corner to resize · the round handle turns it · Shift turns in steps';
     if (app.tool === 'shape') return 'Drag to draw · Shift keeps it even';
     if (app.tool === 'band') return band ? 'Click the end · Shift holds 45°' : 'Click the start, then the end · snaps to panel edges';
@@ -500,6 +530,19 @@ export function initTools(app, env) {
       if (far(band.a, band.b) > 0) preview(bandPts(band.a, band.b, app.bandWidth));
       square(onScreen(band.a), 4, accent);
       return;
+    }
+    if (drag && drag.kind === 'marquee' && drag.went) {
+      const A = onScreen(drag.a), B = onScreen(drag.b);
+      ctx.fillStyle = accent; ctx.globalAlpha = 0.1; ctx.fillRect(A.x, A.y, B.x - A.x, B.y - A.y); ctx.globalAlpha = 1;
+      ctx.setLineDash([5, 4]); ctx.strokeStyle = accent; ctx.lineWidth = 1.25; ctx.strokeRect(A.x, A.y, B.x - A.x, B.y - A.y); ctx.setLineDash([]);
+    }
+    const many = app.tool === 'select' ? env.selectedLayers() : [];
+    if (many.length > 1) for (const l of many) { // each of several selected layers, boxed
+      const b = boxOf(l);
+      if (!b) continue;
+      const A = onScreen({ x: b.x0, y: b.y0 }), B = onScreen({ x: b.x1, y: b.y1 });
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3; ctx.strokeRect(A.x, A.y, B.x - A.x, B.y - A.y);
+      ctx.strokeStyle = accent; ctx.lineWidth = 1.25; ctx.strokeRect(A.x, A.y, B.x - A.x, B.y - A.y);
     }
     // a Mirrored layer's other side, dashed, so the pair reads as one thing
     const twin = app.tool === 'select' && selLayer() ? env.mirrorImage(selLayer()) : null;
