@@ -16,7 +16,7 @@ import { saveToIracing, paintFilenames, validCustid } from '../js/iracing.js';
 import { initUI } from './ui.js';
 import { initTools, isShape, moveLayer } from './tools.js';
 
-export const VERSION = 'v0.68-pieces.9 · stage 2a';
+export const VERSION = 'v0.68-pieces.10 · stage 2';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -30,7 +30,7 @@ export const app = {
   sel: 'base',                        // a layer id, 'base', or null
   // the template's own linework already draws every piece's border, so the
   // computed piece outlines start off here; they are Map mode's to show
-  show: { layers: true, props: true, outlines: false, lines: true },
+  show: { layers: true, props: true, colour: true, outlines: false, lines: true },
   custid: '',
   live: false,
   liveBad: false,                     // the last live save failed
@@ -40,6 +40,10 @@ export const app = {
   theme: 'system',
   colour: '#111214',                  // what the next new shape is filled with
   clipboard: null,                    // a copied layer
+  ready: 'ellipse',                   // which ready-made shape the tool draws
+  bandWidth: 60,                      // px on the sheet
+  picking: false,                     // the next click on the sheet picks a colour
+  ways: { Hex: true, RGB: false },    // which colour read-outs the Colour panel shows
 };
 let ui = null, tools = null;
 
@@ -326,6 +330,15 @@ async function setDoc(doc, projectId) {
 // lands any pending edit in its own project before the doc is swapped
 const flush = () => (saveTimer ? runSave() : Promise.resolve());
 
+const toolChanged = () => cv.classList.toggle('draw', app.tool !== 'select' || app.picking);
+// the exact paint colour at a point on the sheet
+function sampleColour(p) {
+  const x = Math.round(p.x), y = Math.round(p.y);
+  if (x < 0 || y < 0 || x >= SIZE || y >= SIZE) return null;
+  const d = renderPaint(app.doc).getContext('2d').getImageData(x, y, 1, 1).data;
+  return '#' + [d[0], d[1], d[2]].map(v => v.toString(16).padStart(2, '0')).join('');
+}
+
 // a copy that shares nothing editable with the original (pictures are shared:
 // they are never changed in place)
 function cloneLayer(l) {
@@ -458,10 +471,13 @@ const actions = {
   setTool(id) {
     if (tools) tools.cancel();
     app.tool = id;
-    cv.classList.toggle('draw', id === 'shape');
+    app.picking = false;
+    toolChanged();
     requestDraw();
     ui.refresh();
   },
+  setReady(kind) { app.ready = kind; ui.refresh(); },
+  setBandWidth(n) { app.bandWidth = Math.max(2, Math.min(800, Math.round(n) || 60)); requestDraw(); },
   hint: () => (tools ? tools.hint() : ''),
 
   // ---- layers ----
@@ -503,12 +519,61 @@ const actions = {
     moveLayer(l, dx, dy);
     change({ panels: false });
   },
-  setColour(hex) {
+  // ---- colour ----
+  // what the colour controls are showing: the selection's colour, else the
+  // colour the next shape will get
+  currentColour() {
     const l = actions.selected();
-    if (!l) return;
-    l.color = hex;
+    if (app.sel === 'base') return app.doc.baseColor;
+    return l && l.type === 'fill' && l.color ? l.color : app.colour;
+  },
+  // Sets the selection's colour (base coat or a fill) and the colour for new
+  // shapes. ref: the saved colour it now follows, or null for a one-off.
+  // typed: it came from a control the user is still holding, so panels stay.
+  applyColour(hex, { ref = null, typed = false } = {}) {
+    const l = actions.selected();
     app.colour = hex;
-    change({ panels: false });
+    if (app.sel === 'base') { app.doc.baseColor = hex; app.doc.baseRef = ref; syncLineColour(app.doc); }
+    else if (l && l.type === 'fill') { l.color = hex; l.colorRef = ref; }
+    else { if (!typed) ui.refresh(); return; } // nothing to paint: just the next shape's colour
+    change({ panels: !typed });
+  },
+  setColour: (hex) => actions.applyColour(hex, { typed: true }),
+  usePalette(id) {
+    const c = app.doc.palette.find(x => x.id === id);
+    if (c) actions.applyColour(c.color, { ref: id });
+  },
+  async saveColour() {
+    const d = app.doc, color = actions.currentColour();
+    const name = await ui.askText({ title: 'Save this colour', label: 'Name', value: ['Main', 'Accent', 'Trim', 'Detail'][d.palette.length] || 'Colour ' + (d.palette.length + 1), ok: 'Save' });
+    if (!name) return;
+    const entry = { id: 'c' + newId(), name, color };
+    d.palette.push(entry);
+    actions.applyColour(color, { ref: entry.id }); // what is selected now follows it
+    if (!actions.selected() && app.sel !== 'base') change();
+  },
+  async editColour(id) {
+    const d = app.doc, c = d.palette.find(x => x.id === id);
+    if (!c) return;
+    const res = await ui.editColour(c);
+    if (!res) return;
+    if (res === 'delete') {
+      d.palette = d.palette.filter(x => x.id !== id);
+      for (const l of d.layers) if (l.colorRef === id) l.colorRef = null; // they keep the colour, just stop following
+      if (d.baseRef === id) d.baseRef = null;
+    } else {
+      c.name = res.name || c.name;
+      c.color = res.color;
+      for (const l of d.layers) if (l.colorRef === id) l.color = c.color;   // everything following it changes with it
+      if (d.baseRef === id) { d.baseColor = c.color; syncLineColour(d); }
+    }
+    change({ now: true });
+  },
+  pickColour() { app.picking = !app.picking; toolChanged(); ui.refreshChrome(); },
+  setWay(w) {
+    app.ways[w] = !app.ways[w];
+    try { localStorage.setItem('next-ways', JSON.stringify(app.ways)); } catch { /* fine */ }
+    ui.refresh();
   },
 
   setTheme(theme) {
@@ -521,7 +586,7 @@ const actions = {
   },
 
   select(id) { app.sel = id === 'base' || app.doc.layers.some(l => l.id === id) ? id : null; requestDraw(); ui.refresh(); },
-  setBase(hex) { app.doc.baseColor = hex; syncLineColour(app.doc); change({ panels: false }); },
+  setBase: (hex) => actions.applyColour(hex, { typed: true }),
 };
 
 // ---------- pointer and keys ----------
@@ -552,7 +617,7 @@ cv.addEventListener('pointermove', (e) => {
   pan = { x: e.clientX, y: e.clientY };
   requestDraw();
 });
-const endPan = () => { if (!pan) tools.up(); pan = null; cv.classList.remove('panning'); };
+const endPan = (e) => { if (!pan) tools.up(e, local(e)); pan = null; cv.classList.remove('panning'); };
 cv.addEventListener('pointerup', endPan);
 cv.addEventListener('pointercancel', endPan);
 // right-click on a shape's point removes it; anywhere else the stage's menu opens
@@ -592,6 +657,9 @@ window.addEventListener('keydown', (e) => {
   if (k === 'escape') { actions.select(null); return; }
   if (k === 'v') actions.setTool('select');
   else if (k === 'l') actions.setTool('shape');
+  else if (k === 'c') actions.setTool('ready');
+  else if (k === 'b') actions.setTool('band');
+  else if (k === 'i') actions.pickColour();
   else if (k === 'f') fit();
   else if (k === '+' || k === '=') actions.zoomBy(1.25);
   else if (k === '-') actions.zoomBy(0.8);
@@ -624,6 +692,7 @@ new ResizeObserver(requestDraw).observe($('stage'));
 
 async function boot() {
   try { applyStoredTheme(localStorage.getItem('next-theme')); } catch { /* default theme */ }
+  try { Object.assign(app.ways, JSON.parse(localStorage.getItem('next-ways') || '{}')); } catch { /* defaults */ }
   app.doc = newDoc();
   app.custid = (await persist.loadSetting('custid').catch(() => '')) || '';
   app.live = !!(await persist.loadSetting('liveSync').catch(() => false)) && persist.fsSupported();
@@ -639,8 +708,14 @@ async function boot() {
   ui = initUI(app, actions, VERSION);
   tools = initTools(app, {
     screenToDoc, docToScreen, change, requestDraw,
-    select: actions.select, setTool: actions.setTool,
+    select: actions.select, setTool: actions.setTool, toolChanged,
     say: ui.say, refreshChrome: ui.refreshChrome,
+    picked(p) { // the eyedropper's click, or null when cancelled
+      app.picking = false;
+      toolChanged();
+      const hex = p && sampleColour(p);
+      if (hex) actions.applyColour(hex); else ui.refresh();
+    },
   });
   ensureDocFonts();
   fit();

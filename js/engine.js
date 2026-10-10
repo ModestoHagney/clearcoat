@@ -185,6 +185,8 @@ export function createDoc() {
     paintMask: null,            // greyscale canvas from the template's Mask layer: paintable = white (zones.js)
     showUnpaintable: false,     // tint unpaintable template area red in the viewport
     patternCar: null,           // car slug whose pattern catalogue (IndexedDB, patterns.js) this doc draws on
+    palette: [],                // the livery's saved colours { id, name, color }; a layer's colorRef (or baseRef) points at one
+    baseRef: null,              // palette id the base coat follows, if any
   };
 }
 
@@ -1488,6 +1490,8 @@ export function serializeDoc(doc) {
     paintMask: doc.paintMask ? paintMaskToDataURL(doc.paintMask) : null,
     showUnpaintable: !!doc.showUnpaintable,
     patternCar: typeof doc.patternCar === 'string' && doc.patternCar ? doc.patternCar : null,
+    palette: cleanPalette(doc.palette),
+    baseRef: doc.baseRef || null,
     groups: (doc.groups || []).map(g => ({ id: g.id, name: g.name, collapsed: !!g.collapsed })),
     layers: doc.layers.map(l => ({
       id: l.id, type: l.type, name: l.name,
@@ -1502,6 +1506,7 @@ export function serializeDoc(doc) {
       fx: l.fx || null,
       color: l.color,
       shape: l.shape, fillType: l.fillType, color2: l.color2, gradAngle: l.gradAngle,
+      colorRef: l.colorRef || undefined,
       pts: Array.isArray(l.pts) ? l.pts.map(q => (q.c ? { x: q.x, y: q.y, c: { x: q.c.x, y: q.c.y } } : { x: q.x, y: q.y })) : undefined,
       colorMid: l.colorMid ?? null, midPos: l.midPos ?? 0.5,
       src: l.src,
@@ -1531,6 +1536,14 @@ export function serializeDoc(doc) {
       cornerZoom: Number.isFinite(l.cornerZoom) ? l.cornerZoom : null,
     })),
   };
+}
+
+// the livery's saved colours, cleaned: { id, name, color } with a 6-digit hex
+export function cleanPalette(palette) {
+  if (!Array.isArray(palette)) return [];
+  return palette
+    .filter(c => c && typeof c.id === 'string' && /^#[0-9a-f]{6}$/i.test(c.color || ''))
+    .map(c => ({ id: c.id, name: String(c.name || 'Colour').slice(0, 40), color: c.color.toLowerCase() }));
 }
 
 // a saved 'path' outline, cleaned: finite points only, and none if too few
@@ -1628,6 +1641,8 @@ export async function deserializeDoc(data) {
   }
   doc.showUnpaintable = !!data.showUnpaintable;
   doc.patternCar = typeof data.patternCar === 'string' && data.patternCar ? data.patternCar : null;
+  doc.palette = cleanPalette(data.palette);
+  doc.baseRef = doc.palette.some(c => c.id === data.baseRef) ? data.baseRef : null;
   // custom fonts must be live before text layers regenerate below
   doc.fontWarnings = [];
   for (const f of (data.customFonts || [])) {
@@ -1655,6 +1670,7 @@ export async function deserializeDoc(data) {
           lumSpec: normalizeLumSpec(l.lumSpec),
           shape: l.shape || 'rect',
           pts: shapePts(l.pts),
+          colorRef: typeof l.colorRef === 'string' ? l.colorRef : null,
           fillType: l.fillType || 'solid',
           color2: l.color2 || '#101114',
           colorMid: l.colorMid || null,

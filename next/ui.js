@@ -18,6 +18,7 @@ const I = { // 20x20 line icons
   dock: '<rect x="3" y="4" width="14" height="12" rx="1.5"/><path d="M12 4v12"/>',
   fold: '<path d="m5 8 5 5 5-5"/>',
   close: '<path d="m5 5 10 10M15 5 5 15"/>',
+  drop: '<path d="M10 3c3 4 5 6 5 9a5 5 0 0 1-10 0c0-3 2-5 5-9z"/>',
 };
 const svg = (name) => `<svg viewBox="0 0 20 20">${I[name]}</svg>`;
 
@@ -26,14 +27,21 @@ const svg = (name) => `<svg viewBox="0 0 20 20">${I[name]}</svg>`;
 const TOOLS = [
   ['select', 'Select (V)', true],
   ['shape', 'Shape (L)', true],
-  ['ready', 'Circle, box, triangle', false],
-  ['band', 'Straight band', false],
+  ['ready', 'Circle, box, triangle (C)', true],
+  ['band', 'Straight band (B)', true],
   ['text', 'Text', false],
   ['image', 'Image or logo', false],
   ['piece', 'Fill a piece', false],
 ];
 const LATER = 'later stage';
-const PANELS = ['layers', 'props'];
+const PANELS = ['layers', 'props', 'colour'];
+const READY = { ellipse: 'Circle', rect: 'Box', triangle: 'Triangle' };
+const hexOf = (v) => (/^#?[0-9a-f]{6}$/i.test(String(v).trim()) ? '#' + String(v).trim().replace('#', '').toLowerCase() : null);
+const rgbOf = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(', ');
+const hexOfRgb = (v) => {
+  const n = String(v).split(/[^\d]+/).filter(Boolean).map(Number);
+  return n.length === 3 && n.every((x) => x >= 0 && x <= 255) ? '#' + n.map((x) => x.toString(16).padStart(2, '0')).join('') : null;
+};
 
 export function initUI(app, actions, version) {
   const panels = {};
@@ -66,7 +74,7 @@ export function initUI(app, actions, version) {
       ['Merge layers', '', '', { off: true }],
     ],
     View: [
-      ['Layers', '', 'show:layers', { tick: app.show.layers }], ['Properties', '', 'show:props', { tick: app.show.props }], 0,
+      ['Layers', '', 'show:layers', { tick: app.show.layers }], ['Properties', '', 'show:props', { tick: app.show.props }], ['Colour', '', 'show:colour', { tick: app.show.colour }], 0,
       ['Piece outlines', '', 'show:outlines', { tick: app.show.outlines }], ['Template lines', '', 'show:lines', { tick: app.show.lines }], 0,
       ['Light', '', 'theme:light', { tick: app.theme === 'light' }], ['Dark', '', 'theme:dark', { tick: app.theme === 'dark' }], ['Match system', '', 'theme:system', { tick: app.theme === 'system' }], 0,
       ['Fit to screen', 'F', 'fit'],
@@ -116,50 +124,84 @@ export function initUI(app, actions, version) {
     return rows.join('');
   }
   const field = (label, html) => `<label class="field"><span>${label}</span>${html}</label>`;
+  const colourField = (id, c) => field('Colour', `<span class="pair"><input data-colour="pick" id="${id}" type="color" value="${esc(c)}"><input data-colour="hex" id="${id}-hex" class="mono" type="text" maxlength="7" spellcheck="false" value="${esc(c)}"></span>`);
   function propsHtml() {
-    if (app.sel === 'base') {
-      const c = app.doc.baseColor;
-      return field('Colour', `<span class="pair"><input id="f-base" type="color" value="${esc(c)}"><input id="f-base-hex" class="mono" type="text" maxlength="7" spellcheck="false" value="${esc(c)}"></span>`);
-    }
+    // a drawing tool is armed: its own settings come first
+    if (app.tool === 'ready') return `<div class="seg">${Object.entries(READY).map(([k, name]) => `<button data-ready="${k}" aria-pressed="${app.ready === k}">${name}</button>`).join('')}</div>`;
+    if (app.tool === 'band') return field('Width', `<span class="pair"><input id="f-band" type="range" min="4" max="300" value="${app.bandWidth}"><output id="f-band-n" class="num">${app.bandWidth}</output></span>`);
+    if (app.sel === 'base') return colourField('f-base', app.doc.baseColor);
     const l = app.doc.layers.find((x) => x.id === app.sel);
     if (!l) return '<div class="note">Nothing selected</div>';
-    const colour = l.type === 'fill' && /^#[0-9a-f]{6}$/i.test(l.color || '')
-      ? field('Colour', `<span class="pair"><input id="f-colour" type="color" value="${esc(l.color)}"><input id="f-colour-hex" class="mono" type="text" maxlength="7" spellcheck="false" value="${esc(l.color)}"></span>`) : '';
+    const colour = l.type === 'fill' && hexOf(l.color || '') ? colourField('f-colour', l.color) : '';
     return colour + field('Name', `<input id="f-name" type="text" value="${esc(l.name)}">`) +
       field('Opacity', `<input id="f-opacity" type="range" min="0" max="100" value="${Math.round((l.opacity ?? 1) * 100)}">`);
   }
+  // colours in use, most used first
+  function usedColours() {
+    const n = new Map();
+    const add = (c) => { const h = hexOf(c || ''); if (h) n.set(h, (n.get(h) || 0) + 1); };
+    add(app.doc.baseColor);
+    for (const l of app.doc.layers) if (l.type === 'fill' && l.visible) add(l.color);
+    return [...n].sort((a, b) => b[1] - a[1]).map((x) => x[0]).slice(0, 14);
+  }
+  function colourHtml() {
+    const d = app.doc, cur = actions.currentColour(), sel = actions.selected();
+    const linked = app.sel === 'base' ? d.baseRef : sel ? sel.colorRef : null;
+    const saved = d.palette.map((c) => `<button class="chip${c.id === linked ? ' on' : ''}" data-pal="${esc(c.id)}" title="Right-click to rename or change"><i style="background:${esc(c.color)}"></i>${esc(c.name)}</button>`).join('');
+    const used = usedColours();
+    return `<div class="sub">Saved with this livery</div><div class="chips">${saved}<button class="chip add" data-act="saveColour" title="Save the current colour">+ Save</button></div>` +
+      (used.length ? `<div class="sub">In this livery</div><div class="dots">${used.map((c) => `<button class="dot" data-col="${c}" style="background:${c}" title="${c.toUpperCase()}" aria-label="${c}"></button>`).join('')}</div>` : '') +
+      `<div class="cur"><input data-colour="pick" id="c-pick" type="color" value="${esc(cur)}" aria-label="Colour"><button class="icon${app.picking ? ' on' : ''}" data-act="pickColour" title="Pick from the sheet (I)" aria-label="Pick from the sheet">${svg('drop')}</button><span class="ways">${Object.keys(app.ways).map((w) => `<button data-way="${w}" aria-pressed="${app.ways[w]}">${w}</button>`).join('')}</span></div>` +
+      (app.ways.Hex ? field('Hex', `<input data-colour="hex" id="c-hex" class="mono" type="text" maxlength="7" spellcheck="false" value="${esc(cur)}">`) : '') +
+      (app.ways.RGB ? field('RGB', `<input data-colour="rgb" id="c-rgb" class="mono" type="text" spellcheck="false" value="${rgbOf(cur)}">`) : '');
+  }
   function drawPanels() {
     panels.layers.querySelector('h2').textContent = 'Layers';
-    panels.props.querySelector('h2').textContent = 'Properties';
+    panels.props.querySelector('h2').textContent = app.tool === 'ready' || app.tool === 'band' ? 'Tool' : 'Properties';
+    panels.colour.querySelector('h2').textContent = 'Colour';
     panels.layers.querySelector('.body').innerHTML = layersHtml();
     panels.props.querySelector('.body').innerHTML = propsHtml();
+    panels.colour.querySelector('.body').innerHTML = colourHtml();
   }
   const refreshChrome = () => drawChrome();
   const refresh = () => { drawChrome(); drawPanels(); };
 
   // controls inside Properties: these must not rebuild the panel they sit in
+  // Every colour control, in whichever panel, is one of three kinds (a colour
+  // box, a hex box, an RGB box). Typing in one updates the others in place.
+  document.addEventListener('input', (e) => {
+    const t = e.target, kind = t.dataset ? t.dataset.colour : null;
+    if (!kind) return;
+    const v = kind === 'rgb' ? hexOfRgb(t.value) : hexOf(t.value);
+    if (!v) return; // half-typed
+    for (const el of document.querySelectorAll('[data-colour]')) {
+      if (el === t) continue;
+      el.value = el.dataset.colour === 'rgb' ? rgbOf(v) : v;
+    }
+    const sw = panels.layers.querySelector(`[data-layer="${CSS.escape(String(app.sel))}"] .sw`);
+    if (sw && (app.sel === 'base' || (actions.selected() || {}).type === 'fill')) sw.style.background = v;
+    actions.setColour(v);
+  });
   panels.props.addEventListener('input', (e) => {
-    const t = e.target, hex = (v) => (/^#?[0-9a-f]{6}$/i.test(v.trim()) ? '#' + v.trim().replace('#', '').toLowerCase() : null);
+    const t = e.target;
     const layer = app.doc.layers.find((x) => x.id === app.sel);
-    if (t.id === 'f-base' || t.id === 'f-base-hex') {
-      const v = hex(t.value);
-      if (!v) return; // half-typed
-      if (t.id === 'f-base') $('f-base-hex').value = v; else $('f-base').value = v;
-      const sw = panels.layers.querySelector('[data-layer="base"] .sw');
-      if (sw) sw.style.background = v;
-      actions.setBase(v);
-    } else if ((t.id === 'f-colour' || t.id === 'f-colour-hex') && layer) {
-      const v = hex(t.value);
-      if (!v) return;
-      if (t.id === 'f-colour') $('f-colour-hex').value = v; else $('f-colour').value = v;
-      const sw = panels.layers.querySelector(`[data-layer="${CSS.escape(layer.id)}"] .sw`);
-      if (sw) sw.style.background = v;
-      actions.setColour(v);
-    } else if (t.id === 'f-opacity' && layer) {
+    if (t.id === 'f-opacity' && layer) {
       layer.opacity = t.value / 100;
       actions.change({ panels: false });
+    } else if (t.id === 'f-band') {
+      $('f-band-n').textContent = t.value;
+      actions.setBandWidth(+t.value);
     }
   });
+  // a saved colour is renamed, changed or deleted from its chip
+  const editChip = (e) => {
+    const chip = e.target.closest('[data-pal]');
+    if (!chip) return;
+    e.preventDefault();
+    actions.editColour(chip.dataset.pal);
+  };
+  panels.colour.addEventListener('contextmenu', editChip);
+  panels.colour.addEventListener('dblclick', editChip);
   panels.props.addEventListener('change', (e) => {
     const layer = app.doc.layers.find((x) => x.id === app.sel);
     if (e.target.id === 'f-name' && layer && e.target.value.trim()) { layer.name = e.target.value.trim(); actions.change(); }
@@ -230,11 +272,25 @@ export function initUI(app, actions, version) {
     if (!await ask({ title: 'Car setup', body, ok: 'Save' })) return null;
     return { custid: $('cs-id').value, target: $('cs-target').value, customNumber: $('cs-num').checked, car: $('cs-car') ? $('cs-car').value : null };
   }
+  async function editColour(c) {
+    let del = false;
+    const p = ask({
+      title: 'Saved colour', ok: 'Save',
+      body: `<label><span>Name</span><input id="ec-name" type="text" value="${esc(c.name)}"></label>` +
+        `<label><span>Colour</span><span class="pair"><input id="ec-pick" type="color" value="${esc(c.color)}"><input id="ec-hex" class="mono" type="text" maxlength="7" spellcheck="false" value="${esc(c.color)}"></span></label>` +
+        '<div><button type="button" class="btn" id="ec-del">Delete this colour</button></div>',
+    });
+    $('ec-pick').oninput = () => { $('ec-hex').value = $('ec-pick').value; };
+    $('ec-hex').oninput = () => { const v = hexOf($('ec-hex').value); if (v) $('ec-pick').value = v; };
+    $('ec-del').onclick = () => { del = true; dlg.close('ok'); };
+    if (!await p) return null;
+    return del ? 'delete' : { name: $('ec-name').value.trim(), color: $('ec-pick').value };
+  }
   const shortcuts = () => ask({
     title: 'Shortcuts', ok: 'Close', cancel: null,
     body: '<table>' + [
       ['Pan', 'Space-drag, middle-drag'], ['Zoom', 'Wheel, + and −'], ['Fit to screen', 'F'],
-      ['Select tool, Shape tool', 'V, L'], ['Finish a shape', 'Enter'], ['Undo the last point', 'Backspace'], ['Hold 45°', 'Shift'],
+      ['Select, Shape, Circle, Band', 'V, L, C, B'], ['Pick a colour from the sheet', 'I'], ['Finish a shape', 'Enter'], ['Undo the last point', 'Backspace'], ['Hold 45°', 'Shift'],
       ['Copy, paste, duplicate', 'Ctrl+C, V, D'], ['Nudge 1 px, 10 px', 'Arrows, Shift+Arrows'], ['Forward, backward', 'Ctrl+], Ctrl+['], ['Delete', 'Del'],
       ['Undo, redo', 'Ctrl+Z, Ctrl+Y'], ['Save', 'Ctrl+S'],
     ].map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join('') + '</table>',
@@ -265,6 +321,10 @@ export function initUI(app, actions, version) {
     if (!t || t.disabled) return;
     if (t.dataset.act !== undefined) { closeMenus(); return run(t.dataset.act); }
     if (t.dataset.tool) return actions.setTool(t.dataset.tool);
+    if (t.dataset.pal) return actions.usePalette(t.dataset.pal);
+    if (t.dataset.col) return actions.applyColour(t.dataset.col);
+    if (t.dataset.way) return actions.setWay(t.dataset.way);
+    if (t.dataset.ready) return actions.setReady(t.dataset.ready);
     if (t.dataset.eye) {
       const l = app.doc.layers.find((x) => x.id === t.dataset.eye);
       if (l) { l.visible = !l.visible; actions.change(); }
@@ -321,5 +381,5 @@ export function initUI(app, actions, version) {
   });
   document.addEventListener('pointerup', () => { drag = null; });
 
-  return { refresh, refreshChrome, say, ask, askText, pickProject, carSetup, shortcuts };
+  return { refresh, refreshChrome, say, ask, askText, pickProject, carSetup, shortcuts, editColour };
 }

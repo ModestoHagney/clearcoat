@@ -5,9 +5,13 @@
 // Select tool: click a layer to select it and drag to move it; a selected
 // shape shows its points, which drag, and a dot on every line, which bends
 // it. Clicking a line adds a point, right-clicking a point removes it.
+// Ready-made tool: drag out a circle, box or triangle (the engine's own fill
+// shapes; a selected one resizes by its corners). Band tool: a start and an
+// end make a straight stripe of a set width, as an ordinary editable shape.
 
 import { SIZE, createFillLayer, isRegionLayer, toLocal } from '../js/engine.js';
 import { bounds, contains, moved, segmentAt, midOf, bendTo, insertAt, removeAt, snapAngle } from '../js/shapes.js';
+import { regionOutline, snapToOutline } from '../js/regions.js';
 
 const GRAB = 9;        // px: how close counts as "on" a point or dot
 const EDGE = 6;        // px: how close counts as "on" a line
@@ -15,6 +19,9 @@ const SLOP = 3;        // px: a press that moves less than this is a click
 const BIG = 0.6;       // a layer covering more of the sheet than this is not grabbed by a click on the sheet
 
 export const isShape = (l) => !!l && l.type === 'fill' && l.shape === 'path' && Array.isArray(l.pts) && l.pts.length >= 3;
+// a ready-made fill (circle, box, triangle…): sized by its box, not by points
+export const isBox = (l) => !!l && l.type === 'fill' && !isShape(l);
+export const READY = { ellipse: 'Circle', rect: 'Box', triangle: 'Triangle' };
 
 // keep a shape's box in step with its outline (gradients and the engine's
 // own hit-testing work from the box)
@@ -37,6 +44,58 @@ export function initTools(app, env) {
 
   const selLayer = () => app.doc.layers.find(l => l.id === app.sel) || null;
   const selShape = () => { const l = selLayer(); return isShape(l) && !l.locked && l.visible ? l : null; };
+  const selBox = () => { const l = selLayer(); return isBox(l) && !l.locked && l.visible ? l : null; };
+  const corners = (l) => [[l.rx, l.ry], [l.rx + l.rw, l.ry], [l.rx + l.rw, l.ry + l.rh], [l.rx, l.ry + l.rh]].map(([x, y]) => ({ x, y }));
+  let rubber = null;   // ready-made shape being dragged out: { a, b } doc points
+  let band = null;     // band being placed: { a, b, pressed }
+
+  // a band's ends stick to the nearest piece edge or corner when close (Alt: free)
+  function snapToPieces(p, e) {
+    const map = app.doc.regionMap;
+    if (e.altKey || !map) return p;
+    let best = null;
+    for (const r of map.regions) {
+      if (!r.points || r.kind) continue;
+      const hit = snapToOutline(regionOutline(r), p.x, p.y, GRAB / app.view.zoom);
+      if (hit.d * app.view.zoom <= GRAB && (!best || hit.d < best.d)) best = hit;
+    }
+    return best ? { x: best.x, y: best.y } : p;
+  }
+  const bandEnd = (p, e) => (e.shiftKey && band ? snapAngle(band.a, p) : snapToPieces(p, e));
+  function addLayer(layer) {
+    app.doc.layers.push(layer);
+    app.tool = 'select';
+    app.sel = layer.id;
+    rubber = band = null;
+    env.toolChanged();
+    change({ now: true });
+  }
+  function evenBox(a, b, even) { // the dragged box; `even` makes it square
+    let w = b.x - a.x, h = b.y - a.y;
+    if (even) { const s = Math.max(Math.abs(w), Math.abs(h)); w = Math.sign(w || 1) * s; h = Math.sign(h || 1) * s; }
+    return { x: Math.min(a.x, a.x + w), y: Math.min(a.y, a.y + h), w: Math.abs(w), h: Math.abs(h) };
+  }
+  function finishReady(even) {
+    let box = evenBox(rubber.a, rubber.b, even);
+    if (box.w < 4 || box.h < 4) box = { x: rubber.a.x - 150, y: rubber.a.y - 150, w: 300, h: 300 }; // a plain click
+    const layer = createFillLayer(app.colour);
+    layer.shape = app.ready;
+    layer.name = READY[app.ready] + ' ' + (app.doc.layers.filter(l => isBox(l) && l.shape === app.ready).length + 1);
+    layer.rx = box.x; layer.ry = box.y; layer.rw = box.w; layer.rh = box.h;
+    addLayer(layer);
+  }
+  const bandPts = (a, b, width) => {
+    const len = Math.hypot(b.x - a.x, b.y - a.y) || 1, nx = -(b.y - a.y) / len * width / 2, ny = (b.x - a.x) / len * width / 2;
+    return [{ x: a.x + nx, y: a.y + ny }, { x: b.x + nx, y: b.y + ny }, { x: b.x - nx, y: b.y - ny }, { x: a.x - nx, y: a.y - ny }];
+  };
+  function finishBand() {
+    if (Math.hypot(band.b.x - band.a.x, band.b.y - band.a.y) < 4) { band = null; requestDraw(); return; }
+    const layer = createFillLayer(app.colour);
+    layer.shape = 'path';
+    layer.name = 'Band ' + (app.doc.layers.filter(l => /^Band \d+/.test(l.name)).length + 1);
+    setShape(layer, bandPts(band.a, band.b, app.bandWidth));
+    addLayer(layer);
+  }
   const far = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
   const onScreen = (p) => docToScreen(p.x, p.y);
 
@@ -77,12 +136,22 @@ export function initTools(app, env) {
     draft = null; cursor = null;
     app.tool = 'select';
     app.sel = layer.id;
+    env.toolChanged();
     change({ now: true });
     return true;
   }
 
   function down(e, s) {
     const p = screenToDoc(s.x, s.y);
+    if (app.picking) { env.picked(p); return; }
+    if (app.tool === 'ready') { rubber = { a: p, b: p }; return; }
+    if (app.tool === 'band') {
+      if (band && !band.pressed) { band.b = bandEnd(p, e); finishBand(); return; } // the second click
+      const a = snapToPieces(p, e);
+      band = { a, b: a, pressed: true, start: s };
+      requestDraw();
+      return;
+    }
     if (app.tool === 'shape') {
       if (closable(s) || (e.detail >= 2 && draft && draft.length >= 3)) { finish(); return; }
       (draft || (draft = [])).push(nextPoint(p, e.shiftKey));
@@ -101,6 +170,11 @@ export function initTools(app, env) {
       const seg = segmentAt(pts, p.x, p.y, EDGE / app.view.zoom);
       if (seg) { drag = { kind: 'edge', layer: shape, seg, start: s, last: p, went: false }; return; }
     }
+    const box = selBox();
+    if (box) {
+      const ci = corners(box).findIndex(q => far(onScreen(q), s) <= GRAB);
+      if (ci !== -1) { drag = { kind: 'size', layer: box, anchor: corners(box)[(ci + 2) % 4] }; return; }
+    }
     const hit = layerAt(p);
     if (!hit) { if (app.sel !== null) env.select(null); return; }
     if (hit.id !== app.sel) env.select(hit.id);
@@ -110,8 +184,16 @@ export function initTools(app, env) {
   function move(e, s) {
     const p = screenToDoc(s.x, s.y);
     if (app.tool === 'shape') { cursor = nextPoint(p, e.shiftKey); requestDraw(); return; }
+    if (rubber) { rubber.b = p; rubber.even = e.shiftKey; requestDraw(); return; }
+    if (band) { band.b = bandEnd(p, e); requestDraw(); return; }
     if (!drag) return;
     const l = drag.layer;
+    if (drag.kind === 'size') {
+      const b = evenBox(drag.anchor, p, e.shiftKey);
+      l.rx = b.x; l.ry = b.y; l.rw = Math.max(4, b.w); l.rh = Math.max(4, b.h);
+      change({ panels: false });
+      return;
+    }
     if (drag.kind === 'point') {
       const pts = l.pts.map(q => ({ ...q }));
       pts[drag.i] = { ...pts[drag.i], x: p.x, y: p.y };
@@ -133,7 +215,13 @@ export function initTools(app, env) {
     change({ panels: false });
   }
 
-  function up() {
+  function up(e, s) {
+    if (rubber) { finishReady(rubber.even); return; }
+    if (band && band.pressed) {
+      band.pressed = false;
+      if (s && far(band.start, s) >= SLOP) finishBand(); // dragged out in one go; otherwise wait for the second click
+      return;
+    }
     if (!drag) return;
     const d = drag;
     drag = null;
@@ -170,12 +258,22 @@ export function initTools(app, env) {
         return true;
       }
     }
+    if (e.key === 'Escape' && (app.picking || app.tool === 'ready' || app.tool === 'band')) {
+      if (app.picking) env.picked(null);
+      else if (band) { band = null; requestDraw(); }
+      else env.setTool('select');
+      return true;
+    }
     return false;
   }
 
-  function cancel() { draft = null; cursor = null; drag = null; }
+  function cancel() { draft = null; cursor = null; drag = null; rubber = null; band = null; }
 
   const hint = () => {
+    if (app.picking) return 'Click a colour on the sheet · Esc cancels';
+    if (app.tool === 'ready') return 'Drag to draw · Shift keeps it even';
+    if (app.tool === 'band') return band ? 'Click the end · Shift holds 45°' : 'Click the start, then the end · snaps to panel edges';
+    if (app.tool === 'select' && selBox()) return 'Drag a corner to resize · Shift keeps it even';
     if (app.tool === 'shape') return draft && draft.length ? 'Enter to finish · Backspace undoes a point · Shift holds 45°' : 'Click points to draw · Shift holds 45°';
     if (selShape()) return 'Drag a point · drag a dot to bend · click a line to add a point';
     return 'Space-drag to pan · wheel to zoom';
@@ -208,6 +306,29 @@ export function initTools(app, env) {
       draft.forEach((q, i) => square(onScreen(q), i === 0 && draft.length >= 3 ? 6 : 4, i === 0 ? '#ffffff' : accent));
       return;
     }
+    const preview = (pts) => { // a shape that is not made yet
+      path(pts, true);
+      ctx.fillStyle = app.colour; ctx.globalAlpha = 0.55; ctx.fill(); ctx.globalAlpha = 1;
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3.5; ctx.stroke();
+      ctx.strokeStyle = accent; ctx.lineWidth = 1.5; ctx.stroke();
+    };
+    if (rubber) {
+      const b = evenBox(rubber.a, rubber.b, rubber.even), A = onScreen(b), B = onScreen({ x: b.x + b.w, y: b.y + b.h });
+      ctx.beginPath();
+      if (app.ready === 'ellipse') ctx.ellipse((A.x + B.x) / 2, (A.y + B.y) / 2, (B.x - A.x) / 2, (B.y - A.y) / 2, 0, 0, Math.PI * 2);
+      else if (app.ready === 'triangle') { ctx.moveTo((A.x + B.x) / 2, A.y); ctx.lineTo(B.x, B.y); ctx.lineTo(A.x, B.y); ctx.closePath(); }
+      else ctx.rect(A.x, A.y, B.x - A.x, B.y - A.y);
+      ctx.fillStyle = app.colour; ctx.globalAlpha = 0.55; ctx.fill(); ctx.globalAlpha = 1;
+      ctx.strokeStyle = accent; ctx.lineWidth = 1.5; ctx.stroke();
+      return;
+    }
+    if (band) {
+      if (far(band.a, band.b) > 0) preview(bandPts(band.a, band.b, app.bandWidth));
+      square(onScreen(band.a), 4, accent);
+      return;
+    }
+    const box = app.tool === 'select' ? selBox() : null;
+    if (box) corners(box).forEach((q) => square(onScreen(q), 4.5, accent));
     const shape = app.tool === 'select' ? selShape() : null;
     if (!shape) return;
     path(shape.pts, true);
