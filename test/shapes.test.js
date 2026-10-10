@@ -221,3 +221,29 @@ test('how far along a fade a point is: across, and from the middle', () => {
   assert.equal(fadeAt({ x: 0, y: 100 }, A, B, 'radial'), 0.5);
   assert.equal(fadeAt({ x: 7, y: 7 }, A, A), 0);              // no line at all
 });
+
+test('rounded shapes: only corners between straight lines are rounded, and the shape still fills its box', () => {
+  const { rounded, roundedOf } = shapesMod;
+  const sq = rounded(boxOutline('rect', 0, 0, 100, 100), 10);
+  assert.equal(sq.length, 8); // two points for each corner
+  assert.deepEqual(sq[0], { x: 0, y: 10, c: { x: 0, y: 0 } }); // a little way down from the corner, bending through where it was
+  assert.deepEqual(sq[1], { x: 10, y: 0 });
+  assert.ok(!contains(sq, 1, 1) && contains(sq, 5, 5) && contains(sq, 50, 1)); // the very corner is gone, the rest is there
+  // a rounding bigger than a side stops short of its middle
+  assert.ok(rounded(boxOutline('rect', 0, 0, 10, 10), 500).every(p => p.x >= 0 && p.x <= 10 && p.y >= 0 && p.y <= 10));
+  // the shield: its two top corners are rounded, the bends at the bottom are left alone
+  const plain = boxOutline('shield', 0, 0, 100, 115), soft = boxOutline('shield-r', 0, 0, 100, 115);
+  assert.equal(soft.length, plain.length + 2);
+  assert.deepEqual([roundedOf('rect'), roundedOf('star'), roundedOf('ellipse'), roundedOf('ring'), roundedOf('star-r')], ['round', 'star-r', null, null, null]);
+});
+
+test('a ring keeps its hole, also when stamped or merged with other shapes', () => {
+  const ring = boxOutline('ring', 0, 0, 100, 100);
+  // the hole is the second piece, run the other way round
+  const { pieces: ps } = shapesMod, [[a, b], [c, d]] = ps(ring);
+  const area = (q) => q.reduce((s, p, i) => { const n = q[(i + 1) % q.length]; return s + p.x * n.y - n.x * p.y; }, 0);
+  assert.ok(area(flatten(ring.slice(a, b))) * area(flatten(ring.slice(c, d).map(p => ({ ...p, m: undefined })))) < 0);
+  const both = joined([moved(ring, 300, 0), ring, boxOutline('rect', 500, 0, 50, 50)]);
+  const parts = ps(both).map(([i, j]) => area(flatten(both.slice(i, j).map(p => ({ ...p, m: undefined })))) > 0);
+  assert.deepEqual(parts, [true, false, true, false, true]); // ring, hole, ring, hole, box
+});

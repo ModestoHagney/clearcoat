@@ -3,7 +3,7 @@
 // app state and calls back into `actions`; it holds no livery state itself.
 
 import { pieces, hue } from './map.js';
-import { SHAPES } from '../js/shapes.js';
+import { SHAPES, PLAIN_SHAPES, roundedOf, plainOf, softened, boxOutline, aspect } from '../js/shapes.js';
 import { TEXT_FONTS, GOOGLE_FONTS, fadeStyleOf } from '../js/engine.js';
 import { FINISHES, finishName, finishLabel, finishList, layerColour, isArea, readFinish, presetOf, withPatterns } from '../js/finish.js';
 import { renderTile } from './preview.js';
@@ -41,6 +41,19 @@ const I = { // 20x20 line icons
   dropper: '<path d="M4 16v-2.5l6.5-6.5 2.5 2.5L6.5 16z"/><path d="m9.5 6 4.5 4.5"/><path d="m12 7.5 2.2-2.2a1.6 1.6 0 0 1 2.3 2.3l-2.2 2.2"/>',
 };
 I.mpick = I.select;
+// every ready-made shape that has no icon drawn by hand gets one from its own outline
+for (const kind of Object.keys(SHAPES)) {
+  if (I[kind]) continue;
+  const a = aspect(kind), w = a > 1 ? 14 / a : 14, h = a > 1 ? 14 : 14 * a, x = 10 - w / 2, y = 10 - h / 2, f = (v) => +v.toFixed(2);
+  // a rounded one is drawn rounder than it really is: at this size its true corners would not show
+  const pts = plainOf(kind) ? softened(plainOf(kind), x, y, w, h, 2.3) : boxOutline(kind, x, y, w, h);
+  let start = 0;
+  I[kind] = `<path d="${pts.map((p, i) => {
+    const head = !i || p.m ? ((start = i), `M${f(p.x)} ${f(p.y)}`) : '';
+    const last = i + 1 === pts.length || !!pts[i + 1].m, q = pts[last ? start : i + 1];
+    return head + (p.c ? `Q${f(p.c.x)} ${f(p.c.y)} ${f(q.x)} ${f(q.y)}` : `L${f(q.x)} ${f(q.y)}`) + (last ? 'Z' : '');
+  }).join('')}"/>`;
+}
 const svg = (name) => `<svg viewBox="0 0 20 20">${I[name]}</svg>`;
 // a shape's own outline, drawn small: { pts, w, h } or a ready-made { shape, w, h }
 const shapeSvg = (it) => {
@@ -171,7 +184,10 @@ export function initUI(app, actions, version) {
     // the armed tool's own choices sit right beside the strip
     const opts = $('toolopts');
     if (app.tool === 'shape') {
-      opts.innerHTML = Object.entries(KINDS).map(([k, name]) => `<button class="tool" data-kind="${k}" data-tip="${name}" aria-label="${name}" aria-pressed="${app.shapeKind === k}">${svg(k)}</button>`).join('');
+      // the plain shapes in a row, and under each one its round-cornered version (a gap where there is none)
+      const pick = (k, up) => (k ? `<button class="tool${up ? ' up' : ''}" data-kind="${k}" data-tip="${KINDS[k]}" aria-label="${KINDS[k]}" aria-pressed="${app.shapeKind === k}">${svg(k)}</button>` : '<span></span>');
+      opts.innerHTML = PLAIN_SHAPES.map((k) => pick(k, true)).join('') + PLAIN_SHAPES.map((k) => pick(roundedOf(k), false)).join('');
+      opts.style.gridTemplateColumns = `repeat(${PLAIN_SHAPES.length}, auto)`;
     } else if (app.tool === 'band') {
       opts.innerHTML = `<label class="optrow"><span>Width</span><input id="f-band" type="range" min="4" max="300" value="${app.bandWidth}"><output id="f-band-n" class="num">${app.bandWidth}</output></label>`;
     } else if (app.tool === 'stamp') {
@@ -179,6 +195,7 @@ export function initUI(app, actions, version) {
         `<label class="optrow"><span>Size</span><input id="f-stamp-size" type="range" min="10" max="600" value="${app.stamp.size}"><output id="f-stamp-n" class="num">${app.stamp.size}</output></label>`;
     }
     opts.classList.toggle('rows', app.tool === 'stamp');
+    opts.classList.toggle('grid', app.tool === 'shape');
     opts.hidden = app.tool !== 'shape' && app.tool !== 'band' && app.tool !== 'stamp';
     // level with the button it belongs to
     const btn = $('tools').querySelector('.tool[aria-pressed="true"]');
@@ -277,7 +294,9 @@ export function initUI(app, actions, version) {
   // since left the library, so the list can still name it.
   const motifOptions = (current, kept) => {
     const own = actions.ownShapes();
-    return Object.entries(KINDS).map(([k, name]) => opt(k, name, k === current)).join('') +
+    const rounds = PLAIN_SHAPES.map(roundedOf).filter(Boolean);
+    return PLAIN_SHAPES.map((k) => opt(k, KINDS[k], k === current)).join('') +
+      `<optgroup label="Rounded">${rounds.map((k) => opt(k, KINDS[k].replace(/^Rounded /, '').replace(/^./, (ch) => ch.toUpperCase()), k === current)).join('')}</optgroup>` +
       (own.length || kept ? `<optgroup label="Your shapes">${own.map((it) => opt('own:' + it.id, it.name, 'own:' + it.id === current)).join('')}${kept && !own.some((it) => 'own:' + it.id === current) ? opt(current, kept, true) : ''}</optgroup>` : '');
   };
   // Colour lives in the Colour panel only. If that panel has been hidden, say

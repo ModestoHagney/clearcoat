@@ -146,9 +146,12 @@ function reversed(pts) {
 export function joined(list) {
   const out = [];
   for (const pts of list) {
-    for (const [a, b] of pieces(pts)) {
-      let piece = pts.slice(a, b).map(p => (p.c ? { x: p.x, y: p.y, c: { ...p.c } } : { x: p.x, y: p.y }));
-      if (turn(flatten(piece)) < 0) piece = reversed(piece);
+    const parts = pieces(pts).map(([a, b]) => pts.slice(a, b).map(p => (p.c ? { x: p.x, y: p.y, c: { ...p.c } } : { x: p.x, y: p.y })));
+    // A shape is turned as a whole, by its biggest piece: a hole in it (a ring's
+    // middle, run the other way round on purpose) then stays a hole.
+    const turns = parts.map(q => turn(flatten(q))), lead = turns.reduce((m, t) => (Math.abs(t) > Math.abs(m) ? t : m), 0);
+    for (let piece of parts) {
+      if (lead < 0) piece = reversed(piece);
       if (out.length) piece[0].m = true;
       out.push(...piece);
     }
@@ -156,11 +159,18 @@ export function joined(list) {
   return out;
 }
 
-// the ready-made shapes, by the name each goes by on screen
-export const SHAPES = {
-  ellipse: 'Circle', rect: 'Box', triangle: 'Triangle', star: 'Star', diamond: 'Diamond',
-  hexagon: 'Hexagon', chevron: 'Chevron', cross: 'Cross', round: 'Rounded box',
+// The ready-made shapes, by the name each goes by on screen: the plain ones,
+// then a round-cornered version of each one that has corners (see roundedOf).
+// 'round' is the rounded box's name from before the others had one.
+const PLAIN = {
+  ellipse: 'Circle', rect: 'Box', triangle: 'Triangle', star: 'Star', diamond: 'Diamond', hexagon: 'Hexagon',
+  chevron: 'Chevron', cross: 'Cross', arrow: 'Arrow', bolt: 'Lightning bolt', shield: 'Shield', flame: 'Flame', ring: 'Ring',
 };
+const NO_CORNERS = new Set(['ellipse', 'flame', 'ring']);
+export const roundedOf = (shape) => (NO_CORNERS.has(shape) || !PLAIN[shape] ? null : shape === 'rect' ? 'round' : shape + '-r');
+export const plainOf = (shape) => (shape === 'round' ? 'rect' : shape.endsWith('-r') ? shape.slice(0, -2) : null);
+export const PLAIN_SHAPES = Object.keys(PLAIN);
+export const SHAPES = { ...PLAIN, ...Object.fromEntries(PLAIN_SHAPES.filter(roundedOf).map(k => [roundedOf(k), 'Rounded ' + PLAIN[k].toLowerCase()])) };
 // corners of the straight-sided ones in a box 1 by 1
 const ring = (n, r = () => 1, from = -Math.PI / 2) => Array.from({ length: n }, (_, i) => {
   const a = from + i * 2 * Math.PI / n;
@@ -171,35 +181,72 @@ const boxed = (pts) => { // stretched to fill the box exactly
   return pts.map(p => [(p[0] - x) / (Math.max(...xs) - x), (p[1] - y) / (Math.max(...ys) - y)]);
 };
 const UNIT = {
+  rect: [[0, 0], [1, 0], [1, 1], [0, 1]],
+  triangle: [[0.5, 0], [1, 1], [0, 1]],
   diamond: [[0.5, 0], [1, 0.5], [0.5, 1], [0, 0.5]],
   chevron: [[0, 0], [0.5, 0], [1, 0.5], [0.5, 1], [0, 1], [0.5, 0.5]],
   cross: [[1, 0], [2, 0], [2, 1], [3, 1], [3, 2], [2, 2], [2, 3], [1, 3], [1, 2], [0, 2], [0, 1], [1, 1]].map(([a, b]) => [a / 3, b / 3]),
   hexagon: boxed(ring(6, () => 1, 0)),
   star: boxed(ring(10, i => (i % 2 ? 0.382 : 1))),
+  arrow: [[0, 0.3], [0.55, 0.3], [0.55, 0], [1, 0.5], [0.55, 1], [0.55, 0.7], [0, 0.7]],
+  bolt: boxed([[0.5, 0], [0.05, 0.58], [0.42, 0.58], [0.28, 1], [0.95, 0.38], [0.56, 0.38], [0.78, 0]]),
+};
+// the ones with bends: [x, y] or [x, y, bend x, bend y] (the handle of the line leaving the point), in a box 1 by 1
+const CURVED = {
+  shield: [[0, 0], [1, 0], [1, 0.5, 1, 0.88], [0.5, 1, 0, 0.88], [0, 0.5]],
+  flame: [[0.6, 0, 0.56, 0.3], [0.86, 0.52, 1.04, 0.9], [0.5, 1, -0.04, 0.9], [0.14, 0.56, 0.2, 0.36], [0.36, 0.26, 0.38, 0.42], [0.47, 0.44, 0.38, 0.2]],
 };
 // height over width of the ones that are not as tall as wide when regular
-const ASPECT = { hexagon: Math.sqrt(3) / 2, star: 0.951 };
-export const aspect = (shape) => ASPECT[shape] || 1;
+const ASPECT = { hexagon: Math.sqrt(3) / 2, star: 0.951, arrow: 0.8, bolt: 1.45, shield: 1.15, flame: 1.35 };
+export const aspect = (shape) => ASPECT[plainOf(shape) || shape] || 1;
+// how round a rounded corner is, as a share of the shape's shorter side
+const ROUND = 0.12;
+
+// The same outline with its corners rounded off by r. Only a corner between
+// two straight lines is rounded; one next to a bend is left as it is.
+export function rounded(pts, r) {
+  const n = pts.length, out = [];
+  pts.forEach((p, i) => {
+    const prev = pts[(i - 1 + n) % n], next = pts[(i + 1) % n];
+    if (prev.c || p.c) { out.push(p.c ? { x: p.x, y: p.y, c: { ...p.c } } : { x: p.x, y: p.y }); return; }
+    // a point a little way down each line from the corner, never past its middle; the corner itself becomes the bend between them
+    const along = (q) => { const len = Math.hypot(q.x - p.x, q.y - p.y) || 1, d = Math.min(r, len * 0.45) / len; return { x: p.x + (q.x - p.x) * d, y: p.y + (q.y - p.y) * d }; };
+    out.push({ ...along(prev), c: { x: p.x, y: p.y } }, along(next));
+  });
+  return out;
+}
+// the outline moved and stretched so that what is drawn fills the box exactly
+function fitted(pts, x, y, w, h) {
+  const b = bounds(pts);
+  return mapped(pts, p => ({ x: x + (p.x - b.x) / (b.w || 1) * w, y: y + (p.y - b.y) / (b.h || 1) * h }));
+}
+
+// a plain shape with its corners rounded by r, still filling its box
+export const softened = (plain, x, y, w, h, r) => fitted(rounded(boxOutline(plain, x, y, w, h), r), x, y, w, h);
 
 // a ready-made shape drawn in a box, as an outline: so it can join another,
 // repeat as a pattern, or simply be a shape of its own
 export function boxOutline(shape, x, y, w, h) {
+  const plain = plainOf(shape);
+  if (plain) return softened(plain, x, y, w, h, Math.min(w, h) * ROUND);
   if (UNIT[shape]) return UNIT[shape].map(([u, v]) => ({ x: x + u * w, y: y + v * h }));
-  if (shape === 'round') {
-    const r = Math.min(w, h) / 4, X = x + w, Y = y + h;
-    return [{ x: x + r, y }, { x: X - r, y, c: { x: X, y } }, { x: X, y: y + r }, { x: X, y: Y - r, c: { x: X, y: Y } },
-      { x: X - r, y: Y }, { x: x + r, y: Y, c: { x, y: Y } }, { x, y: Y - r }, { x, y: y + r, c: { x, y } }];
+  if (CURVED[shape]) {
+    return fitted(CURVED[shape].map(([u, v, cu, cv]) => (cu === undefined ? { x: u, y: v } : { x: u, y: v, c: { x: cu, y: cv } })), x, y, w, h);
   }
-  if (shape === 'triangle') return [{ x: x + w / 2, y }, { x: x + w, y: y + h }, { x, y: y + h }];
-  if (shape === 'ellipse') {
-    // eight arcs: close enough to an ellipse that the eye cannot tell
-    const cx = x + w / 2, cy = y + h / 2, k = 1 / Math.cos(Math.PI / 8);
-    return Array.from({ length: 8 }, (_, i) => {
-      const a = i * Math.PI / 4, m = a + Math.PI / 8;
-      return { x: cx + Math.cos(a) * w / 2, y: cy + Math.sin(a) * h / 2, c: { x: cx + Math.cos(m) * k * w / 2, y: cy + Math.sin(m) * k * h / 2 } };
-    });
+  // eight arcs: close enough to an ellipse that the eye cannot tell
+  const cx = x + w / 2, cy = y + h / 2, k = 1 / Math.cos(Math.PI / 8);
+  const oval = (rw, rh) => Array.from({ length: 8 }, (_, i) => {
+    const a = i * Math.PI / 4, m = a + Math.PI / 8;
+    return { x: cx + Math.cos(a) * rw, y: cy + Math.sin(a) * rh, c: { x: cx + Math.cos(m) * k * rw, y: cy + Math.sin(m) * k * rh } };
+  });
+  if (shape === 'ring') {
+    // the hole is a second piece run the other way round: where the two overlap they cancel
+    const hole = reversed(oval(w * 0.29, h * 0.29));
+    hole[0].m = true;
+    return [...oval(w / 2, h / 2), ...hole];
   }
-  return [{ x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h }];
+  if (shape === 'ellipse') return oval(w / 2, h / 2);
+  return UNIT.rect.map(([u, v]) => ({ x: x + u * w, y: y + v * h }));
 }
 
 // `to`, moved so the line from `from` runs at a multiple of `step` degrees
