@@ -7,8 +7,11 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 
 const I = { // 20x20 line icons
   select: '<path d="M5 3v12l3.5-3 2.2 5 2-.9-2.2-5H15z"/>',
-  shape: '<path d="M4 15 7 5l9 2-3 9z"/><circle cx="4" cy="15" r="1.4"/><circle cx="7" cy="5" r="1.4"/><circle cx="16" cy="7" r="1.4"/><circle cx="13" cy="16" r="1.4"/>',
-  ready: '<circle cx="10" cy="10" r="6.5"/>',
+  pen: '<path d="M4 15 7 5l9 2-3 9z"/><circle cx="4" cy="15" r="1.4"/><circle cx="7" cy="5" r="1.4"/><circle cx="16" cy="7" r="1.4"/><circle cx="13" cy="16" r="1.4"/>',
+  ellipse: '<circle cx="10" cy="10" r="6.5"/>',
+  rect: '<rect x="4" y="4.5" width="12" height="11" rx="1"/>',
+  triangle: '<path d="M10 4 17 16H3z"/>',
+  edit: '<path d="M4 16h3l8-8-3-3-8 8z"/><path d="m11 6 3 3"/>',
   band: '<path d="M3 13 13 3M7 17 17 7"/>',
   text: '<path d="M4 5h12M10 5v11M8 16h4"/>',
   image: '<rect x="3" y="4" width="14" height="12" rx="2"/><circle cx="7.5" cy="8.5" r="1.3"/><path d="m4 14 4-3.5 3 2.5 2-1.5 3 2.5"/>',
@@ -18,7 +21,7 @@ const I = { // 20x20 line icons
   dock: '<rect x="3" y="4" width="14" height="12" rx="1.5"/><path d="M12 4v12"/>',
   fold: '<path d="m5 8 5 5 5-5"/>',
   close: '<path d="m5 5 10 10M15 5 5 15"/>',
-  drop: '<path d="M10 3c3 4 5 6 5 9a5 5 0 0 1-10 0c0-3 2-5 5-9z"/>',
+  dropper: '<path d="M4 16v-2.5l6.5-6.5 2.5 2.5L6.5 16z"/><path d="m9.5 6 4.5 4.5"/><path d="m12 7.5 2.2-2.2a1.6 1.6 0 0 1 2.3 2.3l-2.2 2.2"/>',
 };
 const svg = (name) => `<svg viewBox="0 0 20 20">${I[name]}</svg>`;
 
@@ -26,8 +29,8 @@ const svg = (name) => `<svg viewBox="0 0 20 20">${I[name]}</svg>`;
 // is the final one; tools from later stages are dimmed.
 const TOOLS = [
   ['select', 'Select (V)', true],
-  ['shape', 'Shape (L)', true],
-  ['ready', 'Circle, box, triangle (C)', true],
+  ['pen', 'Pen (P)', true],
+  ['shape', 'Shape (S)', true],
   ['band', 'Straight band (B)', true],
   ['text', 'Text', false],
   ['image', 'Image or logo', false],
@@ -35,7 +38,7 @@ const TOOLS = [
 ];
 const LATER = 'later stage';
 const PANELS = ['layers', 'props', 'colour'];
-const READY = { ellipse: 'Circle', rect: 'Box', triangle: 'Triangle' };
+const KINDS = { ellipse: 'Circle', rect: 'Box', triangle: 'Triangle' };
 const hexOf = (v) => (/^#?[0-9a-f]{6}$/i.test(String(v).trim()) ? '#' + String(v).trim().replace('#', '').toLowerCase() : null);
 const rgbOf = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(', ');
 const hexOfRgb = (v) => {
@@ -100,7 +103,15 @@ export function initUI(app, actions, version) {
     $('modes').innerHTML = [['map', 'Map'], ['paint', 'Paint'], ['finish', 'Finish']].map(([id, name]) =>
       `<button data-mode="${id}" aria-pressed="${app.mode === id}"${id === 'paint' ? '' : ` disabled title="Comes in a ${LATER}"`}>${name}</button>`).join('');
     $('tools').innerHTML = TOOLS.map(([id, name, ready]) =>
-      `<button class="tool" data-tool="${id}" data-tip="${ready ? name : `${name} · ${LATER}`}" aria-label="${name}" aria-pressed="${app.tool === id}"${ready ? '' : ' disabled'}>${svg(id)}</button>`).join('');
+      `<button class="tool" data-tool="${id}" data-tip="${ready ? name : `${name} · ${LATER}`}" aria-label="${name}" aria-pressed="${app.tool === id}"${ready ? '' : ' disabled'}>${svg(id === 'shape' ? app.shapeKind : id)}</button>`).join('');
+    // the armed tool's own choices sit right beside the strip
+    const opts = $('toolopts');
+    if (app.tool === 'shape') {
+      opts.innerHTML = Object.entries(KINDS).map(([k, name]) => `<button class="tool" data-kind="${k}" data-tip="${name}" aria-label="${name}" aria-pressed="${app.shapeKind === k}">${svg(k)}</button>`).join('');
+    } else if (app.tool === 'band') {
+      opts.innerHTML = `<label class="optrow"><span>Width</span><input id="f-band" type="range" min="4" max="300" value="${app.bandWidth}"><output id="f-band-n" class="num">${app.bandWidth}</output></label>`;
+    }
+    opts.hidden = app.tool !== 'shape' && app.tool !== 'band';
     $('hint').textContent = actions.hint();
     const live = $('btn-live');
     live.setAttribute('aria-pressed', app.live);
@@ -126,9 +137,6 @@ export function initUI(app, actions, version) {
   const field = (label, html) => `<label class="field"><span>${label}</span>${html}</label>`;
   const colourField = (id, c) => field('Colour', `<span class="pair"><input data-colour="pick" id="${id}" type="color" value="${esc(c)}"><input data-colour="hex" id="${id}-hex" class="mono" type="text" maxlength="7" spellcheck="false" value="${esc(c)}"></span>`);
   function propsHtml() {
-    // a drawing tool is armed: its own settings come first
-    if (app.tool === 'ready') return `<div class="seg">${Object.entries(READY).map(([k, name]) => `<button data-ready="${k}" aria-pressed="${app.ready === k}">${name}</button>`).join('')}</div>`;
-    if (app.tool === 'band') return field('Width', `<span class="pair"><input id="f-band" type="range" min="4" max="300" value="${app.bandWidth}"><output id="f-band-n" class="num">${app.bandWidth}</output></span>`);
     if (app.sel === 'base') return colourField('f-base', app.doc.baseColor);
     const l = app.doc.layers.find((x) => x.id === app.sel);
     if (!l) return '<div class="note">Nothing selected</div>';
@@ -147,17 +155,17 @@ export function initUI(app, actions, version) {
   function colourHtml() {
     const d = app.doc, cur = actions.currentColour(), sel = actions.selected();
     const linked = app.sel === 'base' ? d.baseRef : sel ? sel.colorRef : null;
-    const saved = d.palette.map((c) => `<button class="chip${c.id === linked ? ' on' : ''}" data-pal="${esc(c.id)}" title="Right-click to rename or change"><i style="background:${esc(c.color)}"></i>${esc(c.name)}</button>`).join('');
+    const saved = d.palette.map((c) => `<span class="chipwrap"><button class="chip${c.id === linked ? ' on' : ''}" data-pal="${esc(c.id)}"><i style="background:${esc(c.color)}"></i>${esc(c.name)}</button><button class="chipedit" data-edit="${esc(c.id)}" title="Rename or change" aria-label="Edit ${esc(c.name)}">${svg('edit')}</button></span>`).join('');
     const used = usedColours();
     return `<div class="sub">Saved with this livery</div><div class="chips">${saved}<button class="chip add" data-act="saveColour" title="Save the current colour">+ Save</button></div>` +
       (used.length ? `<div class="sub">In this livery</div><div class="dots">${used.map((c) => `<button class="dot" data-col="${c}" style="background:${c}" title="${c.toUpperCase()}" aria-label="${c}"></button>`).join('')}</div>` : '') +
-      `<div class="cur"><input data-colour="pick" id="c-pick" type="color" value="${esc(cur)}" aria-label="Colour"><button class="icon${app.picking ? ' on' : ''}" data-act="pickColour" title="Pick from the sheet (I)" aria-label="Pick from the sheet">${svg('drop')}</button><span class="ways">${Object.keys(app.ways).map((w) => `<button data-way="${w}" aria-pressed="${app.ways[w]}">${w}</button>`).join('')}</span></div>` +
+      `<div class="cur"><input data-colour="pick" id="c-pick" type="color" value="${esc(cur)}" aria-label="Colour"><button class="icon${app.picking ? ' on' : ''}" data-act="pickColour" title="Pick a colour from the sheet (I)" aria-label="Pick a colour from the sheet">${svg('dropper')}</button><span class="ways">${Object.keys(app.ways).map((w) => `<button data-way="${w}" aria-pressed="${app.ways[w]}">${w}</button>`).join('')}</span></div>` +
       (app.ways.Hex ? field('Hex', `<input data-colour="hex" id="c-hex" class="mono" type="text" maxlength="7" spellcheck="false" value="${esc(cur)}">`) : '') +
       (app.ways.RGB ? field('RGB', `<input data-colour="rgb" id="c-rgb" class="mono" type="text" spellcheck="false" value="${rgbOf(cur)}">`) : '');
   }
   function drawPanels() {
     panels.layers.querySelector('h2').textContent = 'Layers';
-    panels.props.querySelector('h2').textContent = app.tool === 'ready' || app.tool === 'band' ? 'Tool' : 'Properties';
+    panels.props.querySelector('h2').textContent = 'Properties';
     panels.colour.querySelector('h2').textContent = 'Colour';
     panels.layers.querySelector('.body').innerHTML = layersHtml();
     panels.props.querySelector('.body').innerHTML = propsHtml();
@@ -188,17 +196,19 @@ export function initUI(app, actions, version) {
     if (t.id === 'f-opacity' && layer) {
       layer.opacity = t.value / 100;
       actions.change({ panels: false });
-    } else if (t.id === 'f-band') {
-      $('f-band-n').textContent = t.value;
-      actions.setBandWidth(+t.value);
     }
+  });
+  $('toolopts').addEventListener('input', (e) => {
+    if (e.target.id !== 'f-band') return;
+    $('f-band-n').textContent = e.target.value;
+    actions.setBandWidth(+e.target.value);
   });
   // a saved colour is renamed, changed or deleted from its chip
   const editChip = (e) => {
-    const chip = e.target.closest('[data-pal]');
+    const chip = e.target.closest('.chipwrap');
     if (!chip) return;
     e.preventDefault();
-    actions.editColour(chip.dataset.pal);
+    actions.editColour(chip.querySelector('[data-pal]').dataset.pal);
   };
   panels.colour.addEventListener('contextmenu', editChip);
   panels.colour.addEventListener('dblclick', editChip);
@@ -290,7 +300,7 @@ export function initUI(app, actions, version) {
     title: 'Shortcuts', ok: 'Close', cancel: null,
     body: '<table>' + [
       ['Pan', 'Space-drag, middle-drag'], ['Zoom', 'Wheel, + and −'], ['Fit to screen', 'F'],
-      ['Select, Shape, Circle, Band', 'V, L, C, B'], ['Pick a colour from the sheet', 'I'], ['Finish a shape', 'Enter'], ['Undo the last point', 'Backspace'], ['Hold 45°', 'Shift'],
+      ['Select, Pen, Shape, Band', 'V, P, S, B'], ['Pick a colour from the sheet', 'I'], ['Finish a pen shape', 'Enter'], ['Undo the last point', 'Backspace'], ['Hold 45°', 'Shift'],
       ['Copy, paste, duplicate', 'Ctrl+C, V, D'], ['Nudge 1 px, 10 px', 'Arrows, Shift+Arrows'], ['Forward, backward', 'Ctrl+], Ctrl+['], ['Delete', 'Del'],
       ['Undo, redo', 'Ctrl+Z, Ctrl+Y'], ['Save', 'Ctrl+S'],
     ].map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join('') + '</table>',
@@ -321,10 +331,11 @@ export function initUI(app, actions, version) {
     if (!t || t.disabled) return;
     if (t.dataset.act !== undefined) { closeMenus(); return run(t.dataset.act); }
     if (t.dataset.tool) return actions.setTool(t.dataset.tool);
+    if (t.dataset.edit) return actions.editColour(t.dataset.edit);
     if (t.dataset.pal) return actions.usePalette(t.dataset.pal);
     if (t.dataset.col) return actions.applyColour(t.dataset.col);
     if (t.dataset.way) return actions.setWay(t.dataset.way);
-    if (t.dataset.ready) return actions.setReady(t.dataset.ready);
+    if (t.dataset.kind) return actions.setShapeKind(t.dataset.kind);
     if (t.dataset.eye) {
       const l = app.doc.layers.find((x) => x.id === t.dataset.eye);
       if (l) { l.visible = !l.visible; actions.change(); }

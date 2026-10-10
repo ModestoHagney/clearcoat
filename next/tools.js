@@ -1,11 +1,11 @@
 // Clearcoat, new screen: what the pointer does on the sheet.
 //
-// Shape tool: click points to draw a closed outline; it becomes a fill layer
+// Pen tool: click points to draw a closed outline; it becomes a fill layer
 // with shape 'path' (see ../js/shapes.js and the engine's fillShapePath).
 // Select tool: click a layer to select it and drag to move it; a selected
 // shape shows its points, which drag, and a dot on every line, which bends
 // it. Clicking a line adds a point, right-clicking a point removes it.
-// Ready-made tool: drag out a circle, box or triangle (the engine's own fill
+// Shape tool: drag out a circle, box or triangle (the engine's own fill
 // shapes; a selected one resizes by its corners). Band tool: a start and an
 // end make a straight stripe of a set width, as an ordinary editable shape.
 
@@ -79,8 +79,8 @@ export function initTools(app, env) {
     let box = evenBox(rubber.a, rubber.b, even);
     if (box.w < 4 || box.h < 4) box = { x: rubber.a.x - 150, y: rubber.a.y - 150, w: 300, h: 300 }; // a plain click
     const layer = createFillLayer(app.colour);
-    layer.shape = app.ready;
-    layer.name = READY[app.ready] + ' ' + (app.doc.layers.filter(l => isBox(l) && l.shape === app.ready).length + 1);
+    layer.shape = app.shapeKind;
+    layer.name = READY[app.shapeKind] + ' ' + (app.doc.layers.filter(l => isBox(l) && l.shape === app.shapeKind).length + 1);
     layer.rx = box.x; layer.ry = box.y; layer.rw = box.w; layer.rh = box.h;
     addLayer(layer);
   }
@@ -144,7 +144,7 @@ export function initTools(app, env) {
   function down(e, s) {
     const p = screenToDoc(s.x, s.y);
     if (app.picking) { env.picked(p); return; }
-    if (app.tool === 'ready') { rubber = { a: p, b: p }; return; }
+    if (app.tool === 'shape') { rubber = { a: p, b: p }; return; }
     if (app.tool === 'band') {
       if (band && !band.pressed) { band.b = bandEnd(p, e); finishBand(); return; } // the second click
       const a = snapToPieces(p, e);
@@ -152,7 +152,7 @@ export function initTools(app, env) {
       requestDraw();
       return;
     }
-    if (app.tool === 'shape') {
+    if (app.tool === 'pen') {
       if (closable(s) || (e.detail >= 2 && draft && draft.length >= 3)) { finish(); return; }
       (draft || (draft = [])).push(nextPoint(p, e.shiftKey));
       requestDraw();
@@ -183,7 +183,7 @@ export function initTools(app, env) {
 
   function move(e, s) {
     const p = screenToDoc(s.x, s.y);
-    if (app.tool === 'shape') { cursor = nextPoint(p, e.shiftKey); requestDraw(); return; }
+    if (app.tool === 'pen') { cursor = nextPoint(p, e.shiftKey); requestDraw(); return; }
     if (rubber) { rubber.b = p; rubber.even = e.shiftKey; requestDraw(); return; }
     if (band) { band.b = bandEnd(p, e); requestDraw(); return; }
     if (!drag) return;
@@ -249,7 +249,7 @@ export function initTools(app, env) {
 
   // → true when the key was used
   function key(e) {
-    if (app.tool === 'shape') {
+    if (app.tool === 'pen') {
       if (e.key === 'Enter') { if (!finish()) env.say('Click at least three points first'); return true; }
       if (e.key === 'Backspace') { if (draft && draft.length) { draft.pop(); requestDraw(); env.refreshChrome(); } return true; }
       if (e.key === 'Escape') {
@@ -258,7 +258,7 @@ export function initTools(app, env) {
         return true;
       }
     }
-    if (e.key === 'Escape' && (app.picking || app.tool === 'ready' || app.tool === 'band')) {
+    if (e.key === 'Escape' && (app.picking || app.tool === 'shape' || app.tool === 'band')) {
       if (app.picking) env.picked(null);
       else if (band) { band = null; requestDraw(); }
       else env.setTool('select');
@@ -271,10 +271,10 @@ export function initTools(app, env) {
 
   const hint = () => {
     if (app.picking) return 'Click a colour on the sheet · Esc cancels';
-    if (app.tool === 'ready') return 'Drag to draw · Shift keeps it even';
+    if (app.tool === 'shape') return 'Drag to draw · Shift keeps it even';
     if (app.tool === 'band') return band ? 'Click the end · Shift holds 45°' : 'Click the start, then the end · snaps to panel edges';
     if (app.tool === 'select' && selBox()) return 'Drag a corner to resize · Shift keeps it even';
-    if (app.tool === 'shape') return draft && draft.length ? 'Enter to finish · Backspace undoes a point · Shift holds 45°' : 'Click points to draw · Shift holds 45°';
+    if (app.tool === 'pen') return draft && draft.length ? 'Enter to finish · Backspace undoes a point · Shift holds 45°' : 'Click points to draw · Shift holds 45°';
     if (selShape()) return 'Drag a point · drag a dot to bend · click a line to add a point';
     return 'Space-drag to pan · wheel to zoom';
   };
@@ -298,7 +298,7 @@ export function initTools(app, env) {
       ctx.beginPath(); ctx.rect(q.x - r, q.y - r, r * 2, r * 2); ctx.fill(); ctx.stroke();
     };
     ctx.lineJoin = 'round';
-    if (app.tool === 'shape' && draft && draft.length) {
+    if (app.tool === 'pen' && draft && draft.length) {
       const pts = cursor ? [...draft, cursor] : draft;
       path(pts, false);
       ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3.5; ctx.stroke();
@@ -315,8 +315,8 @@ export function initTools(app, env) {
     if (rubber) {
       const b = evenBox(rubber.a, rubber.b, rubber.even), A = onScreen(b), B = onScreen({ x: b.x + b.w, y: b.y + b.h });
       ctx.beginPath();
-      if (app.ready === 'ellipse') ctx.ellipse((A.x + B.x) / 2, (A.y + B.y) / 2, (B.x - A.x) / 2, (B.y - A.y) / 2, 0, 0, Math.PI * 2);
-      else if (app.ready === 'triangle') { ctx.moveTo((A.x + B.x) / 2, A.y); ctx.lineTo(B.x, B.y); ctx.lineTo(A.x, B.y); ctx.closePath(); }
+      if (app.shapeKind === 'ellipse') ctx.ellipse((A.x + B.x) / 2, (A.y + B.y) / 2, (B.x - A.x) / 2, (B.y - A.y) / 2, 0, 0, Math.PI * 2);
+      else if (app.shapeKind === 'triangle') { ctx.moveTo((A.x + B.x) / 2, A.y); ctx.lineTo(B.x, B.y); ctx.lineTo(A.x, B.y); ctx.closePath(); }
       else ctx.rect(A.x, A.y, B.x - A.x, B.y - A.y);
       ctx.fillStyle = app.colour; ctx.globalAlpha = 0.55; ctx.fill(); ctx.globalAlpha = 1;
       ctx.strokeStyle = accent; ctx.lineWidth = 1.5; ctx.stroke();

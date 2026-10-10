@@ -16,7 +16,7 @@ import { saveToIracing, paintFilenames, validCustid } from '../js/iracing.js';
 import { initUI } from './ui.js';
 import { initTools, isShape, moveLayer } from './tools.js';
 
-export const VERSION = 'v0.68-pieces.10 · stage 2';
+export const VERSION = 'v0.68-pieces.11 · stage 2';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -40,7 +40,7 @@ export const app = {
   theme: 'system',
   colour: '#111214',                  // what the next new shape is filled with
   clipboard: null,                    // a copied layer
-  ready: 'ellipse',                   // which ready-made shape the tool draws
+  shapeKind: 'ellipse',               // which ready-made shape the Shape tool draws
   bandWidth: 60,                      // px on the sheet
   picking: false,                     // the next click on the sheet picks a colour
   ways: { Hex: true, RGB: false },    // which colour read-outs the Colour panel shows
@@ -476,7 +476,7 @@ const actions = {
     requestDraw();
     ui.refresh();
   },
-  setReady(kind) { app.ready = kind; ui.refresh(); },
+  setShapeKind(kind) { app.shapeKind = kind; requestDraw(); ui.refreshChrome(); },
   setBandWidth(n) { app.bandWidth = Math.max(2, Math.min(800, Math.round(n) || 60)); requestDraw(); },
   hint: () => (tools ? tools.hint() : ''),
 
@@ -656,8 +656,8 @@ window.addEventListener('keydown', (e) => {
   if (k === 'delete' || k === 'backspace') { actions.remove(); return; }
   if (k === 'escape') { actions.select(null); return; }
   if (k === 'v') actions.setTool('select');
-  else if (k === 'l') actions.setTool('shape');
-  else if (k === 'c') actions.setTool('ready');
+  else if (k === 'p') actions.setTool('pen');
+  else if (k === 's') actions.setTool('shape');
   else if (k === 'b') actions.setTool('band');
   else if (k === 'i') actions.pickColour();
   else if (k === 'f') fit();
