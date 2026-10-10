@@ -537,6 +537,25 @@ export function initTools(app, env) {
       ctx.strokeStyle = accent; ctx.lineWidth = 1.5; ctx.stroke();
     };
     const outline = (pts) => { ctx.beginPath(); pts.forEach((q, i) => { const a = onScreen(q); i ? ctx.lineTo(a.x, a.y) : ctx.moveTo(a.x, a.y); }); ctx.closePath(); };
+    if (app.mode === 'paint') {
+      // Nothing is painted off the sheet, so a layer out there (or the part of
+      // one that hangs over the edge) would go missing: its outline is drawn
+      // there, dashed, to find it and bring it back by.
+      const off = (q) => q.x < 0 || q.y < 0 || q.x > SIZE || q.y > SIZE;
+      const A = onScreen({ x: 0, y: 0 }), B = onScreen({ x: SIZE, y: SIZE });
+      for (const l of app.doc.layers) {
+        if (!l.visible || l.specOnly) continue;
+        const pts = isShape(l) ? l.pts : isBox(l) ? boxOutline(l.shape, l.rx, l.ry, l.rw, l.rh) : l.img ? (l.corners && l.corners.length === 4 ? l.corners : layerCorners(l)) : null;
+        if (!pts || !pts.some(off)) continue;
+        ctx.save();
+        ctx.beginPath(); ctx.rect(-1e5, -1e5, 2e5, 2e5); ctx.rect(A.x, A.y, B.x - A.x, B.y - A.y); ctx.clip('evenodd'); // everywhere but the sheet
+        path(pts, true);
+        ctx.setLineDash([5, 4]);
+        ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3; ctx.stroke();
+        ctx.strokeStyle = '#5b6472'; ctx.lineWidth = 1.25; ctx.stroke();
+        ctx.restore();
+      }
+    }
     if (app.mode === 'finish') {
       // an area paints nothing, so it is drawn here: tinted, dashed. Whatever
       // the finish is about to apply to gets a solid outline.

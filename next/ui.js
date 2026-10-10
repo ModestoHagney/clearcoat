@@ -764,7 +764,7 @@ export function initUI(app, actions, version) {
       ['Undo, redo', 'Ctrl+Z, Ctrl+Y'], ['Save', 'Ctrl+S'], ['This list', 'F1'],
     ].map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join('') + '</table>',
   });
-  const about = () => ask({ title: 'Clearcoat', ok: 'Close', cancel: null, body: `<div class="note">New screen, ${esc(version)}</div><div class="note"><a href="../">Open the original screen</a></div>` });
+  const about = () => ask({ title: 'Clearcoat', ok: 'Close', cancel: null, body: `<div class="note">New screen, ${esc(version)}</div><div class="note">Built on <a href="https://github.com/OblivionsPeak/clearcoat" target="_blank" rel="noopener">Clearcoat by OblivionsPeak</a></div><div class="note"><a href="../">Open the original screen</a></div>` });
 
   // ---------- clicks ----------
   const run = (act) => {
