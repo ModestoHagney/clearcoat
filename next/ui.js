@@ -4,8 +4,8 @@
 
 import { pieces, hue } from './map.js';
 import { TEXT_FONTS, GOOGLE_FONTS } from '../js/engine.js';
-import { FINISHES, finishName, finishList, layerColour, isArea } from '../js/finish.js';
-import { renderBall } from '../js/shaderball.js';
+import { FINISHES, finishName, finishLabel, finishList, layerColour, isArea, readFinish, presetOf } from '../js/finish.js';
+import { renderTile } from './preview.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -148,7 +148,7 @@ export function initUI(app, actions, version) {
     live.innerHTML = `<i></i>${paused ? 'Live paused' : 'Live'}`;
     live.title = paused ? 'Click to reconnect to the iRacing folder' : 'Send every change to the car in iRacing';
     for (const key of PANELS) panels[key].hidden = !app.show[key] || (key === 'colour' && app.mode !== 'paint');
-    $('f-ball') && app.mode !== 'finish' && $('f-ball').remove();
+
     $('dock').hidden = ![...$('dock').children].some((p) => !p.hidden);
   }
 
@@ -218,25 +218,47 @@ export function initUI(app, actions, version) {
       const on = t && t.kind === f.kind && (f.kind === 'colour' ? t.colour === f.colour : t.id === f.id);
       const layer = f.kind === 'colour' ? null : app.doc.layers.find((l) => l.id === f.id);
       const sw = f.kind === 'colour' ? `background:${esc(f.colour)}` : f.kind === 'area' ? 'background:var(--accent-soft);border-style:dashed' : swatch(layer);
-      const what = f.kind === 'colour' ? `${finishName(f.material)}` : `${esc(f.name)} · ${finishName(f.material)}`;
+      const what = f.kind === 'colour' ? finishLabel(f.material, f.params) : `${esc(f.name)} · ${finishLabel(f.material, f.params)}`;
       const tag = f.kind === 'colour' ? (f.used ? 'colour' : 'unused') : f.kind;
       return `<div class="row${on ? ' sel' : ''}" data-fin="${f.kind}:${esc(key)}"><span class="sw" style="${sw}"></span><span class="name">${what}</span><span class="tags"><i>${tag}</i></span><button class="eye" data-finx="${f.kind}:${esc(key)}" title="Back to gloss" aria-label="Remove this finish">${svg('close')}</button></div>`;
     });
     return rows.join('') + '<div class="note">Everything else is Gloss</div>';
   }
+  // the colour the preview is shown in: the target's own, or neutral grey
+  // for an area (it paints nothing) or a picture
+  function targetColour() {
+    const t = app.ftarget;
+    if (!t) return '#9aa0ab';
+    if (t.kind === 'colour') return t.colour;
+    const layer = app.doc.layers.find((l) => l.id === t.id);
+    return (t.kind === 'layer' && layer && layerColour(layer)) || '#9aa0ab';
+  }
+  // the preview and the finish's name, redrawn in place while a slider moves
+  function drawTile() {
+    const c = $('f-tile'), now = c && actions.finishNow();
+    if (!now) return;
+    try { renderTile(c, now.material, now.params, targetColour()); } catch { c.hidden = true; }
+    const name = $('f-label');
+    if (name) name.textContent = finishLabel(now.material, now.params);
+  }
   function finishHtml() {
     const t = app.ftarget, d = app.doc;
     if (!t) return '<div class="note">Click a colour or a layer on the sheet</div>';
     const layer = t.kind === 'colour' ? null : d.layers.find((l) => l.id === t.id);
-    // an area has no colour of its own (it paints nothing): show its finish on neutral grey
-    const colour = t.kind === 'colour' ? t.colour : (t.kind === 'layer' && layer && layerColour(layer)) || '#9aa0ab';
-    const now = actions.finishNow() || 'gloss';
-    const label = t.kind === 'colour' ? `<span class="dot" style="background:${esc(colour)}"></span>Everything this colour` : t.kind === 'area' ? esc(layer ? layer.name : 'Area') : `Just ${esc(layer ? layer.name : 'this layer')}`;
+    const now = actions.finishNow() || { material: 'gloss', params: null };
+    const f = readFinish(now.material, now.params), preset = presetOf(f);
+    const label = t.kind === 'colour' ? `<span class="dot" style="background:${esc(t.colour)}"></span>Everything this colour` : t.kind === 'area' ? esc(layer ? layer.name : 'Area') : `Just ${esc(layer ? layer.name : 'this layer')}`;
     // a shape or text can be finished with its whole colour, or by itself
     const canScope = (t.kind === 'colour' && t.layerId) || (t.kind === 'layer' && layer && layerColour(layer));
     const scope = !canScope ? '' : `<div class="seg"><button data-scope="colour" aria-pressed="${t.kind === 'colour'}">All this colour</button><button data-scope="layer" aria-pressed="${t.kind === 'layer'}">Just this layer</button></div>`;
-    return `<div class="fhead"><canvas id="f-ball" data-finish="${esc(now)}" data-colour="${esc(colour)}" aria-hidden="true"></canvas><div class="ftarget">${label}<b>${finishName(now)}</b></div></div>` + scope +
-      `<div class="finishes">${FINISHES.map((k) => `<button data-finish="${k}" aria-pressed="${k === now}">${finishName(k)}</button>`).join('')}</div>` +
+    const range = (id, min, max, v) => `<input id="${id}" type="range" min="${min}" max="${max}" value="${Math.round(v)}">`;
+    return '<canvas id="f-tile" class="ftile" width="472" height="176" aria-hidden="true"></canvas>' +
+      `<div class="ftarget">${label}<b id="f-label"></b></div>` + scope +
+      `<div class="finishes">${FINISHES.map((k) => `<button data-finish="${k}" aria-pressed="${k === preset}">${finishName(k)}</button>`).join('')}</div>` +
+      field('Metallic', range('fn-met', 0, 255, f.met)) + field('Roughness', range('fn-rough', 0, 255, f.rough)) + field('Clearcoat', range('fn-clear', 0, 255, f.clear)) +
+      (preset ? '' : '<div class="acts"><button class="btn" data-act="resetFinish" title="Put the three sliders back">Reset</button></div>') +
+      `<label class="switch" title="Specks or chips that catch the light, over this finish">Sparkle<input id="fn-sparkle" type="checkbox"${f.sparkle ? ' checked' : ''}></label>` +
+      (!f.sparkle ? '' : field('Amount', range('fn-amount', 1, 60, f.sparkle.amount)) + field('Size', range('fn-size', 1, 12, f.sparkle.size)) + field('Strength', range('fn-strength', 0, 100, f.sparkle.strength))) +
       (t.kind === 'area' && layer ? `<label class="switch" title="The same area on the twin panel too, or across the centreline">Mirrored<input id="f-mirrored" type="checkbox"${layer.mirrored ? ' checked' : ''}></label>` : '');
   }
 
@@ -287,8 +309,7 @@ export function initUI(app, actions, version) {
     panels.layers.querySelector('.body').innerHTML = inMap ? piecesHtml() : inFinish ? finishesHtml() : layersHtml();
     panels.props.querySelector('.body').innerHTML = inMap ? pieceHtml() : inFinish ? finishHtml() : propsHtml();
     panels.colour.querySelector('.body').innerHTML = colourHtml();
-    const ball = $('f-ball'); // the preview: the chosen finish on a ball of the target's colour
-    if (ball) { try { renderBall(ball, ball.dataset.finish, ball.dataset.colour); } catch { ball.hidden = true; } }
+    drawTile();
     const cur = panels.layers.querySelector('.row.sel');
     if (inMap && cur) cur.scrollIntoView({ block: 'nearest' });
   }
@@ -314,6 +335,9 @@ export function initUI(app, actions, version) {
   panels.props.addEventListener('input', (e) => {
     const t = e.target;
     const layer = app.doc.layers.find((x) => x.id === app.sel);
+    // Finish mode's sliders: the finish's numbers; the preview follows in place
+    const fn = /^fn-(met|rough|clear|amount|size|strength)$/.exec(t.id || '');
+    if (fn) { actions.tweakFinish(fn[1], +t.value); drawTile(); return; }
     // plain settings: the control's id names the layer setting it sets
     const m = /^f-(fx-)?(fontSize|outlineWidth|outlineColor|letterSpacing|curve|rotation|shadow|shadowColor|shadowDX|shadowDY|text)$/.exec(t.id || '');
     if (m && layer) {
@@ -377,6 +401,8 @@ export function initUI(app, actions, version) {
   panels.props.addEventListener('toggle', (e) => { if (e.target.id === 'f-more') moreOpen = e.target.open; }, true);
   panels.props.addEventListener('change', (e) => {
     const id = e.target.id;
+    if (id === 'fn-sparkle') return actions.tweakFinish('sparkle', e.target.checked);
+    if (/^fn-/.test(id)) return refresh(); // a slider let go: Reset comes or goes, the list's name updates
     if (id === 'f-mirrored') return actions.mirror();
     if (id === 'f-font') return actions.setFont(e.target.value);
     if (id === 'f-italic') { actions.setProp('italic', e.target.checked); return; }

@@ -208,11 +208,12 @@ dialog.wide { width: min(720px, calc(100% - 32px)); }
 
 /* Finish mode */
 .seg { display: flex; gap: 6px; padding: 6px; }
-.fhead { display: flex; align-items: center; gap: 12px; padding: 6px; }
-.fhead canvas { width: 76px; height: 76px; flex: none; border-radius: 50%; }
-.ftarget { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; color: var(--muted); font-size: 12px; }
-.ftarget b { flex-basis: 100%; color: var(--fg); font-size: 15px; font-weight: 600; }
+.ftile { display: block; width: calc(100% - 12px); height: auto; margin: 6px 6px 2px; }
+.ftarget { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; padding: 6px 6px 2px; color: var(--muted); font-size: 12px; }
+.ftarget b { margin-left: auto; color: var(--fg); font-size: 14px; font-weight: 600; }
 .finishes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding: 6px; }
 .finishes button { padding: 6px 2px; border: 1px solid var(--line); border-radius: 7px; font-size: 12px; }
 .finishes button:hover { background: var(--hover); }
 .finishes button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+/* Properties (and the Finish panel in its place) may run longer than the lists; the dock scrolls if they do not all fit */
+.panel[data-panel="props"] .body { max-height: 70vh; }

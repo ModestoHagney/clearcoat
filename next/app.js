@@ -22,12 +22,13 @@ import { initTools, isShape, moveLayer, setShape } from './tools.js';
 import { LIBRARY, libraryItemToLayerSource } from '../js/library.js';
 import { createFillLayer } from '../js/engine.js';
 import { moved } from '../js/shapes.js';
-import { withFinishes, setRule, ruleFor, layerColour, isArea, hasOwnFinish } from '../js/finish.js';
+import { withFinishes, setRule, ruleFor, layerColour, isArea, hasOwnFinish, readFinish, writeFinish, presetOf, FINISHES, SPARKLE } from '../js/finish.js';
+import { MATERIALS } from '../js/engine.js';
 import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.25 · stage 5';
+export const VERSION = 'v0.68-pieces.26 · stage 5';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -587,21 +588,48 @@ const actions = {
     const t = app.ftarget;
     return t && (t.kind === 'layer' || t.kind === 'area') ? app.doc.layers.find(l => l.id === t.id) || null : null;
   },
-  // the finish the target has now
+  // the finish the target has now, as the engine stamps it: { material, params }
   finishNow() {
     const t = app.ftarget, l = actions.finishLayer();
     if (!t) return null;
-    if (t.kind === 'colour') return (ruleFor(app.doc, t.colour) || { material: 'gloss' }).material;
-    return l ? l.material || 'gloss' : null;
+    if (t.kind === 'colour') { const r = ruleFor(app.doc, t.colour); return { material: r ? r.material : 'gloss', params: (r && r.params) || null }; }
+    return l ? { material: l.material || 'gloss', params: l.matParams || null } : null;
   },
-  setFinish(key) {
+  applyFinish({ material, params }) {
     const t = app.ftarget, l = actions.finishLayer();
-    if (!t) return;
-    if (t.kind === 'colour') setRule(app.doc, t.colour, key);
-    else if (l) { l.material = key; l.finishOwn = true; l.matParams = null; }
-    else return;
-    app.finishKind = key === 'gloss' ? app.finishKind : key;
+    if (!t) return false;
+    if (t.kind === 'colour') setRule(app.doc, t.colour, material, params);
+    else if (l) { l.material = material; l.matParams = params; l.finishOwn = true; }
+    else return false;
+    return true;
+  },
+  // one of the six: its three numbers, keeping whatever sparkle is on
+  setFinish(key) {
+    const now = actions.finishNow();
+    if (!now || !MATERIALS[key]) return;
+    const m = MATERIALS[key], cur = readFinish(now.material, now.params);
+    if (!actions.applyFinish(writeFinish({ met: m.met, rough: m.rough, clear: m.clear, sparkle: cur.sparkle }, key))) return;
+    app.finishKind = key;
     change({ now: true });
+  },
+  // a slider or the Sparkle switch. part: met | rough | clear | sparkle | amount | size | strength
+  tweakFinish(part, value) {
+    const now = actions.finishNow();
+    if (!now) return;
+    const f = readFinish(now.material, now.params);
+    if (part === 'sparkle') f.sparkle = value ? { ...SPARKLE } : null;
+    else if (part === 'amount' || part === 'size' || part === 'strength') { if (!f.sparkle) return; f.sparkle[part] = value; }
+    else f[part] = value;
+    // it keeps the name of the finish it started from while its numbers are moved
+    if (!actions.applyFinish(writeFinish(f, presetOf(readFinish(now.material, now.params)) || now.material))) return;
+    change(part === 'sparkle' ? { now: true } : { panels: false });
+  },
+  // the three sliders back to where the named finish has them; sparkle stays
+  resetFinish() {
+    const now = actions.finishNow();
+    if (!now) return;
+    const key = FINISHES.includes(now.material) ? now.material : 'gloss', m = MATERIALS[key];
+    if (actions.applyFinish(writeFinish({ met: m.met, rough: m.rough, clear: m.clear, sparkle: readFinish(now.material, now.params).sparkle }, key))) change({ now: true });
   },
   // "all of this colour" or "just this layer", for a target that came from a shape or text
   finishScope(scope) {
@@ -611,7 +639,7 @@ const actions = {
     else if (scope === 'colour' && t.kind === 'layer') {
       const l = actions.finishLayer(), c = l && layerColour(l);
       if (!c) return;
-      if (l.finishOwn || hasOwnFinish(l)) { l.finishOwn = false; l.material = 'gloss'; change({ now: true }); } // it follows its colour again
+      if (l.finishOwn || hasOwnFinish(l)) { l.finishOwn = false; l.material = 'gloss'; l.matParams = null; change({ now: true }); } // it follows its colour again
       app.ftarget = { kind: 'colour', colour: c, layerId: l.id };
     }
     requestDraw();

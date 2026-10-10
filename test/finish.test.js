@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 globalThis.document = {
   createElement: () => ({ width: 0, height: 0, getContext: () => null }),
 };
-const { finishOf, baseFinish, withFinishes, setRule, finishList, ruleFor } = await import('../js/finish.js');
+const { finishOf, baseFinish, withFinishes, setRule, finishList, ruleFor, readFinish, writeFinish, finishLabel, presetOf, SPARKLE } = await import('../js/finish.js');
 const { createDoc, createFillLayer, serializeDoc, deserializeDoc, cleanFinishRules } = await import('../js/engine.js');
 
 function doc() {
@@ -73,9 +73,9 @@ test('finishList: rules with how much they cover, then layers and areas with the
   const area = createFillLayer('#000000'); area.name = 'Area 1'; area.specOnly = true; area.material = 'pearl';
   d.layers.push(area);
   assert.deepEqual(finishList(d), [
-    { kind: 'colour', colour: '#111214', material: 'matte', used: 2 },
-    { kind: 'layer', id: d.layers[2].id, name: 'Red', material: 'candy' },
-    { kind: 'area', id: area.id, name: 'Area 1', material: 'pearl' },
+    { kind: 'colour', colour: '#111214', material: 'matte', params: null, used: 2 },
+    { kind: 'layer', id: d.layers[2].id, name: 'Red', material: 'candy', params: null },
+    { kind: 'area', id: area.id, name: 'Area 1', material: 'pearl', params: null },
   ]);
 });
 
@@ -90,4 +90,50 @@ test('rules and own-finish marks survive save and load; junk rules are dropped',
   assert.equal(back.layers[1].finishOwn, undefined);
   assert.deepEqual(cleanFinishRules([{ color: 'red', material: 'matte' }, { color: '#000000', material: 'nope' }, { color: '#ABCDEF', material: 'satin' }, { color: '#abcdef', material: 'matte' }]),
     [{ color: '#abcdef', material: 'satin' }]);
+});
+
+test('a finish reads as three numbers and optional sparkle, and writes back to what the engine stamps', () => {
+  assert.deepEqual(readFinish('matte', null), { met: 0, rough: 230, clear: 60, sparkle: null });
+  assert.equal(presetOf(readFinish('matte', null)), 'matte');
+  // untouched preset: its name, no params
+  assert.deepEqual(writeFinish(readFinish('matte', null)), { material: 'matte', params: null });
+  // a slider moved: still called by the finish it came from, with its own numbers
+  assert.deepEqual(writeFinish({ met: 0, rough: 200, clear: 60, sparkle: null }, 'matte'), { material: 'matte', params: { met: 0, rough: 200, clear: 60 } });
+  // moved onto another preset's numbers, it is that preset
+  assert.deepEqual(writeFinish({ met: 0, rough: 120, clear: 150, sparkle: null }, 'matte'), { material: 'satin', params: null });
+});
+
+test('sparkle sits on top of any finish: specks at size 1, chips above', () => {
+  const matte = readFinish('matte', null);
+  const fine = writeFinish({ ...matte, sparkle: { ...SPARKLE } });
+  assert.deepEqual(fine, { material: 'flake', params: { met: 0, rough: 230, clear: 60, density: 18, contrast: 100 } });
+  const coarse = writeFinish({ ...matte, sparkle: { amount: 30, size: 5, strength: 60 } });
+  assert.deepEqual(coarse, { material: 'glitter', params: { met: 0, rough: 230, clear: 60, density: 30, scale: 5, contrast: 60 } });
+  // and reads back as the same finish with the same sparkle
+  assert.deepEqual(readFinish(coarse.material, coarse.params), { ...matte, sparkle: { amount: 30, size: 5, strength: 60 } });
+  assert.deepEqual(readFinish(fine.material, fine.params).sparkle, { amount: 18, size: 1, strength: 100 });
+});
+
+test('labels: a preset, a preset with sparkle, tweaked numbers, an old finish', () => {
+  assert.equal(finishLabel('matte', null), 'Matte');
+  const s = writeFinish({ ...readFinish('pearl', null), sparkle: { ...SPARKLE } });
+  assert.equal(finishLabel(s.material, s.params), 'Pearl + sparkle');
+  assert.equal(finishLabel('matte', { met: 10, rough: 200, clear: 60 }), 'Custom');
+  assert.equal(finishLabel('carbon', null), 'Carbon');
+});
+
+test('a colour rule carries tweaked numbers and sparkle to its layers and the base coat', async () => {
+  const d = doc();
+  const f = writeFinish({ ...readFinish('matte', null), sparkle: { ...SPARKLE } });
+  setRule(d, '#111214', f.material, f.params);
+  setRule(d, '#ffffff', 'gloss', { met: 0, rough: 20, clear: 255 }); // gloss, made a little smoother
+  const shown = withFinishes(d);
+  assert.equal(shown.layers[0].material, 'flake');
+  assert.deepEqual(shown.layers[0].matParams, f.params);
+  assert.deepEqual([shown.baseMaterial, shown.baseMatParams], ['gloss', { met: 0, rough: 20, clear: 255 }]);
+  d.layers.pop();
+  const back = await deserializeDoc(JSON.parse(JSON.stringify(serializeDoc(d))));
+  assert.deepEqual(back.finishRules, d.finishRules);
+  setRule(d, '#ffffff', 'gloss'); // plain gloss again: no rule
+  assert.equal(ruleFor(d, '#ffffff'), null);
 });

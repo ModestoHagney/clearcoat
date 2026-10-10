@@ -181,7 +181,7 @@ export function createDoc() {
     templateBold: true,         // thicken 1px linework
     customFonts: [],            // { name, data (base64) } — uploaded fonts travel with the project
     googleFonts: [],            // names of Google fonts added by name, beyond the built-in list
-    finishRules: [],            // { color, material }: every shape or text of that colour gets that finish (see finish.js)
+    finishRules: [],            // { color, material, params? }: every shape or text of that colour gets that finish (see finish.js)
     regionMap: null,            // parsed clearcoat-regions/1 map (see regions.js)
     drivers: [],                // driver variants { id, name, number, custid, enabled } (see variants.js)
     paintMask: null,            // greyscale canvas from the template's Mask layer: paintable = white (zones.js)
@@ -1634,7 +1634,14 @@ export function cleanFinishRules(rules) {
   const seen = new Set();
   return rules
     .filter(r => r && /^#[0-9a-f]{6}$/i.test(r.color || '') && MATERIALS[r.material])
-    .map(r => ({ color: r.color.toLowerCase(), material: r.material }))
+    .map(r => {
+      const out = { color: r.color.toLowerCase(), material: r.material };
+      // the finish's own numbers, when it has been tweaked or carries sparkle
+      const p = {};
+      for (const k of ['met', 'rough', 'clear', 'density', 'scale', 'contrast']) if (r.params && Number.isFinite(r.params[k])) p[k] = r.params[k];
+      if (Object.keys(p).length) out.params = p;
+      return out;
+    })
     .filter(r => !seen.has(r.color) && seen.add(r.color));
 }
 
