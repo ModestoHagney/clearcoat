@@ -73,6 +73,12 @@ const KINDS = SHAPES;
 // hidden for now: Chrome's own colour pop-up has both. Set this to true to
 // bring them back (Colour panel and Pattern colour alike).
 const TYPED_COLOURS = false;
+// A pattern's Size and Spacing sliders are finer at the low end, where a
+// pixel matters most: the slider runs 0 to 1000 and the value goes with its
+// square. [least, most] in px on the sheet.
+const CURVED = { size: [10, 400], gap: [0, 400] };
+const toSlider = (k, v) => Math.round(1000 * Math.sqrt(Math.max(0, Math.min(1, (v - CURVED[k][0]) / (CURVED[k][1] - CURVED[k][0])))));
+const fromSlider = (k, s) => Math.round(CURVED[k][0] + (CURVED[k][1] - CURVED[k][0]) * (s / 1000) ** 2);
 const hexOf = (v) => (/^#?[0-9a-f]{6}$/i.test(String(v).trim()) ? '#' + String(v).trim().replace('#', '').toLowerCase() : null);
 const rgbOf = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(', ');
 const hexOfRgb = (v) => {
@@ -213,8 +219,8 @@ export function initUI(app, actions, version) {
         cols.map((c, k) => `<div class="field wide"><span style="visibility:hidden" aria-hidden="true">Pattern colour</span><span class="pair"><input data-patc="${k}" id="f-pat-c${k}" type="color" value="${esc(c)}" aria-label="Colour ${k + 2} of the pattern">${minus('data-patcdrop', k, 'colour')}</span></div>`).join('') +
         (TYPED_COLOURS && app.ways.Hex ? field('Hex', `<input data-pat="hex" id="f-pat-hex" class="mono" type="text" maxlength="7" spellcheck="false" value="${col}">`) : '') +
         (TYPED_COLOURS && app.ways.RGB ? field('RGB', `<input data-pat="rgb" id="f-pat-rgb" class="mono" type="text" spellcheck="false" value="${rgbOf(col)}">`) : '') +
-        field('Size', range('f-pat-size', 10, 400, Math.round(mo.size))) +
-        field('Spacing', range('f-pat-gap', 0, 400, Math.round(mo.gap))) +
+        field('Size', range('f-pat-size', 0, 1000, toSlider('size', mo.size))) +
+        field('Spacing', range('f-pat-gap', 0, 1000, toSlider('gap', mo.gap))) +
         field('Stagger', range('f-pat-stagger', 0, 100, Math.round(mo.stagger))) +
         field('Turn', range('f-pat-turn', -180, 180, Math.round(mo.turn))) +
         `<label class="switch" title="Each copy differs a little. The roll is kept with the livery.">Random<input id="f-pat-random" type="checkbox"${mo.random ? ' checked' : ''}></label>` +
@@ -444,7 +450,7 @@ export function initUI(app, actions, version) {
     }
     if (t.dataset.patc !== undefined) { actions.patternColour(+t.dataset.patc, t.value); return; }
     const pat = /^f-pat-(size|gap|stagger|turn|rSize|rPos|rTurn)$/.exec(t.id || '');
-    if (pat) { actions.tweakMotif(pat[1], +t.value); return; }
+    if (pat) { actions.tweakMotif(pat[1], CURVED[pat[1]] ? fromSlider(pat[1], +t.value) : +t.value); return; }
     // plain settings: the control's id names the layer setting it sets
     const m = /^f-(fx-)?(fontSize|outlineWidth|outlineColor|letterSpacing|curve|rotation|shadow|shadowColor|shadowDX|shadowDY|text)$/.exec(t.id || '');
     if (m && layer) {
