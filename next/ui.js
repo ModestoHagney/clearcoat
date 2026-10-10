@@ -76,7 +76,7 @@ const TYPED_COLOURS = false;
 // A pattern's Size and Spacing sliders are finer at the low end, where a
 // pixel matters most: the slider runs 0 to 1000 and the value goes with its
 // square. [least, most] in px on the sheet.
-const CURVED = { size: [10, 400], gap: [0, 400] };
+const CURVED = { size: [10, 400], gap: [0, 200] };
 const toSlider = (k, v) => Math.round(1000 * Math.sqrt(Math.max(0, Math.min(1, (v - CURVED[k][0]) / (CURVED[k][1] - CURVED[k][0])))));
 const fromSlider = (k, s) => Math.round(CURVED[k][0] + (CURVED[k][1] - CURVED[k][0]) * (s / 1000) ** 2);
 const hexOf = (v) => (/^#?[0-9a-f]{6}$/i.test(String(v).trim()) ? '#' + String(v).trim().replace('#', '').toLowerCase() : null);
