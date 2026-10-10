@@ -157,12 +157,14 @@ export function initUI(app, actions, version) {
     return rows.join('');
   }
   const field = (label, html) => `<label class="field"><span>${label}</span>${html}</label>`;
-  const colourField = (id, c) => field('Colour', `<span class="pair"><input data-colour="pick" id="${id}" type="color" value="${esc(c)}"><input data-colour="hex" id="${id}-hex" class="mono" type="text" maxlength="7" spellcheck="false" value="${esc(c)}"></span>`);
+  // Colour lives in the Colour panel only. If that panel has been hidden, say
+  // where it went, since nothing here sets a colour any more.
+  const colourNote = () => (app.show.colour ? '' : '<div class="acts"><button class="btn" data-act="show:colour">Show the Colour panel</button></div>');
   function propsHtml() {
-    if (app.sel === 'base') return colourField('f-base', app.doc.baseColor);
+    if (app.sel === 'base') return colourNote() || '<div class="note">Its colour is in the Colour panel</div>';
     const l = app.doc.layers.find((x) => x.id === app.sel);
     if (!l) return '<div class="note">Nothing selected</div>';
-    const colour = l.type === 'fill' && hexOf(l.color || '') ? colourField('f-colour', l.color) : '';
+    const colour = l.type === 'fill' || l.type === 'text' ? colourNote() : '';
     const isText = l.type === 'text', isPic = (isText || l.type === 'image') && !l.corners;
     const range = (id, min, max, v) => `<input id="${id}" type="range" min="${min}" max="${max}" value="${v}">`;
     const fx = l.fx || {};
@@ -171,7 +173,7 @@ export function initUI(app, actions, version) {
     const main = !isText ? colour :
       field('Text', `<input id="f-text" type="text" value="${esc(l.text)}">`) +
       field('Font', `<select id="f-font">${fonts.map((f) => opt(f, f, f === l.font)).join('')}${opt('__google', 'Google font by name…', false)}${opt('__upload', 'Upload a font file…', false)}</select>`) +
-      colourField('f-colour', hexOf(l.textColor || '') || '#ffffff') +
+      colour +
       field('Size', range('f-fontSize', 40, 400, l.fontSize || 160));
     const acts = l.locked ? '' :
       `<label class="switch" title="Paint it on the twin panel too, or across the centreline (Ctrl+M)">Mirrored<input id="f-mirrored" type="checkbox"${l.mirrored ? ' checked' : ''}></label>` +
@@ -478,7 +480,7 @@ export function initUI(app, actions, version) {
   // ---------- clicks ----------
   const run = (act) => {
     if (!act) return;
-    if (act.startsWith('show:')) { const k = act.slice(5); app.show[k] = !app.show[k]; actions.change({ panels: false }); return; }
+    if (act.startsWith('show:')) { const k = act.slice(5); app.show[k] = !app.show[k]; actions.redraw(); return; } // a view choice: nothing in the livery changes
     if (act.startsWith('theme:')) return actions.setTheme(act.slice(6));
     if (act === 'shortcuts') return shortcuts();
     if (act === 'about') return about();
@@ -529,7 +531,7 @@ export function initUI(app, actions, version) {
           next ? next.before(p) : $('dock').append(p);
         }
       }
-      drawChrome();
+      refresh(); // Properties mentions the Colour panel when it is hidden
     }
   });
 

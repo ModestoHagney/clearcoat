@@ -25,7 +25,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.23 · stage 4';
+export const VERSION = 'v0.68-pieces.24 · stage 4';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -678,6 +678,7 @@ const actions = {
   },
   setShapeKind(kind) { app.shapeKind = kind; requestDraw(); ui.refreshChrome(); },
   setBandWidth(n) { app.bandWidth = Math.max(2, Math.min(800, Math.round(n) || 60)); requestDraw(); },
+  redraw() { requestDraw(); ui.refresh(); },
   hint: () => (app.mode === 'map' ? (mapTools ? mapTools.hint() : '') : tools ? tools.hint() : ''),
 
   // ---- layers ----
