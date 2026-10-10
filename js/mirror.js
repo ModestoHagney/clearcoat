@@ -6,13 +6,36 @@
 // the original screen), plus free shapes, which mirror point by point.
 
 import { isRegionLayer, clipPolys, newId } from './engine.js';
-import { frameFrom, framed } from './shapes.js';
+import { frameFrom, framed, contains } from './shapes.js';
 import { MIRROR_KINDS, regionAt, regionById, centerLine, mirrorAcross, mirrorPointKind, guessMirrorKind, trimShape } from './regions.js';
 
 // the piece (not one of the kit's number / sponsor zones) at a point
 export const pieceAt = (map, x, y) => (map ? regionAt({ regions: map.regions.filter(r => !r.kind) }, x, y) : null);
 
 const isPath = (l) => l.type === 'fill' && l.shape === 'path' && Array.isArray(l.pts) && l.pts.length >= 3;
+
+// The panel a layer is on: the one under its middle. A free shape whose
+// middle is not on the shape itself (a C-shaped panel that has been filled,
+// say: the middle of its box is a wheel arch, or another panel) is asked
+// where most of it lies instead.
+const homes = new WeakMap(); // such a shape's points → its panel's id (the points are replaced when it is edited)
+function homeOf(map, sel, cx, cy) {
+  if (!isPath(sel) || contains(sel.pts, cx, cy)) return pieceAt(map, cx, cy) || regionAt(map, cx, cy);
+  const known = homes.has(sel.pts) && regionById(map, homes.get(sel.pts));
+  if (known) return known;
+  const votes = new Map(), N = 8;
+  for (let j = 0; j < N; j++) {
+    for (let i = 0; i < N; i++) {
+      const x = sel.rx + (i + 0.5) / N * sel.rw, y = sel.ry + (j + 0.5) / N * sel.rh;
+      const r = contains(sel.pts, x, y) ? pieceAt(map, x, y) : null;
+      if (r) votes.set(r, (votes.get(r) || 0) + 1);
+    }
+  }
+  const best = [...votes].sort((a, b) => b[1] - a[1])[0];
+  if (!best) return pieceAt(map, cx, cy) || regionAt(map, cx, cy);
+  homes.set(sel.pts, best[0].id);
+  return best[0];
+}
 
 // The doc as it is painted: every layer switched to Mirrored is followed by
 // its mirror image. The images are made here, each time, from the layer as it
@@ -46,7 +69,7 @@ export function mirrorLayer(map, sel) {
   const at = ats[0]; // a layer trimmed to several panels is mirrored by the first
   const cx = at ? at.x : isRegionLayer(sel) ? sel.rx + sel.rw / 2 : sel.x;
   const cy = at ? at.y : isRegionLayer(sel) ? sel.ry + sel.rh / 2 : sel.y;
-  const src = pieceAt(map, cx, cy) || regionAt(map, cx, cy);
+  const src = at ? pieceAt(map, cx, cy) || regionAt(map, cx, cy) : homeOf(map, sel, cx, cy);
   if (!src) return { error: `${sel.name} is not on a panel.` };
   // a paired panel mirrors onto its twin; one with a centreline (bonnet,
   // roof, bumpers) mirrors onto itself across that line
