@@ -555,7 +555,7 @@ export function initUI(app, actions, version) {
         (grid ? `<div class="tiles">${grid}</div>` : `<div class="note">${empty}</div>`);
     };
     const p = ask({ title: 'Library', ok: null, cancel: 'Close' });
-    dlg.classList.add('wide');
+    dlg.classList.add('wide', 'lib');
     draw();
     $('dlg-body').onclick = (e) => {
       const t = e.target.closest('button');
@@ -569,7 +569,7 @@ export function initUI(app, actions, version) {
     };
     await p;
     $('dlg-body').onclick = null;
-    dlg.classList.remove('wide');
+    dlg.classList.remove('wide', 'lib');
     return picked && (picked.kind === 'file' || picked.item) ? picked : null;
   }
   // Merging layers that cannot simply become one shape: what should happen?
