@@ -446,7 +446,8 @@ export function createFillLayer(color = '#e8e6e1') {
     opacity: 1,
     material: 'gloss',
     color,
-    shape: 'rect',         // rect | ellipse | triangle | diamond | stripe
+    shape: 'rect',         // rect | ellipse | triangle | diamond | stripe | path
+    pts: null,             // shape 'path': the outline, [{ x, y, c? }] in doc space (see shapes.js)
     fillType: 'solid',     // solid | linear | radial
     color2: '#101114',     // gradient end color
     colorMid: null,        // optional third gradient stop (hex) — null = two-stop
@@ -458,9 +459,20 @@ export function createFillLayer(color = '#e8e6e1') {
 }
 
 // shape silhouette for a fill layer, built inside an arbitrary rect (the
-// layer's region, or a thumbnail box)
-export function fillShapePath(shape, rx, ry, rw, rh) {
+// layer's region, or a thumbnail box). A 'path' shape is drawn from its own
+// points instead (doc space; the rect is then just its bounding box): each
+// point may carry `c`, the bend handle of the line leaving it.
+export function fillShapePath(shape, rx, ry, rw, rh, pts) {
   const p = new Path2D();
+  if (shape === 'path' && Array.isArray(pts) && pts.length >= 3) {
+    p.moveTo(pts[0].x, pts[0].y);
+    pts.forEach((a, i) => {
+      const b = pts[(i + 1) % pts.length];
+      if (a.c) p.quadraticCurveTo(a.c.x, a.c.y, b.x, b.y); else p.lineTo(b.x, b.y);
+    });
+    p.closePath();
+    return p;
+  }
   switch (shape) {
     case 'ellipse':
       p.ellipse(rx + rw / 2, ry + rh / 2, rw / 2, rh / 2, 0, 0, Math.PI * 2);
@@ -613,7 +625,7 @@ function drawLayerContent(ctx, layer) {
       ctx.translate(-(rx + rw / 2), -(ry + rh / 2));
     }
     ctx.fillStyle = fillPaintStyle(ctx, layer, rx, ry, rw, rh);
-    ctx.fill(fillShapePath(layer.shape, rx, ry, rw, rh));
+    ctx.fill(fillShapePath(layer.shape, rx, ry, rw, rh, layer.pts));
     ctx.restore();
   } else if (layer.type === 'carpattern') {
     // the kit's own design, recoloured — full sheet, clipped to the crop window
@@ -1490,6 +1502,7 @@ export function serializeDoc(doc) {
       fx: l.fx || null,
       color: l.color,
       shape: l.shape, fillType: l.fillType, color2: l.color2, gradAngle: l.gradAngle,
+      pts: Array.isArray(l.pts) ? l.pts.map(q => (q.c ? { x: q.x, y: q.y, c: { x: q.c.x, y: q.c.y } } : { x: q.x, y: q.y })) : undefined,
       colorMid: l.colorMid ?? null, midPos: l.midPos ?? 0.5,
       src: l.src,
       // car pattern: which kit design + its three slot colours
@@ -1518,6 +1531,14 @@ export function serializeDoc(doc) {
       cornerZoom: Number.isFinite(l.cornerZoom) ? l.cornerZoom : null,
     })),
   };
+}
+
+// a saved 'path' outline, cleaned: finite points only, and none if too few
+function shapePts(pts) {
+  if (!Array.isArray(pts)) return null;
+  const ok = (q) => q && Number.isFinite(q.x) && Number.isFinite(q.y);
+  const out = pts.filter(ok).map(q => (ok(q.c) ? { x: q.x, y: q.y, c: { x: q.c.x, y: q.c.y } } : { x: q.x, y: q.y }));
+  return out.length >= 3 ? out : null;
 }
 
 export function loadImage(src) {
@@ -1633,6 +1654,7 @@ export async function deserializeDoc(data) {
           paintOnly: !!l.paintOnly,
           lumSpec: normalizeLumSpec(l.lumSpec),
           shape: l.shape || 'rect',
+          pts: shapePts(l.pts),
           fillType: l.fillType || 'solid',
           color2: l.color2 || '#101114',
           colorMid: l.colorMid || null,

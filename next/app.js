@@ -1,12 +1,12 @@
 // Clearcoat, new screen: the state, the canvas, and what the menus do.
-// Stage 1 of the refresh — a shell on the existing plumbing (../js): it loads
-// a template, shows the pieces, sets an exact base colour, opens projects
-// from the original screen and saves to iRacing. The drawing tools, Map and
-// Finish modes arrive in later stages.
+// The refresh, built in stages on the existing plumbing (../js). Stage 1: load
+// a template, show the pieces, an exact base colour, open projects from the
+// original screen, save to iRacing. Stage 2: shapes you draw and keep editing
+// (./tools.js), with exact colours. Map and Finish modes come later.
 
 import {
   SIZE, GOOGLE_FONTS, createDoc, renderPaint, renderSpec, templateOverlay,
-  serializeDoc, deserializeDoc, regenerateText, layerCorners,
+  serializeDoc, deserializeDoc, regenerateText, layerCorners, newId,
 } from '../js/engine.js';
 import { canvasToTGA } from '../js/tga.js';
 import * as persist from '../js/persist.js';
@@ -14,8 +14,9 @@ import { regionOutline } from '../js/regions.js';
 import { loadTemplate } from '../js/template.js';
 import { saveToIracing, paintFilenames, validCustid } from '../js/iracing.js';
 import { initUI } from './ui.js';
+import { initTools, isShape, moveLayer } from './tools.js';
 
-export const VERSION = 'v0.68-pieces.8 · stage 1';
+export const VERSION = 'v0.68-pieces.9 · stage 2a';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -37,8 +38,10 @@ export const app = {
   canUndo: false,
   canRedo: false,
   theme: 'system',
+  colour: '#111214',                  // what the next new shape is filled with
+  clipboard: null,                    // a copied layer
 };
-let ui = null;
+let ui = null, tools = null;
 
 // ---------- the doc ----------
 
@@ -146,14 +149,16 @@ function draw() {
       ctx.strokeStyle = onLight ? '#101114' : '#ffffff'; ctx.lineWidth = 1.5; ctx.stroke();
     }
   }
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#1f5fe0';
   const sel = doc.layers.find(l => l.id === app.sel);
-  if (sel && sel.visible) {
+  if (sel && sel.visible && !(isShape(sel) && app.tool === 'select')) { // a shape shows its own outline and points
     try {
       trace(layerCorners(sel));
-      ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#1f5fe0';
+      ctx.strokeStyle = accent;
       ctx.lineWidth = 1.5; ctx.stroke();
     } catch { /* a layer with no picture yet has no box */ }
   }
+  if (tools) tools.drawOverlay(ctx, accent);
   $('zoom-readout').textContent = Math.round(app.view.zoom * 100) + '%';
   $('empty').hidden = !!(doc.template || doc.layers.length);
 }
@@ -217,12 +222,14 @@ function resetHistory() {
 
 // Every edit ends here. panels: false when the edit came from a control in a
 // panel that must not be rebuilt under the user's hand (a colour box, a slider).
-function change({ panels = true } = {}) {
+// now: true for a finished, one-off action (paste, delete, a drag let go), so
+// it is its own undo step instead of merging with whatever comes next.
+function change({ panels = true, now = false } = {}) {
   skipCapture = false; // a real edit after an undo is recorded
   dirty = true;
   requestDraw();
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(runSave, 450);
+  saveTimer = setTimeout(runSave, now ? 0 : 450);
   if (ui) panels ? ui.refresh() : ui.refreshChrome();
 }
 
@@ -306,6 +313,7 @@ const safeName = () => (app.doc.name || 'livery').replace(/[^\w.-]+/g, '_');
 async function setDoc(doc, projectId) {
   await flush();
   syncLineColour(doc);
+  if (tools) tools.cancel();
   app.doc = doc;
   app.projectId = projectId;
   app.sel = 'base';
@@ -317,6 +325,16 @@ async function setDoc(doc, projectId) {
 }
 // lands any pending edit in its own project before the doc is swapped
 const flush = () => (saveTimer ? runSave() : Promise.resolve());
+
+// a copy that shares nothing editable with the original (pictures are shared:
+// they are never changed in place)
+function cloneLayer(l) {
+  const c = { ...l, id: newId() };
+  for (const k of ['pts', 'lassoPts', 'corners', 'clipAt']) if (Array.isArray(l[k])) c[k] = l[k].map(q => (q.c ? { ...q, c: { ...q.c } } : { ...q }));
+  if (Array.isArray(l.clip)) c.clip = l.clip.map(poly => (Array.isArray(poly) ? poly.map(q => ({ ...q })) : { ...poly }));
+  for (const k of ['matParams', 'lumSpec', 'fx', 'cornerPan']) if (l[k]) c[k] = { ...l[k] };
+  return c;
+}
 
 const actions = {
   undo, redo, fit,
@@ -437,6 +455,62 @@ const actions = {
     renderPaint(app.doc).toBlob((b) => { if (b) download(b, safeName() + '.png'); }, 'image/png');
   },
 
+  setTool(id) {
+    if (tools) tools.cancel();
+    app.tool = id;
+    cv.classList.toggle('draw', id === 'shape');
+    requestDraw();
+    ui.refresh();
+  },
+  hint: () => (tools ? tools.hint() : ''),
+
+  // ---- layers ----
+  selected: () => app.doc.layers.find(l => l.id === app.sel) || null,
+  copy() {
+    const l = actions.selected();
+    if (l) { app.clipboard = cloneLayer(l); ui.refreshChrome(); }
+  },
+  paste(from = app.clipboard) {
+    if (!from) return;
+    const l = cloneLayer(from);
+    if (!/ copy$/.test(l.name)) l.name += ' copy';
+    moveLayer(l, 40, 40);
+    // a second paste lands beside the first, not on top of it
+    if (from === app.clipboard) moveLayer(app.clipboard, 40, 40);
+    app.doc.layers.push(l);
+    app.sel = l.id;
+    change({ now: true });
+  },
+  duplicate() { const l = actions.selected(); if (l) actions.paste(cloneLayer(l)); },
+  remove() {
+    const i = app.doc.layers.findIndex(l => l.id === app.sel);
+    if (i === -1) return;
+    app.doc.layers.splice(i, 1);
+    app.sel = null;
+    change({ now: true });
+  },
+  order(dir) { // +1 forward, -1 back
+    const L = app.doc.layers, i = L.findIndex(l => l.id === app.sel), j = i + dir;
+    if (i === -1 || j < 0 || j >= L.length) return;
+    [L[i], L[j]] = [L[j], L[i]];
+    change({ now: true });
+  },
+  forward: () => actions.order(+1),
+  backward: () => actions.order(-1),
+  nudge(dx, dy) {
+    const l = actions.selected();
+    if (!l || l.locked) return;
+    moveLayer(l, dx, dy);
+    change({ panels: false });
+  },
+  setColour(hex) {
+    const l = actions.selected();
+    if (!l) return;
+    l.color = hex;
+    app.colour = hex;
+    change({ panels: false });
+  },
+
   setTheme(theme) {
     app.theme = theme;
     if (theme === 'system') delete document.documentElement.dataset.theme;
@@ -446,7 +520,7 @@ const actions = {
     ui.refreshChrome();
   },
 
-  select(id) { app.sel = id; requestDraw(); ui.refresh(); },
+  select(id) { app.sel = id === 'base' || app.doc.layers.some(l => l.id === id) ? id : null; requestDraw(); ui.refresh(); },
   setBase(hex) { app.doc.baseColor = hex; syncLineColour(app.doc); change({ panels: false }); },
 };
 
@@ -458,23 +532,33 @@ cv.addEventListener('wheel', (e) => {
   const r = cv.getBoundingClientRect();
   setZoom(app.view.zoom * Math.exp(-e.deltaY * 0.0015), e.clientX - r.left, e.clientY - r.top);
 }, { passive: false });
+const local = (e) => { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
 cv.addEventListener('pointerdown', (e) => {
-  if (e.button !== 1 && !(e.button === 0 && spaceHeld)) return;
-  e.preventDefault();
-  pan = { x: e.clientX, y: e.clientY };
-  cv.setPointerCapture(e.pointerId);
-  cv.classList.add('panning');
+  if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur(); // keys go to the sheet now
+  if (e.button === 1 || (e.button === 0 && spaceHeld)) {
+    e.preventDefault();
+    pan = { x: e.clientX, y: e.clientY };
+    cv.setPointerCapture(e.pointerId);
+    cv.classList.add('panning');
+  } else if (e.button === 0) {
+    cv.setPointerCapture(e.pointerId);
+    tools.down(e, local(e));
+  }
 });
 cv.addEventListener('pointermove', (e) => {
-  if (!pan) return;
+  if (!pan) { tools.move(e, local(e)); return; }
   app.view.x += (e.clientX - pan.x) / app.view.zoom;
   app.view.y += (e.clientY - pan.y) / app.view.zoom;
   pan = { x: e.clientX, y: e.clientY };
   requestDraw();
 });
-const endPan = () => { pan = null; cv.classList.remove('panning'); };
+const endPan = () => { if (!pan) tools.up(); pan = null; cv.classList.remove('panning'); };
 cv.addEventListener('pointerup', endPan);
 cv.addEventListener('pointercancel', endPan);
+// right-click on a shape's point removes it; anywhere else the stage's menu opens
+cv.addEventListener('contextmenu', (e) => {
+  if (tools.context(local(e))) { e.preventDefault(); e.stopPropagation(); }
+});
 
 // Shortcuts stay alive after a slider or colour box is used; only a box you
 // type in swallows keys.
@@ -488,11 +572,27 @@ window.addEventListener('keydown', (e) => {
   if ($('dlg').open || typing()) return;
   const mod = e.ctrlKey || e.metaKey, k = (e.key || '').toLowerCase();
   if (e.code === 'Space') { spaceHeld = true; cv.classList.add('pan'); e.preventDefault(); return; }
+  if (!mod && tools.key(e)) { e.preventDefault(); return; }
   if (mod && k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
   if (mod && k === 'y') { e.preventDefault(); redo(); return; }
   if (mod && k === 's') { e.preventDefault(); actions.save(); return; }
+  if (mod && k === 'c') { actions.copy(); return; }
+  if (mod && k === 'v') { e.preventDefault(); actions.paste(); return; }
+  if (mod && k === 'd') { e.preventDefault(); actions.duplicate(); return; }
+  if (mod && k === ']') { e.preventDefault(); actions.forward(); return; }
+  if (mod && k === '[') { e.preventDefault(); actions.backward(); return; }
   if (mod) return;
-  if (k === 'f') fit();
+  if (k.startsWith('arrow')) {
+    const step = e.shiftKey ? 10 : 1;
+    e.preventDefault();
+    actions.nudge(k === 'arrowleft' ? -step : k === 'arrowright' ? step : 0, k === 'arrowup' ? -step : k === 'arrowdown' ? step : 0);
+    return;
+  }
+  if (k === 'delete' || k === 'backspace') { actions.remove(); return; }
+  if (k === 'escape') { actions.select(null); return; }
+  if (k === 'v') actions.setTool('select');
+  else if (k === 'l') actions.setTool('shape');
+  else if (k === 'f') fit();
   else if (k === '+' || k === '=') actions.zoomBy(1.25);
   else if (k === '-') actions.zoomBy(0.8);
   else if (k === '?') ui.shortcuts();
@@ -537,6 +637,11 @@ async function boot() {
   } catch { /* a bad autosave must not stop the app opening */ }
   syncLineColour(app.doc);
   ui = initUI(app, actions, VERSION);
+  tools = initTools(app, {
+    screenToDoc, docToScreen, change, requestDraw,
+    select: actions.select, setTool: actions.setTool,
+    say: ui.say, refreshChrome: ui.refreshChrome,
+  });
   ensureDocFonts();
   fit();
   resetHistory();

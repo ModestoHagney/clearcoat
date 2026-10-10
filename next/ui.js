@@ -21,16 +21,16 @@ const I = { // 20x20 line icons
 };
 const svg = (name) => `<svg viewBox="0 0 20 20">${I[name]}</svg>`;
 
-// [id, name, hint, built yet?] — the strip shows the whole Paint set so the
-// layout is the final one; tools from later stages are dimmed.
+// [id, name, built yet?] — the strip shows the whole Paint set so the layout
+// is the final one; tools from later stages are dimmed.
 const TOOLS = [
-  ['select', 'Select', 'Space-drag to pan · wheel to zoom', true],
-  ['shape', 'Shape', '', false],
-  ['ready', 'Circle, box, triangle', '', false],
-  ['band', 'Straight band', '', false],
-  ['text', 'Text', '', false],
-  ['image', 'Image or logo', '', false],
-  ['piece', 'Fill a piece', '', false],
+  ['select', 'Select (V)', true],
+  ['shape', 'Shape (L)', true],
+  ['ready', 'Circle, box, triangle', false],
+  ['band', 'Straight band', false],
+  ['text', 'Text', false],
+  ['image', 'Image or logo', false],
+  ['piece', 'Fill a piece', false],
 ];
 const LATER = 'later stage';
 const PANELS = ['layers', 'props'];
@@ -48,6 +48,12 @@ export function initUI(app, actions, version) {
 
   // ---------- menus ----------
   // [label, shortcut, action, { off, tick }]
+  const hasLayer = () => app.sel !== null && app.sel !== 'base';
+  const layerItems = () => [
+    ['Copy', 'Ctrl+C', 'copy', { off: !hasLayer() }], ['Paste', 'Ctrl+V', 'paste', { off: !app.clipboard }], ['Duplicate', 'Ctrl+D', 'duplicate', { off: !hasLayer() }], 0,
+    ['Bring forward', 'Ctrl+]', 'forward', { off: !hasLayer() }], ['Send backward', 'Ctrl+[', 'backward', { off: !hasLayer() }], 0,
+    ['Delete', 'Del', 'remove', { off: !hasLayer() }],
+  ];
   const menuDefs = () => ({
     File: [
       ['New', '', 'newLivery'], ['Open…', '', 'open'], ['Save', 'Ctrl+S', 'save'], 0,
@@ -56,8 +62,8 @@ export function initUI(app, actions, version) {
     ],
     Edit: [
       ['Undo', 'Ctrl+Z', 'undo', { off: !app.canUndo }], ['Redo', 'Ctrl+Y', 'redo', { off: !app.canRedo }], 0,
-      ['Copy', 'Ctrl+C', '', { off: true }], ['Paste', 'Ctrl+V', '', { off: true }], ['Duplicate', 'Ctrl+D', '', { off: true }],
-      ['Merge layers', '', '', { off: true }], ['Delete', 'Del', '', { off: true }],
+      ...layerItems(), 0,
+      ['Merge layers', '', '', { off: true }],
     ],
     View: [
       ['Layers', '', 'show:layers', { tick: app.show.layers }], ['Properties', '', 'show:props', { tick: app.show.props }], 0,
@@ -85,9 +91,9 @@ export function initUI(app, actions, version) {
     drawMenus();
     $('modes').innerHTML = [['map', 'Map'], ['paint', 'Paint'], ['finish', 'Finish']].map(([id, name]) =>
       `<button data-mode="${id}" aria-pressed="${app.mode === id}"${id === 'paint' ? '' : ` disabled title="Comes in a ${LATER}"`}>${name}</button>`).join('');
-    $('tools').innerHTML = TOOLS.map(([id, name, , ready]) =>
+    $('tools').innerHTML = TOOLS.map(([id, name, ready]) =>
       `<button class="tool" data-tool="${id}" data-tip="${ready ? name : `${name} · ${LATER}`}" aria-label="${name}" aria-pressed="${app.tool === id}"${ready ? '' : ' disabled'}>${svg(id)}</button>`).join('');
-    $('hint').textContent = (TOOLS.find((t) => t[0] === app.tool) || [])[2] || '';
+    $('hint').textContent = actions.hint();
     const live = $('btn-live');
     live.setAttribute('aria-pressed', app.live);
     live.classList.toggle('bad', app.live && app.liveBad);
@@ -117,7 +123,9 @@ export function initUI(app, actions, version) {
     }
     const l = app.doc.layers.find((x) => x.id === app.sel);
     if (!l) return '<div class="note">Nothing selected</div>';
-    return field('Name', `<input id="f-name" type="text" value="${esc(l.name)}">`) +
+    const colour = l.type === 'fill' && /^#[0-9a-f]{6}$/i.test(l.color || '')
+      ? field('Colour', `<span class="pair"><input id="f-colour" type="color" value="${esc(l.color)}"><input id="f-colour-hex" class="mono" type="text" maxlength="7" spellcheck="false" value="${esc(l.color)}"></span>`) : '';
+    return colour + field('Name', `<input id="f-name" type="text" value="${esc(l.name)}">`) +
       field('Opacity', `<input id="f-opacity" type="range" min="0" max="100" value="${Math.round((l.opacity ?? 1) * 100)}">`);
   }
   function drawPanels() {
@@ -140,6 +148,13 @@ export function initUI(app, actions, version) {
       const sw = panels.layers.querySelector('[data-layer="base"] .sw');
       if (sw) sw.style.background = v;
       actions.setBase(v);
+    } else if ((t.id === 'f-colour' || t.id === 'f-colour-hex') && layer) {
+      const v = hex(t.value);
+      if (!v) return;
+      if (t.id === 'f-colour') $('f-colour-hex').value = v; else $('f-colour').value = v;
+      const sw = panels.layers.querySelector(`[data-layer="${CSS.escape(layer.id)}"] .sw`);
+      if (sw) sw.style.background = v;
+      actions.setColour(v);
     } else if (t.id === 'f-opacity' && layer) {
       layer.opacity = t.value / 100;
       actions.change({ panels: false });
@@ -217,7 +232,12 @@ export function initUI(app, actions, version) {
   }
   const shortcuts = () => ask({
     title: 'Shortcuts', ok: 'Close', cancel: null,
-    body: '<table><tr><td>Pan</td><td>Space-drag, middle-drag</td></tr><tr><td>Zoom</td><td>Wheel, + and −</td></tr><tr><td>Fit to screen</td><td>F</td></tr><tr><td>Undo, redo</td><td>Ctrl+Z, Ctrl+Y</td></tr><tr><td>Save</td><td>Ctrl+S</td></tr></table>',
+    body: '<table>' + [
+      ['Pan', 'Space-drag, middle-drag'], ['Zoom', 'Wheel, + and −'], ['Fit to screen', 'F'],
+      ['Select tool, Shape tool', 'V, L'], ['Finish a shape', 'Enter'], ['Undo the last point', 'Backspace'], ['Hold 45°', 'Shift'],
+      ['Copy, paste, duplicate', 'Ctrl+C, V, D'], ['Nudge 1 px, 10 px', 'Arrows, Shift+Arrows'], ['Forward, backward', 'Ctrl+], Ctrl+['], ['Delete', 'Del'],
+      ['Undo, redo', 'Ctrl+Z, Ctrl+Y'], ['Save', 'Ctrl+S'],
+    ].map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join('') + '</table>',
   });
   const about = () => ask({ title: 'Clearcoat', ok: 'Close', cancel: null, body: `<div class="note">New screen, ${esc(version)}</div><div class="note"><a href="../">Open the original screen</a></div>` });
 
@@ -244,7 +264,7 @@ export function initUI(app, actions, version) {
     if (!t || !t.closest('.drop')) closeMenus();
     if (!t || t.disabled) return;
     if (t.dataset.act !== undefined) { closeMenus(); return run(t.dataset.act); }
-    if (t.dataset.tool) { app.tool = t.dataset.tool; return drawChrome(); }
+    if (t.dataset.tool) return actions.setTool(t.dataset.tool);
     if (t.dataset.eye) {
       const l = app.doc.layers.find((x) => x.id === t.dataset.eye);
       if (l) { l.visible = !l.visible; actions.change(); }
@@ -278,7 +298,7 @@ export function initUI(app, actions, version) {
     document.querySelector('.ctx')?.remove();
     const m = document.createElement('div'), box = $('stage').getBoundingClientRect();
     m.className = 'drop ctx';
-    m.innerHTML = [['Paste', 'Ctrl+V', '', { off: true }], 0, ['Fit to screen', 'F', 'fit'], ['Load template…', '', 'pickTemplate']].map(itemHtml).join('');
+    m.innerHTML = [...layerItems(), 0, ['Fit to screen', 'F', 'fit']].map(itemHtml).join('');
     $('stage').append(m);
     m.style.left = Math.max(4, Math.min(e.clientX - box.left, box.width - m.offsetWidth - 4)) + 'px';
     m.style.top = Math.max(4, Math.min(e.clientY - box.top, box.height - m.offsetHeight - 4)) + 'px';
