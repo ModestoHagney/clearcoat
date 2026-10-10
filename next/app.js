@@ -21,7 +21,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.16 · stage 3';
+export const VERSION = 'v0.68-pieces.17 · stage 3';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -859,6 +859,9 @@ async function boot() {
       lastJson = json;
     }
   } catch { /* a bad autosave must not stop the app opening */ }
+  // the sheet may already have been drawn once, from the blank livery this
+  // started with, while the saved one was still loading: draw it again
+  dirty = true;
   syncLineColour(app.doc);
   ui = initUI(app, actions, VERSION);
   tools = initTools(app, {
