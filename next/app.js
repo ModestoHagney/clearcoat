@@ -16,7 +16,7 @@ import { saveToIracing, paintFilenames, validCustid } from '../js/iracing.js';
 import { initUI } from './ui.js';
 import { initTools, isShape, moveLayer } from './tools.js';
 
-export const VERSION = 'v0.68-pieces.11 · stage 2';
+export const VERSION = 'v0.68-pieces.12 · stage 2';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');

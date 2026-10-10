@@ -112,6 +112,12 @@ export function initUI(app, actions, version) {
       opts.innerHTML = `<label class="optrow"><span>Width</span><input id="f-band" type="range" min="4" max="300" value="${app.bandWidth}"><output id="f-band-n" class="num">${app.bandWidth}</output></label>`;
     }
     opts.hidden = app.tool !== 'shape' && app.tool !== 'band';
+    // level with the button it belongs to
+    const btn = $('tools').querySelector('.tool[aria-pressed="true"]');
+    if (btn && !opts.hidden) {
+      const r = btn.getBoundingClientRect();
+      opts.style.top = Math.max(4, r.top + r.height / 2 - $('stage').getBoundingClientRect().top - opts.offsetHeight / 2) + 'px';
+    }
     $('hint').textContent = actions.hint();
     const live = $('btn-live');
     live.setAttribute('aria-pressed', app.live);
