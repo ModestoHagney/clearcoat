@@ -131,7 +131,10 @@ export function initUI(app, actions, version) {
     $('hint').textContent = actions.hint();
     const live = $('btn-live');
     live.setAttribute('aria-pressed', app.live);
-    live.classList.toggle('bad', app.live && app.liveBad);
+    const paused = app.live && app.liveBad;
+    live.classList.toggle('bad', paused);
+    live.innerHTML = `<i></i>${paused ? 'Live paused' : 'Live'}`;
+    live.title = paused ? 'Click to reconnect to the iRacing folder' : 'Send every change to the car in iRacing';
     for (const key of PANELS) panels[key].hidden = !app.show[key] || (key === 'colour' && app.mode !== 'paint');
     $('dock').hidden = ![...$('dock').children].some((p) => !p.hidden);
   }

@@ -21,7 +21,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.15 · stage 3';
+export const VERSION = 'v0.68-pieces.16 · stage 3';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -288,19 +288,26 @@ async function runSave() {
   liveTick();
 }
 
-let liveBusy = false, liveAgain = false;
-async function liveTick() {
+// A live save can fail for a moment and then be fine: the sim holds the paint
+// file open while it reads it. So a failed one is tried again a few times
+// before Live is shown as paused; otherwise that change would never reach the
+// car until the next edit.
+const LIVE_RETRIES = 5;
+let liveBusy = false, liveAgain = false, liveRetry = null;
+async function liveTick(attempt = 0) {
+  clearTimeout(liveRetry);
   if (!app.live) return;
   if (liveBusy) { liveAgain = true; return; }
   liveBusy = true;
   const res = await saveToIracing(app.doc, app.custid, { quiet: true });
   liveBusy = false;
+  if (liveAgain) { liveAgain = false; liveTick(); return; } // a newer change is waiting: send that
+  if (!res.ok && attempt < LIVE_RETRIES) { liveRetry = setTimeout(() => liveTick(attempt + 1), 400); return; }
   if (app.liveBad !== !res.ok) {
     app.liveBad = !res.ok;
-    if (!res.ok) ui.say('Live paused: click Live to reconnect', true);
+    if (!res.ok) ui.say('Live paused. Click Live to reconnect.', true);
     ui.refreshChrome();
   }
-  if (liveAgain) { liveAgain = false; liveTick(); }
 }
 
 // ---------- fonts ----------
@@ -833,6 +840,17 @@ async function boot() {
   app.doc = newDoc();
   app.custid = (await persist.loadSetting('custid').catch(() => '')) || '';
   app.live = !!(await persist.loadSetting('liveSync').catch(() => false)) && persist.fsSupported();
+  if (app.live) {
+    // After a reload the browser wants a click before it lets the page write
+    // to the folder again. Say so on the button, instead of looking live and
+    // sending nothing.
+    let granted = false;
+    try {
+      const h = await persist.getPaintsFolder();
+      granted = !!h && (await h.queryPermission({ mode: 'readwrite' })) === 'granted';
+    } catch { /* treated as not granted */ }
+    app.liveBad = !granted;
+  }
   try {
     const json = await persist.loadBlob('next-autosave');
     if (json) {
