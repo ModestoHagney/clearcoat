@@ -220,11 +220,10 @@ export function initUI(app, actions, version) {
       const layer = f.kind === 'colour' ? null : app.doc.layers.find((l) => l.id === f.id);
       const sw = f.kind === 'colour' ? `background:${esc(f.colour)}` : f.kind === 'area' ? 'background:var(--accent-soft);border-style:dashed' : swatch(layer);
       const what = f.kind === 'colour' ? finishLabel(f.material, f.params) : `${esc(f.name)} · ${finishLabel(f.material, f.params)}`;
-      const tag = f.kind === 'colour' ? 'colour' : f.kind;
       // already the default: nothing to put back
       const plain = f.material === 'gloss' && !f.params;
       const reset = plain ? '' : `<button class="eye" data-findef="${f.kind}:${esc(key)}" title="Back to Gloss, the default" aria-label="Reset this finish to Gloss">${svg('reset')}</button>`;
-      return `<div class="row${on ? ' sel' : ''}" data-fin="${f.kind}:${esc(key)}"><span class="sw" style="${sw}"></span><span class="name">${what}</span><span class="tags"><i>${tag}</i></span>${reset}</div>`;
+      return `<div class="row${on ? ' sel' : ''}" data-fin="${f.kind}:${esc(key)}"><span class="sw" style="${sw}"></span><span class="name">${what}</span>${reset}</div>`;
     });
     return rows.join('');
   }
