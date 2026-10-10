@@ -205,11 +205,13 @@ export function initUI(app, actions, version) {
     if (l.src && l.src.length < 300000 && /^data:image\/[\w+.-]+;base64,[\w+/=]+$/.test(l.src)) return `background-image:url(${l.src})`;
     return 'background:var(--hover)';
   };
+  // a group's own colour down the side of its rows: from its id, so it never changes
+  const groupHue = (id) => hue([...String(id)].reduce((n, ch) => (n * 31 + ch.charCodeAt(0)) % 997, 7));
   function layersHtml() {
     const d = app.doc;
     const picked = new Set(actions.selectedLayers().map((l) => l.id));
     const rows = [...d.layers].reverse().filter((l) => !isArea(l)).map((l) => // an area is Finish mode's, and shows there
-      `<div class="row${picked.has(l.id) ? ' sel' : ''}${l.groupId ? ' grouped' : ''}" data-layer="${esc(l.id)}" draggable="true"><span class="sw" style="${swatch(l)}"></span><span class="name">${esc(l.name)}</span>${l.mirrored ? '<span class="tags"><i title="Mirrored">⇄</i></span>' : ''}<button class="eye${l.visible ? '' : ' off'}" data-eye="${esc(l.id)}" title="Show or hide" aria-label="Show or hide ${esc(l.name)}">${svg('eye')}</button></div>`);
+      `<div class="row${picked.has(l.id) ? ' sel' : ''}${l.groupId ? ' grouped' : ''}" data-layer="${esc(l.id)}" draggable="true"${l.groupId ? ` style="--g:${groupHue(l.groupId)}" title="In a group"` : ''}><span class="sw" style="${swatch(l)}"></span><span class="name">${esc(l.name)}</span>${l.mirrored ? '<span class="tags"><i title="Mirrored">⇄</i></span>' : ''}<button class="rowx" data-del="${esc(l.id)}" title="Delete" aria-label="Delete ${esc(l.name)}">${svg('close')}</button><button class="eye${l.visible ? '' : ' off'}" data-eye="${esc(l.id)}" title="Show or hide" aria-label="Show or hide ${esc(l.name)}">${svg('eye')}</button></div>`);
     rows.push(`<div class="row${app.sel === 'base' ? ' sel' : ''}" data-layer="base"><span class="sw" style="background:${esc(d.baseColor)}"></span><span class="name">Base coat</span></div>`);
     return rows.join('');
   }
@@ -217,22 +219,21 @@ export function initUI(app, actions, version) {
   // A pattern over a shape's paint: what repeats, its own colour, and how.
   // `l`: the shape whose settings show (the first, when several are selected).
   function patternHtml(l) {
-    const keyOf = (sh) => (sh.kind === 'own' ? 'own:' + sh.id : sh.kind), kept = (sh) => (sh.kind === 'own' ? sh.name : null);
-    const mo = l.motif, key = mo ? keyOf(mo) : '', more = mo ? mo.more || [] : [];
+    const mo = l.motif, more = mo ? mo.more || [] : [];
     const range = (id, min, max, v) => `<input id="${id}" type="range" min="${min}" max="${max}" value="${v}">`;
     const col = mo ? esc(hexOf(mo.color || '') || hexOf(l.color || '') || '#ffffff') : '';
     const cols = mo ? mo.colors || [] : [];
-    // one small tile for each shape, one swatch for each colour; all but the first carry a × to take them out
+    // one small tile for each shape, one swatch for each colour, each with a × to take it out (the first colour stays)
     const out = (attr, k, what) => `<button type="button" class="mx" ${attr}="${k}" title="Take this ${what} out" aria-label="Take ${what} ${k + 2} out of the pattern">${svg('close')}</button>`;
-    const tile = (sh, k) => `<span class="mwrap"><span class="mtile" title="${esc(sh.kind === 'own' ? sh.name : KINDS[sh.kind])}">${sh.kind === 'own' ? shapeSvg(sh) : svg(sh.kind)}</span>${k < 0 ? '' : out('data-patdrop', k, 'shape')}</span>`;
-    // The Pattern list turns the pattern on and sets its first shape; it is
-    // always in view. Everything else folds away: the shapes and colours the
-    // copies take turns with (or pick between, when Random is on), a row
-    // each, then how the pattern is laid out.
-    return field('Pattern', `<select id="f-pat">${opt('', 'None', !mo)}${motifOptions(key, mo ? kept(mo) : null)}</select>`) +
-      (!mo ? '' : `<details class="more fold" id="f-patfold"${patOpen ? ' open' : ''}><summary>Pattern settings</summary>` +
-        `<div class="field tiles"><span>Shapes</span><span class="pair wrap">${tile(mo, -1)}${more.map(tile).join('')}` +
-          (more.length < 6 ? `<select id="f-pat-add" class="plus" title="Add another shape: they take turns, or mix when Random is on" aria-label="Add another shape to the pattern">${opt('', '+', true)}${motifOptions('', null)}</select>` : '') + `</span></div>` +
+    const tile = (sh, k) => `<span class="mwrap"><span class="mtile" title="${esc(sh.kind === 'own' ? sh.name : KINDS[sh.kind])}">${sh.kind === 'own' ? shapeSvg(sh) : svg(sh.kind)}</span>${out('data-patdrop', k, 'shape')}</span>`;
+    // Everything about a pattern folds away under one heading. Its shapes and
+    // its colours are a row each: the copies take turns with them, or pick
+    // between them when Random is on. The first shape added turns the pattern
+    // on, and taking the last one out turns it off.
+    const add = `<span class="plusbox" title="Add a shape"><span class="icon" aria-hidden="true">+</span><select id="f-pat-add" aria-label="Add a shape to the pattern">${opt('', 'Add a shape…', true)}${motifOptions('', null)}</select></span>`;
+    return `<details class="more fold" id="f-patfold"${patOpen ? ' open' : ''}><summary>Pattern</summary>` +
+        `<div class="field tiles"><span>Shapes</span><span class="pair wrap">${mo ? tile(mo, -1) + more.map(tile).join('') : ''}${more.length < 6 ? add : ''}</span></div>` +
+      (!mo ? '' :
         `<div class="field tiles"><span>Colours</span><span class="pair wrap"><input class="mini" data-pat="pick" id="f-pat-color" type="color" value="${col}" aria-label="Pattern colour">` +
           cols.map((c, k) => `<span class="mwrap"><input class="mini" data-patc="${k}" id="f-pat-c${k}" type="color" value="${esc(c)}" aria-label="Colour ${k + 2} of the pattern">${out('data-patcdrop', k, 'colour')}</span>`).join('') +
           (cols.length < 6 ? `<button type="button" class="icon" data-act="addPatternColour" title="Add another colour: they take turns, or mix when Random is on" aria-label="Add another colour to the pattern">+</button>` : '') +
@@ -250,8 +251,8 @@ export function initUI(app, actions, version) {
           field('Turn', range('f-pat-rTurn', 0, 100, Math.round(mo.rTurn || 0))) +
           `<div class="acts"><button class="btn" data-act="reshuffle" title="Roll again">Reshuffle</button></div>` +
         `</div>`) +
-        `<label class="switch" title="Leave out the shape's own paint, so what is underneath shows between the pattern">Pattern only<input id="f-pat-only" type="checkbox"${mo.only ? ' checked' : ''}></label>` +
-      `</details>`);
+        `<label class="switch" title="Leave out the shape's own paint, so what is underneath shows between the pattern">Pattern only<input id="f-pat-only" type="checkbox"${mo.only ? ' checked' : ''}></label>`) +
+      `</details>`;
   }
   // what a pattern can repeat or a stamp place: the ready-made shapes, then
   // the library's. `current`: its key; `kept`: a pattern's own shape that has
@@ -572,7 +573,6 @@ export function initUI(app, actions, version) {
     if (id === 'f-mirrored') return actions.mirror();
     if (id === 'f-font') return actions.setFont(e.target.value);
     if (id === 'f-fade') return actions.setFade('on', e.target.checked);
-    if (id === 'f-pat') { if (e.target.value) patOpen = true; return actions.setMotif(e.target.value); }
     if (id === 'f-pat-add') { if (e.target.value) actions.addMotifShape(e.target.value); return; }
     if (id === 'f-pat-only') return actions.tweakMotif('only', e.target.checked);
     if (id === 'f-pat-random') return actions.motifRandom(e.target.checked);
@@ -772,6 +772,7 @@ export function initUI(app, actions, version) {
     if (t.dataset.col) return actions.applyColour(t.dataset.col);
     if (t.dataset.way) return actions.setWay(t.dataset.way);
     if (t.dataset.kind) return actions.setShapeKind(t.dataset.kind);
+    if (t.dataset.del) return actions.removeLayer(t.dataset.del);
     if (t.dataset.eye) {
       const l = app.doc.layers.find((x) => x.id === t.dataset.eye);
       if (l) { l.visible = !l.visible; actions.change(); }

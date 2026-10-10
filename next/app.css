@@ -115,6 +115,10 @@ button:disabled { cursor: default; opacity: .38; }
 .row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row .eye { width: 24px; height: 24px; display: grid; place-items: center; color: var(--muted); border-radius: 5px; flex: none; }
 .row .eye:hover { background: var(--line); }
+.row .rowx { width: 20px; height: 20px; display: grid; place-items: center; color: var(--muted); border-radius: 50%; flex: none; opacity: 0; }
+.row .rowx svg { width: 11px; height: 11px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.row:hover .rowx, .row .rowx:focus-visible { opacity: 1; }
+.row .rowx:hover { background: var(--fg); color: var(--bar); }
 .row .eye svg { width: 15px; height: 15px; }
 .row .eye.off { opacity: .35; }
 .field { display: grid; grid-template-columns: 78px minmax(0, 1fr); align-items: center; gap: 8px; padding: 4px 6px; }
@@ -135,9 +139,11 @@ input[type="color"].mini { width: 24px; height: 24px; }
 .mx { position: absolute; right: -6px; top: -6px; width: 14px; height: 14px; display: grid; place-items: center; border-radius: 50%; background: var(--fg); color: var(--bar); opacity: 0; transition: opacity .12s; }
 .mx svg { width: 8px; height: 8px; fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; }
 .mwrap:hover .mx, .mx:focus-visible { opacity: 1; }
-.pair select.plus { flex: none; width: 24px; height: 24px; padding: 0; border: 0; background: none; color: var(--muted); font-size: 17px; text-align: center; text-align-last: center; appearance: none; cursor: pointer; border-radius: 6px; }
-.pair select.plus:hover { background: var(--hover); color: var(--fg); }
-.pair select.plus option, .pair select.plus optgroup { font-size: 13px; color: var(--fg); background: var(--panel); text-align: left; }
+/* the + that adds a shape: a plain + with the browser's own list laid unseen over it, so the list keeps its usual spacing */
+.plusbox { position: relative; display: inline-grid; place-items: center; width: 24px; height: 24px; flex: none; border-radius: 6px; }
+.plusbox:hover { background: var(--hover); }
+.plusbox .icon { width: 24px; height: 24px; font-size: 17px; line-height: 1; pointer-events: none; }
+.plusbox select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; flex: none; }
 .pair > .icon { width: 24px; height: 26px; flex: none; font-size: 17px; line-height: 1; }
 .pair.wrap .icon { width: 22px; height: 24px; font-size: 17px; line-height: 1; }
 .pair { display: flex; gap: 6px; align-items: center; min-width: 0; }
@@ -246,9 +252,9 @@ dialog.lib .dbody { height: 60vh; } /* the same size whichever tab is open */
 .panel[data-panel="props"] .body { max-height: 70vh; }
 
 /* several layers selected, groups, fades */
-.row.grouped { box-shadow: inset 3px 0 0 var(--accent); }
-.row.grouped.drop-above { box-shadow: inset 3px 0 0 var(--accent), inset 0 2px 0 var(--accent); }
-.row.grouped.drop-below { box-shadow: inset 3px 0 0 var(--accent), inset 0 -2px 0 var(--accent); }
+.row.grouped { box-shadow: inset 3px 0 0 var(--g, var(--accent)); }
+.row.grouped.drop-above { box-shadow: inset 3px 0 0 var(--g, var(--accent)), inset 0 2px 0 var(--accent); }
+.row.grouped.drop-below { box-shadow: inset 3px 0 0 var(--g, var(--accent)), inset 0 -2px 0 var(--accent); }
 .inline { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); white-space: nowrap; }
 .inline input { accent-color: var(--accent); width: 15px; height: 15px; }
 

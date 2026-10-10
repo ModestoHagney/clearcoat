@@ -31,7 +31,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.48';
+export const VERSION = 'v0.68-pieces.49';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -906,31 +906,37 @@ const actions = {
   // ---- patterns: a shape repeated inside a fill ----
   ownShapes: () => library.shapes,
   // '' takes the pattern off; a shape's key puts one on, or swaps what repeats
-  // Every selected shape takes it, with the same settings: the grid is the
-  // sheet's, so together they carry one pattern.
-  setMotif(key) {
-    const ls = patterned();
-    if (!ls.length || !canChange()) return;
-    if (!key) { for (const l of ls) { delete l.motif; delete l.motifFrame; } return change(); }
-    const shape = motifOf(key);
-    if (!shape) return ui.refresh(); // its own shape, no longer in the library: nothing to swap to
-    // everything but what repeats is kept: size, spacing, colours, the random roll
-    // (more shapes included)
-    const { kind, pts, w, h, id, name, ...had } = (ls.find(l => l.motif) || {}).motif || { size: 80, gap: 40, stagger: 0, turn: 0, only: false };
-    for (const l of ls) l.motif = { ...had, ...shape, color: had.color || standsOut(l.color) };
-    change();
-  },
   tweakMotif(key, v) {
     if (eachMotif(() => ({ [key]: v }))) change({ panels: false });
   },
   // more shapes for the pattern to take turns with (or, with Random on, pick between)
+  // Add a shape to the pattern of every selected shape. One with no pattern
+  // yet gets one: a copy of the pattern another selected shape has, so they
+  // carry one pattern (the grid is the sheet's), or else a new one of this shape.
   addMotifShape(key) {
-    const shape = motifOf(key);
-    if (!shape) return ui.refresh();
-    if (eachMotif(m => ({ more: [...(m.more || []), shape].slice(0, 6) }))) change();
+    const ls = patterned(), shape = motifOf(key);
+    if (!ls.length || !canChange()) return;
+    if (!shape) return ui.refresh(); // one of my own, no longer in the library
+    const lead = (ls.find(l => l.motif) || {}).motif;
+    for (const l of ls) {
+      if (!l.motif && !lead) { l.motif = { ...shape, size: 80, gap: 40, stagger: 0, turn: 0, only: false, color: standsOut(l.color) }; continue; }
+      const m = l.motif || lead;
+      l.motif = { ...m, more: [...(m.more || []), shape].slice(0, 6) };
+    }
+    change();
   },
+  // k: which of the extra shapes, or -1 for the first. Without the first the
+  // next one takes its place; without any there is no pattern.
   dropMotifShape(k) {
-    if (eachMotif(m => ({ more: (m.more || []).filter((_, i) => i !== k) }))) change();
+    const ls = patterned().filter(l => l.motif);
+    if (!ls.length || !canChange()) return;
+    for (const l of ls) {
+      const { kind, pts, w, h, id, name, more = [], ...rest } = l.motif;
+      if (k >= 0) l.motif = { ...l.motif, more: more.filter((_, i) => i !== k) };
+      else if (more.length) l.motif = { ...rest, ...more[0], more: more.slice(1) };
+      else { delete l.motif; delete l.motifFrame; }
+    }
+    change();
   },
   // Random: each copy varies by a roll kept with the livery (the seed). The
   // selected shapes share one seed, so they carry one random pattern.
@@ -990,6 +996,15 @@ const actions = {
     change({ now: true });
   },
   duplicate() { const ls = selectedLayers(); if (ls.length) actions.paste(ls.map(cloneLayer)); },
+  // one layer, from the x on its row in the Layers list
+  removeLayer(id) {
+    if (app.mode !== 'paint' || !app.doc.layers.some(l => l.id === id)) return;
+    app.doc.layers = app.doc.layers.filter(l => l.id !== id);
+    if (app.sel === id) app.sel = null;
+    app.sels = app.sels.filter(x => x !== id);
+    pruneGroups();
+    change({ now: true });
+  },
   remove() {
     const gone = new Set(selectedLayers().map(l => l.id));
     if (!gone.size || !canChange()) return;
