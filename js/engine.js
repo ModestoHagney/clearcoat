@@ -1584,6 +1584,9 @@ export function serializeDoc(doc) {
       color: l.color,
       shape: l.shape, fillType: l.fillType, color2: l.color2, gradAngle: l.gradAngle,
       colorRef: l.colorRef || undefined,
+      // painted on its twin panel (or across its centreline) as well; the
+      // mirror image is worked out when painting, see mirror.js withMirrors
+      mirrored: l.mirrored ? true : undefined,
       pts: Array.isArray(l.pts) ? l.pts.map(q => (q.c ? { x: q.x, y: q.y, c: { x: q.c.x, y: q.c.y } } : { x: q.x, y: q.y })) : undefined,
       colorMid: l.colorMid ?? null, midPos: l.midPos ?? 0.5,
       src: l.src,
@@ -1846,6 +1849,7 @@ export async function deserializeDoc(data) {
   const loaded = new Map(doc.layers.map(l => [l.id, l]));
   for (const l of (data.layers || [])) {
     if (!l || !loaded.has(l.id)) continue;
+    if (l.mirrored) loaded.get(l.id).mirrored = true; // any layer type, like the trim
     const ok = (q) => q && Number.isFinite(q.x) && Number.isFinite(q.y);
     const clip = clipPolys(l).map(p => p.filter(ok).map(q => ({ x: q.x, y: q.y }))).filter(p => p.length >= 3);
     if (!clip.length) continue;

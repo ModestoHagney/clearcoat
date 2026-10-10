@@ -13,6 +13,29 @@ export const pieceAt = (map, x, y) => (map ? regionAt({ regions: map.regions.fil
 
 const isPath = (l) => l.type === 'fill' && l.shape === 'path' && Array.isArray(l.pts) && l.pts.length >= 3;
 
+// The doc as it is painted: every layer switched to Mirrored is followed by
+// its mirror image. The images are made here, each time, from the layer as it
+// is now, so editing a mirrored layer moves both sides. A layer whose panel
+// has lost its twin or centreline simply paints one side.
+export function withMirrors(doc) {
+  if (!doc.regionMap || !doc.layers.some(l => l.mirrored)) return doc;
+  const layers = [];
+  for (const l of doc.layers) {
+    layers.push(l);
+    const copy = l.mirrored ? mirrorImage(doc.regionMap, l) : null;
+    if (copy) layers.push(copy);
+  }
+  return { ...doc, layers };
+}
+// one Mirrored layer's other side, or null
+export function mirrorImage(map, layer) {
+  const { copy } = mirrorLayer(map, layer);
+  if (!copy) return null;
+  copy.id = layer.id + '~m'; // steady from one paint to the next
+  copy.mirrored = false;
+  return copy;
+}
+
 // → { copy, dst } (the new layer, and the region it landed on) or { error }
 export function mirrorLayer(map, sel) {
   if (!map) return { error: 'Load a template first.' };

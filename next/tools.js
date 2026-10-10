@@ -159,6 +159,24 @@ export function initTools(app, env) {
     return null;
   }
 
+  // does a doc point fall on this layer's own picture?
+  function onLayer(l, p) {
+    if (isShape(l)) return contains(l.pts, p.x, p.y);
+    if (isRegionLayer(l)) return p.x >= l.rx && p.x <= l.rx + l.rw && p.y >= l.ry && p.y <= l.ry + l.rh;
+    if (!l.img) return false;
+    const q = toLocal(l, p.x, p.y);
+    return Math.abs(q.x) <= l.img.width / 2 && Math.abs(q.y) <= l.img.height / 2;
+  }
+  function mirrorOwnerAt(p) {
+    for (let i = app.doc.layers.length - 1; i >= 0; i--) {
+      const l = app.doc.layers[i];
+      if (!l.mirrored || !l.visible || l.locked) continue;
+      const img = env.mirrorImage(l);
+      if (img && onLayer(img, p)) return l;
+    }
+    return null;
+  }
+
   const closable = (s) => draft && draft.length >= 3 && far(onScreen(draft[0]), s) <= GRAB + 2;
   const nextPoint = (p, shift) => (shift && draft && draft.length ? snapAngle(draft[draft.length - 1], p) : p);
 
@@ -215,7 +233,13 @@ export function initTools(app, env) {
       if (ci !== -1) { drag = { kind: 'size', layer: box, anchor: corners(box)[(ci + 2) % 4] }; return; }
     }
     const hit = layerAt(p);
-    if (!hit) { if (app.sel !== null) env.select(null); return; }
+    if (!hit) {
+      // a click on the mirrored side of a layer selects the layer it belongs to
+      const owner = mirrorOwnerAt(p);
+      if (owner) { if (owner.id !== app.sel) env.select(owner.id); return; }
+      if (app.sel !== null) env.select(null);
+      return;
+    }
     if (hit.id !== app.sel) env.select(hit.id);
     drag = { kind: 'move', layer: hit, start: s, last: p, went: false };
   }
@@ -390,6 +414,15 @@ export function initTools(app, env) {
       if (far(band.a, band.b) > 0) preview(bandPts(band.a, band.b, app.bandWidth));
       square(onScreen(band.a), 4, accent);
       return;
+    }
+    // a Mirrored layer's other side, dashed, so the pair reads as one thing
+    const twin = app.tool === 'select' && selLayer() ? env.mirrorImage(selLayer()) : null;
+    if (twin) {
+      if (isShape(twin)) path(twin.pts, true);
+      else if (isRegionLayer(twin)) outline(corners(twin));
+      else ctx.beginPath();
+      ctx.setLineDash([6, 4]); ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3.5; ctx.stroke();
+      ctx.strokeStyle = accent; ctx.lineWidth = 1.5; ctx.stroke(); ctx.setLineDash([]);
     }
     const box = app.tool === 'select' ? selBox() : null;
     if (box) corners(box).forEach((q) => square(onScreen(q), 4.5, accent));

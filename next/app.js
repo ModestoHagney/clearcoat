@@ -18,10 +18,10 @@ import { saveToIracing, paintFilenames, validCustid } from '../js/iracing.js';
 import { initUI } from './ui.js';
 import { initTools, isShape, moveLayer } from './tools.js';
 import { initMap, syncGuide, guideLayer } from './map.js';
-import { mirrorLayer } from '../js/mirror.js';
+import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.17 · stage 3';
+export const VERSION = 'v0.68-pieces.18 · stage 3';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -103,7 +103,9 @@ function setZoom(z, cx = cv.clientWidth / 2, cy = cv.clientHeight / 2) {
 // ---------- drawing ----------
 
 // the paint as it goes to the car: soft edges mixed the accurate way
-const paint = () => renderPaint(app.doc, { linearEdges: true });
+const paint = () => renderPaint(shown(), { linearEdges: true });
+// the livery with the other side of every Mirrored layer added: what is painted
+const shown = () => withMirrors(app.doc);
 let quick = false, quickTimer = null; // an edit is in full flow: draw fast, tidy up when it pauses
 let dirty = true;       // the paint composite needs re-rendering
 let composite = null;
@@ -126,7 +128,7 @@ function draw() {
   ctx.clearRect(0, 0, w, h);
   // soft edges are mixed the accurate way except while something is being
   // dragged: that mix is too slow to redo on every frame of a drag
-  if (dirty || !composite) { composite = renderPaint(doc, { linearEdges: !quick }); dirty = false; }
+  if (dirty || !composite) { composite = renderPaint(shown(), { linearEdges: !quick }); dirty = false; }
 
   ctx.save();
   ctx.scale(app.view.zoom, app.view.zoom);
@@ -299,7 +301,7 @@ async function liveTick(attempt = 0) {
   if (!app.live) return;
   if (liveBusy) { liveAgain = true; return; }
   liveBusy = true;
-  const res = await saveToIracing(app.doc, app.custid, { quiet: true });
+  const res = await saveToIracing(shown(), app.custid, { quiet: true });
   liveBusy = false;
   if (liveAgain) { liveAgain = false; liveTick(); return; } // a newer change is waiting: send that
   if (!res.ok && attempt < LIVE_RETRIES) { liveRetry = setTimeout(() => liveTick(attempt + 1), 400); return; }
@@ -473,7 +475,7 @@ const actions = {
     if (!persist.fsSupported()) { ui.say('Saving to iRacing needs Chrome or Edge. Use Export TGA instead.', true); return false; }
     if (!validCustid(app.custid) && !await actions.carSetup()) return false;
     if (!await persist.getPaintsFolder().catch(() => null) && !await actions.linkFolder()) return false;
-    const res = await saveToIracing(app.doc, app.custid);
+    const res = await saveToIracing(shown(), app.custid);
     if (res.ok) ui.say(res.backed ? `Saved ${res.paintName}. Your previous paint is kept in clearcoat-backup.` : `Saved ${res.paintName}`);
     else ui.say(res.error, true);
     return res.ok;
@@ -495,7 +497,7 @@ const actions = {
   exportTga() {
     const [paintName, specName] = paintFilenames(app.doc, validCustid(app.custid) ? app.custid : safeName());
     download(canvasToTGA(paint()), paintName);
-    if (specName) download(canvasToTGA(renderSpec(app.doc), { alpha: true }), specName);
+    if (specName) download(canvasToTGA(renderSpec(shown()), { alpha: true }), specName);
     ui.say(specName ? `${paintName} is the paint; ${specName} is the finish map` : `Exported ${paintName}`);
   },
   exportPng() {
@@ -567,15 +569,30 @@ const actions = {
   },
 
   // ---- painting from the map ----
+  // Mirrored: the layer is painted on its twin panel (or across its
+  // centreline) as well, and both sides follow every edit
   mirror() {
     const l = actions.selected();
     if (!l) return;
+    if (!l.mirrored) {
+      const res = mirrorLayer(app.doc.regionMap, l); // only to find out whether it can be
+      if (res.error) { ui.say(res.error, true); ui.refresh(); return; }
+      ui.say(res.dst.mirror ? `Mirrored onto ${res.dst.name}` : `Mirrored across ${res.dst.name}'s centreline`);
+    }
+    l.mirrored = !l.mirrored;
+    change({ now: true });
+  },
+  // the mirrored side becomes a layer of its own, to be changed separately
+  separate() {
+    const l = actions.selected();
+    if (!l || !l.mirrored) return;
     const res = mirrorLayer(app.doc.regionMap, l);
     if (res.error) { ui.say(res.error, true); return; }
+    l.mirrored = false;
+    res.copy.mirrored = false;
     app.doc.layers.splice(app.doc.layers.indexOf(l) + 1, 0, res.copy);
     app.sel = res.copy.id;
     change({ now: true });
-    ui.say(res.dst.mirror ? `Mirrored onto ${res.dst.name}` : `Mirrored across ${res.dst.name}'s centreline`);
   },
   trim() {
     if (!actions.selected()) return;
@@ -869,6 +886,7 @@ async function boot() {
     select: actions.select, setTool: actions.setTool, toolChanged,
     say: ui.say, refreshChrome: ui.refreshChrome,
     endTrim: actions.endTrim,
+    mirrorImage: (l) => (l.mirrored && app.doc.regionMap ? mirrorImage(app.doc.regionMap, l) : null),
     picked(p) { // the eyedropper's click, or null when cancelled
       app.picking = false;
       toolChanged();

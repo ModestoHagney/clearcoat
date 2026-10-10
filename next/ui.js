@@ -72,7 +72,7 @@ export function initUI(app, actions, version) {
   const layerItems = () => [
     ['Copy', 'Ctrl+C', 'copy', { off: !hasLayer() }], ['Paste', 'Ctrl+V', 'paste', { off: !app.clipboard }], ['Duplicate', 'Ctrl+D', 'duplicate', { off: !hasLayer() }], 0,
     ['Bring forward', 'Ctrl+]', 'forward', { off: !hasLayer() }], ['Send backward', 'Ctrl+[', 'backward', { off: !hasLayer() }], 0,
-    ['Mirror', 'Ctrl+M', 'mirror', { off: !hasLayer() }], ['Trim to panels', '', 'trim', { off: !hasLayer() }], 0,
+    ['Mirrored', 'Ctrl+M', 'mirror', { off: !hasLayer(), tick: !!(actions.selected() || {}).mirrored }], ['Trim to panels', '', 'trim', { off: !hasLayer() }], 0,
     ['Delete', 'Del', 'remove', { off: !hasLayer() }],
   ];
   const menuDefs = () => ({
@@ -149,7 +149,7 @@ export function initUI(app, actions, version) {
   function layersHtml() {
     const d = app.doc;
     const rows = [...d.layers].reverse().map((l) =>
-      `<div class="row${l.id === app.sel ? ' sel' : ''}" data-layer="${esc(l.id)}"><span class="sw" style="${swatch(l)}"></span><span class="name">${esc(l.name)}</span><button class="eye${l.visible ? '' : ' off'}" data-eye="${esc(l.id)}" title="Show or hide" aria-label="Show or hide ${esc(l.name)}">${svg('eye')}</button></div>`);
+      `<div class="row${l.id === app.sel ? ' sel' : ''}" data-layer="${esc(l.id)}"><span class="sw" style="${swatch(l)}"></span><span class="name">${esc(l.name)}</span>${l.mirrored ? '<span class="tags"><i title="Mirrored">⇄</i></span>' : ''}<button class="eye${l.visible ? '' : ' off'}" data-eye="${esc(l.id)}" title="Show or hide" aria-label="Show or hide ${esc(l.name)}">${svg('eye')}</button></div>`);
     rows.push(`<div class="row${app.sel === 'base' ? ' sel' : ''}" data-layer="base"><span class="sw" style="background:${esc(d.baseColor)}"></span><span class="name">Base coat</span></div>`);
     return rows.join('');
   }
@@ -162,7 +162,8 @@ export function initUI(app, actions, version) {
     const colour = l.type === 'fill' && hexOf(l.color || '') ? colourField('f-colour', l.color) : '';
     return colour + field('Name', `<input id="f-name" type="text" value="${esc(l.name)}">`) +
       field('Opacity', `<input id="f-opacity" type="range" min="0" max="100" value="${Math.round((l.opacity ?? 1) * 100)}">`) +
-      (l.locked ? '' : `<div class="acts">${trimButtons(l)}<button class="btn" data-act="mirror" title="Copy it to the twin panel, or across the centreline (Ctrl+M)">Mirror</button></div>`);
+      (l.locked ? '' : `<label class="switch" title="Paint it on the twin panel too, or across the centreline (Ctrl+M)">Mirrored<input id="f-mirrored" type="checkbox"${l.mirrored ? ' checked' : ''}></label>` +
+        `<div class="acts">${trimButtons(l)}${l.mirrored ? '<button class="btn" data-act="separate" title="Make the mirrored side a layer of its own">Separate</button>' : ''}</div>`);
   }
   const trimCount = (l) => (Array.isArray(l.clip) ? (Array.isArray(l.clip[0]) ? l.clip.length : 1) : 0);
   function trimButtons(l) {
@@ -263,6 +264,7 @@ export function initUI(app, actions, version) {
   panels.colour.addEventListener('dblclick', editChip);
   panels.props.addEventListener('change', (e) => {
     const id = e.target.id;
+    if (id === 'f-mirrored') return actions.mirror();
     if (id === 'm-name') return actions.mapRename(e.target.value.trim());
     if (id === 'm-pair') return actions.mapPair(e.target.value);
     if (id === 'm-colours') return actions.toggleMapColours();
@@ -354,7 +356,7 @@ export function initUI(app, actions, version) {
     title: 'Shortcuts', ok: 'Close', cancel: null,
     body: '<table>' + [
       ['Pan', 'Space-drag, middle-drag'], ['Zoom', 'Wheel, + and −'], ['Fit to screen', 'F'],
-      ['Select, Pen, Shape, Band, Fill a panel', 'V, P, S, B, G'], ['Mirror', 'Ctrl+M'], ['Pick a colour from the sheet', 'I'], ['Finish a pen shape', 'Enter'], ['Undo the last point', 'Backspace'], ['Hold 45°', 'Shift'],
+      ['Select, Pen, Shape, Band, Fill a panel', 'V, P, S, B, G'], ['Mirrored on or off', 'Ctrl+M'], ['Pick a colour from the sheet', 'I'], ['Finish a pen shape', 'Enter'], ['Undo the last point', 'Backspace'], ['Hold 45°', 'Shift'],
       ['Copy, paste, duplicate', 'Ctrl+C, V, D'], ['Nudge 1 px, 10 px', 'Arrows, Shift+Arrows'], ['Forward, backward', 'Ctrl+], Ctrl+['], ['Delete', 'Del'],
       ['Undo, redo', 'Ctrl+Z, Ctrl+Y'], ['Save', 'Ctrl+S'],
     ].map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join('') + '</table>',

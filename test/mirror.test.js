@@ -75,3 +75,24 @@ test('errors say what is missing', () => {
   assert.match(mirrorLayer(m, lone).error, /no twin or centreline/);
   assert.match(mirrorLayer(null, lone).error, /template/);
 });
+
+test('withMirrors: a Mirrored layer is followed by its other side, made fresh each time', async () => {
+  const { withMirrors, mirrorImage } = await import('../js/mirror.js');
+  const m = map();
+  const l = shape([{ x: 0, y: 0 }, { x: 200, y: 0 }, { x: 100, y: 100 }]);
+  const plain = shape([{ x: 10, y: 10 }, { x: 50, y: 10 }, { x: 10, y: 50 }]);
+  const doc = { regionMap: m, baseColor: '#ffffff', layers: [plain, l] };
+  assert.equal(withMirrors(doc), doc, 'nothing mirrored: the doc itself');
+  l.mirrored = true;
+  const shown = withMirrors(doc);
+  assert.deepEqual(shown.layers.map(x => x.id), [plain.id, l.id, l.id + '~m']);
+  assert.equal(shown.layers[2].mirrored, false);
+  assert.deepEqual(shown.layers[2].pts[1], { x: 200, y: 800 });
+  assert.equal(doc.layers.length, 2, 'the doc is not changed');
+  l.pts[1].x = 300; // edit the layer: the other side follows
+  assert.deepEqual(withMirrors(doc).layers[2].pts[1], { x: 300, y: 800 });
+  // a layer that cannot be mirrored just paints one side
+  const off = shape([{ x: 1900, y: 1900 }, { x: 1950, y: 1900 }, { x: 1900, y: 1950 }]); off.mirrored = true;
+  assert.equal(mirrorImage(m, off), null);
+  assert.equal(withMirrors({ ...doc, layers: [off] }).layers.length, 1);
+});
