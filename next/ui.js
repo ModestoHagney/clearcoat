@@ -83,7 +83,7 @@ export function initUI(app, actions, version) {
   // ---------- the strip, modes, hint ----------
   function drawChrome() {
     drawMenus();
-    $('modes').innerHTML = [['paint', 'Paint'], ['finish', 'Finish'], ['map', 'Map']].map(([id, name]) =>
+    $('modes').innerHTML = [['map', 'Map'], ['paint', 'Paint'], ['finish', 'Finish']].map(([id, name]) =>
       `<button data-mode="${id}" aria-pressed="${app.mode === id}"${id === 'paint' ? '' : ` disabled title="Comes in a ${LATER}"`}>${name}</button>`).join('');
     $('tools').innerHTML = TOOLS.map(([id, name, , ready]) =>
       `<button class="tool" data-tool="${id}" data-tip="${ready ? name : `${name} · ${LATER}`}" aria-label="${name}" aria-pressed="${app.tool === id}"${ready ? '' : ' disabled'}>${svg(id)}</button>`).join('');

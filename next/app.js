@@ -15,7 +15,7 @@ import { loadTemplate } from '../js/template.js';
 import { saveToIracing, paintFilenames, validCustid } from '../js/iracing.js';
 import { initUI } from './ui.js';
 
-export const VERSION = 'v0.68-pieces.6 · stage 1';
+export const VERSION = 'v0.68-pieces.7 · stage 1';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -45,13 +45,15 @@ const luminance = (hex) => {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 };
 // template linework has to read against the base coat it sits on
+// how strongly the template's inner linework shows; this screen sets it, not
+// the doc (the original screen's per-project opacity suited its dark canvas)
+const LINE_ALPHA = 0.5;
 function syncLineColour(doc) {
   doc.templateColor = luminance(doc.baseColor) > 0.5 ? '#101114' : '#ffffff';
 }
 function newDoc() {
   const doc = createDoc();
   doc.baseColor = '#ffffff';
-  doc.templateOpacity = 0.35;
   doc.templateBold = false;
   syncLineColour(doc);
   return doc;
@@ -114,10 +116,10 @@ function draw() {
   ctx.restore();
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(composite, 0, 0);
-  if (doc.template && app.show.lines && doc.templateOpacity > 0) {
+  if (doc.template && app.show.lines) {
     const ov = templateOverlay(doc);
     ctx.save();
-    ctx.globalAlpha = doc.templateOpacity;
+    ctx.globalAlpha = LINE_ALPHA;
     if (ov.multiply) ctx.globalCompositeOperation = 'multiply';
     ctx.drawImage(ov.img, 0, 0, SIZE, SIZE);
     ctx.restore();
@@ -131,12 +133,15 @@ function draw() {
     ctx.closePath();
   };
   if (app.show.outlines && doc.regionMap) {
+    const onLight = luminance(doc.baseColor) > 0.5;
     ctx.lineJoin = 'round';
     for (const r of doc.regionMap.regions) {
       if (!r.points || r.kind) continue; // pieces only; the kit's zones are Map mode's
       trace(regionOutline(r));
-      ctx.strokeStyle = 'rgba(16, 17, 20, .7)'; ctx.lineWidth = 2.5; ctx.stroke();
-      ctx.strokeStyle = 'rgba(255, 255, 255, .85)'; ctx.lineWidth = 1; ctx.stroke();
+      // one solid line that contrasts with the base coat, over a soft halo of
+      // the opposite tone so it still shows where paint of its own tone is
+      ctx.strokeStyle = onLight ? 'rgba(255, 255, 255, .6)' : 'rgba(16, 17, 20, .6)'; ctx.lineWidth = 4; ctx.stroke();
+      ctx.strokeStyle = onLight ? '#101114' : '#ffffff'; ctx.lineWidth = 1.5; ctx.stroke();
     }
   }
   const sel = doc.layers.find(l => l.id === app.sel);
@@ -298,6 +303,7 @@ const safeName = () => (app.doc.name || 'livery').replace(/[^\w.-]+/g, '_');
 
 async function setDoc(doc, projectId) {
   await flush();
+  syncLineColour(doc);
   app.doc = doc;
   app.projectId = projectId;
   app.sel = 'base';
