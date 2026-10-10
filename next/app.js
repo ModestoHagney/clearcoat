@@ -31,7 +31,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.41';
+export const VERSION = 'v0.68-pieces.42';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -824,16 +824,20 @@ const actions = {
   mirror() {
     const l = actions.selected(), ls = selectedLayers();
     if (!l || !canChange()) return;
-    if (l.mirrored) { for (const x of ls) x.mirrored = false; change({ now: true }); return; }
+    // any of them mirrored: the switch is on, and this takes it off them all
+    if (ls.some(x => x.mirrored)) { for (const x of ls) x.mirrored = false; change({ now: true }); return; }
     // every selected layer that has somewhere to mirror onto
-    let done = 0, first = null;
+    let done = 0, first = null, where = null;
     for (const x of ls) {
       const res = mirrorLayer(app.doc.regionMap, x); // only to find out whether it can be
       if (res.error) { first = first || res.error; continue; }
       x.mirrored = true; done++;
-      if (x === l) ui.say(res.dst.mirror ? `Mirrored onto ${res.dst.name}` : `Mirrored across ${res.dst.name}'s centreline`);
+      where = where || (res.dst.mirror ? `Mirrored onto ${res.dst.name}` : `Mirrored across ${res.dst.name}'s centreline`);
     }
     if (!done) { ui.say(first, true); ui.refresh(); return; }
+    // some could not be: say so, or the others look forgotten
+    if (first) ui.say(`Mirrored ${done} of ${ls.length}. ${first}`, true);
+    else ui.say(ls.length > 1 ? `Mirrored ${done} layers` : where);
     change({ now: true });
   },
   // ---- fades ----

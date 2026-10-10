@@ -239,7 +239,7 @@ export function initUI(app, actions, version) {
       const fills = many.filter((x) => x.type === 'fill' && !x.specOnly);
       return `<div class="note">${many.length} layers selected</div>` + colourNote() +
         (fills.length ? patternHtml(fills.find((x) => x.motif) || fills[0]) : '') +
-        `<label class="switch" title="Paint them on the twin panel too, or across the centreline (Ctrl+M)">Mirrored<input id="f-mirrored" type="checkbox"${many.every((x) => x.mirrored) ? ' checked' : ''}></label>` +
+        `<label class="switch" title="Paint them on the twin panel too, or across the centreline (Ctrl+M)">Mirrored<input id="f-mirrored" type="checkbox"${many.some((x) => x.mirrored) ? ' checked' : ''}></label>` +
         `<div class="acts"><button class="btn" data-act="merge" title="Make them one picture (Ctrl+E)">Merge</button>` +
         `<button class="btn" data-act="${grouped ? 'ungroup' : 'group'}" title="${grouped ? 'They stop being picked up together (Ctrl+Shift+G)' : 'Pick them up together from now on (Ctrl+G)'}">${grouped ? 'Ungroup' : 'Group'}</button></div>`;
     }
