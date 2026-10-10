@@ -6,6 +6,7 @@
 // the original screen), plus free shapes, which mirror point by point.
 
 import { isRegionLayer, clipPolys, newId } from './engine.js';
+import { frameFrom, framed } from './shapes.js';
 import { MIRROR_KINDS, regionAt, regionById, centerLine, mirrorAcross, mirrorPointKind, guessMirrorKind, trimShape } from './regions.js';
 
 // the piece (not one of the kit's number / sponsor zones) at a point
@@ -91,6 +92,8 @@ export function mirrorLayer(map, sel) {
   // mirror gives them is taken back out, about their own upright. (On a twin
   // that lies upside-down on the sheet that leaves them turned to match it.)
   if ((sel.type === 'image' || sel.type === 'text') && !sel.mirrorFlip && !copy.corners) copy.flipH = !copy.flipH;
+  // a pattern is drawn through the mirror, so the other side is its mirror image
+  if (sel.motif) { const f = frameFrom((x, y) => carry(x, y)); copy.motifFrame = sel.motifFrame ? framed(f, sel.motifFrame) : f; }
   // a fade's two points go across with the shape
   if (sel.fadeFrom && sel.fadeTo) { copy.fadeFrom = pt(sel.fadeFrom); copy.fadeTo = pt(sel.fadeTo); }
   if (isPath(sel)) {

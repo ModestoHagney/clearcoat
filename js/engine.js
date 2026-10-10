@@ -1,6 +1,7 @@
 // Clearcoat render engine — document model, paint compositing, spec map generation.
 
 import { parseRegionMap } from './regions.js';
+import { SHAPES, motifOutline, placing, cells, framed, unframed } from './shapes.js';
 
 export const SIZE = 2048;
 
@@ -543,6 +544,39 @@ export function fillPaintStyle(ctx, layer, rx, ry, rw, rh) {
   return g;
 }
 
+// ---------- a shape repeated inside a fill (layer.motif) ----------
+
+// motif: { kind, pts?, w?, h?, name?, size, gap, stagger, turn } — what
+// repeats and how (see shapes.js). motifFrame: the mirror a copy's pattern is
+// drawn through. Every copy goes into one path, so the pattern is one fill.
+const motifPaths = new Map(); // settings → path, the last few worked out
+function motifPath(layer, rx, ry, rw, rh) {
+  const m = layer.motif, f = layer.motifFrame || null;
+  const key = JSON.stringify([m, f, rx, ry, rw, rh]);
+  let all = motifPaths.get(key);
+  if (all) return all;
+  const o = motifOutline(m), one = fillShapePath('path', 0, 0, 0, 0, o.pts), box = { x: rx, y: ry, w: rw, h: rh };
+  all = new Path2D();
+  for (const c of cells(m, f ? unframed(f, box) : box)) {
+    const at = placing(o, c.x, c.y, m.size, m.turn || 0), [a, b, cc, d, e, ff] = f ? framed(f, at) : at;
+    all.addPath(one, { a, b, c: cc, d, e, f: ff });
+  }
+  if (motifPaths.size > 40) motifPaths.delete(motifPaths.keys().next().value);
+  motifPaths.set(key, all);
+  return all;
+}
+const num = (v, lo, hi, d) => (Number.isFinite(+v) ? Math.max(lo, Math.min(hi, +v)) : d);
+export function cleanMotif(m) {
+  if (!m || typeof m !== 'object') return null;
+  const out = { kind: m.kind, size: num(m.size, 4, 2048, 80), gap: num(m.gap, 0, 2048, 40), stagger: num(m.stagger, 0, 100, 0), turn: num(m.turn, -360, 360, 0) };
+  if (m.kind === 'own') {
+    const pts = shapePts(m.pts);
+    if (!pts || !(m.w > 0) || !(m.h > 0)) return null;
+    return { ...out, pts, w: +m.w, h: +m.h, id: typeof m.id === 'string' ? m.id : undefined, name: typeof m.name === 'string' ? m.name : 'Shape' };
+  }
+  return SHAPES[m.kind] ? out : null;
+}
+
 // ---------- car pattern layer ----------
 // A full-sheet layer drawn from one of the kit's own colour-keyed designs
 // (see patterns.js). `img` is the KEYED pattern (red/green/blue slots);
@@ -639,7 +673,21 @@ function drawLayerContent(ctx, layer) {
       ctx.translate(-(rx + rw / 2), -(ry + rh / 2));
     }
     ctx.fillStyle = fillPaintStyle(ctx, layer, rx, ry, rw, rh);
-    ctx.fill(fillShapePath(layer.shape, rx, ry, rw, rh, layer.pts));
+    const outline = fillShapePath(layer.shape, rx, ry, rw, rh, layer.pts);
+    if (layer.motif) {
+      // a pattern: the shape is a window onto the repeated motif. The grid is
+      // the sheet's own, so the flip above (an involution) is taken back off;
+      // a mirrored pattern comes through its motifFrame instead.
+      ctx.clip(outline);
+      if (layer.flipH || layer.flipV) {
+        ctx.translate(rx + rw / 2, ry + rh / 2);
+        ctx.scale(layer.flipH ? -1 : 1, layer.flipV ? -1 : 1);
+        ctx.translate(-(rx + rw / 2), -(ry + rh / 2));
+      }
+      ctx.fill(motifPath(layer, rx, ry, rw, rh));
+    } else {
+      ctx.fill(outline);
+    }
     ctx.restore();
   } else if (layer.type === 'carpattern') {
     // the kit's own design, recoloured — full sheet, clipped to the crop window
@@ -1612,6 +1660,8 @@ export function serializeDoc(doc) {
       // its finish was chosen for this layer itself, so it does not follow a
       // colour's finish rule (see finish.js)
       finishOwn: l.finishOwn ? true : undefined,
+      motif: l.type === 'fill' && l.motif ? l.motif : undefined,           // a pattern inside the fill
+      motifFrame: l.type === 'fill' && l.motif && l.motifFrame ? l.motifFrame : undefined,
       linearMix: l.linearMix ? true : undefined, // a merged picture whose soft pixels mix as its parts' did
       pts: Array.isArray(l.pts) ? l.pts.map((q) => { const o = { x: q.x, y: q.y }; if (q.c) o.c = { x: q.c.x, y: q.c.y }; if (q.m) o.m = true; return o; }) : undefined,
       fadeFrom: l.fadeFrom ? { x: l.fadeFrom.x, y: l.fadeFrom.y } : undefined,
@@ -1905,6 +1955,11 @@ export async function deserializeDoc(data) {
     if (at(l.fadeFrom) && at(l.fadeTo)) { loaded.get(l.id).fadeFrom = at(l.fadeFrom); loaded.get(l.id).fadeTo = at(l.fadeTo); }
     if (typeof l.colorRef === 'string' && l.type !== 'fill') loaded.get(l.id).colorRef = l.colorRef; // text follows a saved colour too
     if (l.type === 'image' && /^#[0-9a-f]{6}$/i.test(l.color || '')) loaded.get(l.id).color = l.color; // a picture painted in one colour
+    const motif = l.type === 'fill' ? cleanMotif(l.motif) : null;
+    if (motif) {
+      loaded.get(l.id).motif = motif;
+      if (Array.isArray(l.motifFrame) && l.motifFrame.length === 6 && l.motifFrame.every(Number.isFinite)) loaded.get(l.id).motifFrame = l.motifFrame.slice();
+    }
     const ok = (q) => q && Number.isFinite(q.x) && Number.isFinite(q.y);
     const clip = clipPolys(l).map(p => p.filter(ok).map(q => ({ x: q.x, y: q.y }))).filter(p => p.length >= 3);
     if (!clip.length) continue;

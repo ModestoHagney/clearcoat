@@ -140,6 +140,9 @@ input[type="color"] { width: 38px; height: 26px; padding: 0; border: 1px solid v
 .ways button[aria-pressed="true"], .seg button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--fg); }
 .toolopts { position: absolute; left: 8px; top: 10px; z-index: 5; display: flex; gap: 4px; padding: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 4px 14px var(--shade); }
 .toolopts .tool::after { left: 50%; top: calc(100% + 8px); translate: -50% 0; }
+.toolopts.rows { flex-direction: column; gap: 0; }
+.optrow > span { min-width: 40px; }
+.optrow select { width: 150px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--bar); color: var(--fg); }
 .optrow { display: flex; align-items: center; gap: 8px; padding: 4px 8px; color: var(--muted); }
 .optrow input { width: 150px; accent-color: var(--accent); }
 .optrow .num { font: 12px var(--mono); color: var(--fg); min-width: 28px; text-align: right; }

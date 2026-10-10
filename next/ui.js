@@ -3,6 +3,7 @@
 // app state and calls back into `actions`; it holds no livery state itself.
 
 import { pieces, hue } from './map.js';
+import { SHAPES } from '../js/shapes.js';
 import { TEXT_FONTS, GOOGLE_FONTS } from '../js/engine.js';
 import { FINISHES, finishName, finishLabel, finishList, layerColour, isArea, readFinish, presetOf } from '../js/finish.js';
 import { renderTile } from './preview.js';
@@ -16,6 +17,14 @@ const I = { // 20x20 line icons
   ellipse: '<circle cx="10" cy="10" r="6.5"/>',
   rect: '<rect x="4" y="4.5" width="12" height="11" rx="1"/>',
   triangle: '<path d="M10 4 17 16H3z"/>',
+  star: '<path d="m10 3 2.1 4.6 5 .5-3.8 3.3 1.1 4.9L10 13.8l-4.4 2.5 1.1-4.9L2.9 8.1l5-.5z"/>',
+  diamond: '<path d="M10 3 17 10 10 17 3 10z"/>',
+  hexagon: '<path d="M6.5 4h7l3.5 6-3.5 6h-7L3 10z"/>',
+  chevron: '<path d="M4 4h5l6 6-6 6H4l6-6z"/>',
+  cross: '<path d="M8 3h4v5h5v4h-5v5H8v-5H3V8h5z"/>',
+  round: '<rect x="3.5" y="4.5" width="13" height="11" rx="3.5"/>',
+  // a rubber stamp: handle, neck, pad
+  stamp: '<path d="M8 3.5h4v3.2l-1 3.3h4a1.5 1.5 0 0 1 1.5 1.5V13h-13v-1.5A1.5 1.5 0 0 1 5 10h4L8 6.7z"/><path d="M4 16.5h12"/>',
   edit: '<path d="M4 16h3l8-8-3-3-8 8z"/><path d="m11 6 3 3"/>',
   band: '<path d="M3 13 13 3M7 17 17 7"/>',
   text: '<path d="M4 5h12M10 5v11M8 16h4"/>',
@@ -41,6 +50,7 @@ const TOOLS = [
   ['pen', 'Pen (P)', true],
   ['shape', 'Shape (S)', true],
   ['band', 'Straight band (B)', true],
+  ['stamp', 'Stamp', true],
   ['text', 'Text (T)', true],
   ['image', 'Picture or logo', true],
   ['piece', 'Fill a panel (G)', true],
@@ -58,7 +68,7 @@ const MAP_TOOLS = [
 ];
 const LATER = 'later stage';
 const PANELS = ['layers', 'props', 'colour'];
-const KINDS = { ellipse: 'Circle', rect: 'Box', triangle: 'Triangle' };
+const KINDS = SHAPES;
 const hexOf = (v) => (/^#?[0-9a-f]{6}$/i.test(String(v).trim()) ? '#' + String(v).trim().replace('#', '').toLowerCase() : null);
 const rgbOf = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(', ');
 const hexOfRgb = (v) => {
@@ -137,8 +147,12 @@ export function initUI(app, actions, version) {
       opts.innerHTML = Object.entries(KINDS).map(([k, name]) => `<button class="tool" data-kind="${k}" data-tip="${name}" aria-label="${name}" aria-pressed="${app.shapeKind === k}">${svg(k)}</button>`).join('');
     } else if (app.tool === 'band') {
       opts.innerHTML = `<label class="optrow"><span>Width</span><input id="f-band" type="range" min="4" max="300" value="${app.bandWidth}"><output id="f-band-n" class="num">${app.bandWidth}</output></label>`;
+    } else if (app.tool === 'stamp') {
+      opts.innerHTML = `<label class="optrow"><span>Shape</span><select id="f-stamp">${motifOptions(app.stamp.key)}</select></label>` +
+        `<label class="optrow"><span>Size</span><input id="f-stamp-size" type="range" min="10" max="600" value="${app.stamp.size}"><output id="f-stamp-n" class="num">${app.stamp.size}</output></label>`;
     }
-    opts.hidden = app.tool !== 'shape' && app.tool !== 'band';
+    opts.classList.toggle('rows', app.tool === 'stamp');
+    opts.hidden = app.tool !== 'shape' && app.tool !== 'band' && app.tool !== 'stamp';
     // level with the button it belongs to
     const btn = $('tools').querySelector('.tool[aria-pressed="true"]');
     if (btn && !opts.hidden) {
@@ -173,6 +187,14 @@ export function initUI(app, actions, version) {
     return rows.join('');
   }
   const field = (label, html) => `<label class="field"><span>${label}</span>${html}</label>`;
+  // what a pattern can repeat or a stamp place: the ready-made shapes, then
+  // the library's. `current`: its key; `kept`: a pattern's own shape that has
+  // since left the library, so the list can still name it.
+  const motifOptions = (current, kept) => {
+    const own = actions.ownShapes();
+    return Object.entries(KINDS).map(([k, name]) => opt(k, name, k === current)).join('') +
+      (own.length || kept ? `<optgroup label="Your shapes">${own.map((it) => opt('own:' + it.id, it.name, 'own:' + it.id === current)).join('')}${kept && !own.some((it) => 'own:' + it.id === current) ? opt(current, kept, true) : ''}</optgroup>` : '');
+  };
   // Colour lives in the Colour panel only. If that panel has been hidden, say
   // where it went, since nothing here sets a colour any more.
   const colourNote = () => (app.show.colour ? '' : '<div class="acts"><button class="btn" data-act="show:colour">Show the Colour panel</button></div>');
@@ -197,12 +219,20 @@ export function initUI(app, actions, version) {
     // a shape's fill can fade to a second colour, or to nothing
     const fading = l.type === 'fill' && (l.fillType === 'linear' || l.fillType === 'radial');
     const out = fading && typeof l.color2 === 'string' && l.color2.length === 9 && l.color2.endsWith('00');
+    const mo = l.type === 'fill' ? l.motif : null, moKey = mo ? (mo.kind === 'own' ? 'own:' + mo.id : mo.kind) : '';
+    const pattern = l.type !== 'fill' || l.specOnly ? '' :
+      field('Pattern', `<select id="f-pat">${opt('', 'None', !mo)}${motifOptions(moKey, mo && mo.kind === 'own' ? mo.name : null)}</select>`) +
+      (!mo ? '' :
+        field('Size', range('f-pat-size', 10, 400, Math.round(mo.size))) +
+        field('Spacing', range('f-pat-gap', 0, 400, Math.round(mo.gap))) +
+        field('Stagger', range('f-pat-stagger', 0, 100, Math.round(mo.stagger))) +
+        field('Turn', range('f-pat-turn', -180, 180, Math.round(mo.turn))));
     const fade = l.type !== 'fill' ? '' :
       `<label class="switch">Fade<input id="f-fade" type="checkbox"${fading ? ' checked' : ''}></label>` + (!fading ? '' :
         `<div class="seg"><button data-fade="linear" aria-pressed="${l.fillType === 'linear'}">Across</button><button data-fade="radial" aria-pressed="${l.fillType === 'radial'}">From the middle</button></div>` +
         field('Fades to', `<span class="pair"><input id="f-fade-to" type="color" value="${esc(out ? '#ffffff' : hexOf(l.color2 || '') || '#ffffff')}"${out ? ' disabled' : ''} aria-label="The colour it fades to"><label class="inline"><input id="f-fade-out" type="checkbox"${out ? ' checked' : ''}>Nothing</label></span>`) +
         '<div class="note">Drag the two dots on the shape to aim it</div>');
-    const main = !isText ? colour + fade :
+    const main = !isText ? colour + fade + pattern :
       field('Text', `<input id="f-text" type="text" value="${esc(l.text)}">`) +
       field('Font', `<select id="f-font">${fonts.map((f) => opt(f, f, f === l.font)).join('')}${opt('__google', 'Google font by name…', false)}${opt('__upload', 'Upload a font file…', false)}</select>`) +
       colour +
@@ -368,6 +398,8 @@ export function initUI(app, actions, version) {
     const fn = /^fn-(met|rough|clear|amount|size|strength)$/.exec(t.id || '');
     if (fn) { actions.tweakFinish(fn[1], +t.value); drawTile(); return; }
     if (t.id === 'f-fade-to') { actions.setFade('to', t.value); return; }
+    const pat = /^f-pat-(size|gap|stagger|turn)$/.exec(t.id || '');
+    if (pat) { actions.tweakMotif(pat[1], +t.value); return; }
     // plain settings: the control's id names the layer setting it sets
     const m = /^f-(fx-)?(fontSize|outlineWidth|outlineColor|letterSpacing|curve|rotation|shadow|shadowColor|shadowDX|shadowDY|text)$/.exec(t.id || '');
     if (m && layer) {
@@ -382,6 +414,8 @@ export function initUI(app, actions, version) {
     }
   });
   $('toolopts').addEventListener('input', (e) => {
+    if (e.target.id === 'f-stamp-size') { $('f-stamp-n').textContent = e.target.value; actions.setStamp({ size: +e.target.value }); return; }
+    if (e.target.id === 'f-stamp') { actions.setStamp({ key: e.target.value }); return; }
     if (e.target.id !== 'f-band') return;
     $('f-band-n').textContent = e.target.value;
     actions.setBandWidth(+e.target.value);
@@ -436,6 +470,7 @@ export function initUI(app, actions, version) {
     if (id === 'f-mirrored') return actions.mirror();
     if (id === 'f-font') return actions.setFont(e.target.value);
     if (id === 'f-fade') return actions.setFade('on', e.target.checked);
+    if (id === 'f-pat') return actions.setMotif(e.target.value);
     if (id === 'f-fade-out') return actions.setFade('out', e.target.checked);
     if (id === 'f-italic') { actions.setProp('italic', e.target.checked); return; }
     if (id === 'f-mirrorFlip') { actions.setProp('mirrorFlip', e.target.checked); return; }

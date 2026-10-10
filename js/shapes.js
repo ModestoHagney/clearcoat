@@ -156,8 +156,40 @@ export function joined(list) {
   return out;
 }
 
-// a ready-made fill's box as an outline, so it can join one
+// the ready-made shapes, by the name each goes by on screen
+export const SHAPES = {
+  ellipse: 'Circle', rect: 'Box', triangle: 'Triangle', star: 'Star', diamond: 'Diamond',
+  hexagon: 'Hexagon', chevron: 'Chevron', cross: 'Cross', round: 'Rounded box',
+};
+// corners of the straight-sided ones in a box 1 by 1
+const ring = (n, r = () => 1, from = -Math.PI / 2) => Array.from({ length: n }, (_, i) => {
+  const a = from + i * 2 * Math.PI / n;
+  return [Math.cos(a) * r(i), Math.sin(a) * r(i)];
+});
+const boxed = (pts) => { // stretched to fill the box exactly
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]), x = Math.min(...xs), y = Math.min(...ys);
+  return pts.map(p => [(p[0] - x) / (Math.max(...xs) - x), (p[1] - y) / (Math.max(...ys) - y)]);
+};
+const UNIT = {
+  diamond: [[0.5, 0], [1, 0.5], [0.5, 1], [0, 0.5]],
+  chevron: [[0, 0], [0.5, 0], [1, 0.5], [0.5, 1], [0, 1], [0.5, 0.5]],
+  cross: [[1, 0], [2, 0], [2, 1], [3, 1], [3, 2], [2, 2], [2, 3], [1, 3], [1, 2], [0, 2], [0, 1], [1, 1]].map(([a, b]) => [a / 3, b / 3]),
+  hexagon: boxed(ring(6, () => 1, 0)),
+  star: boxed(ring(10, i => (i % 2 ? 0.382 : 1))),
+};
+// height over width of the ones that are not as tall as wide when regular
+const ASPECT = { hexagon: Math.sqrt(3) / 2, star: 0.951 };
+export const aspect = (shape) => ASPECT[shape] || 1;
+
+// a ready-made shape drawn in a box, as an outline: so it can join another,
+// repeat as a pattern, or simply be a shape of its own
 export function boxOutline(shape, x, y, w, h) {
+  if (UNIT[shape]) return UNIT[shape].map(([u, v]) => ({ x: x + u * w, y: y + v * h }));
+  if (shape === 'round') {
+    const r = Math.min(w, h) / 4, X = x + w, Y = y + h;
+    return [{ x: x + r, y }, { x: X - r, y, c: { x: X, y } }, { x: X, y: y + r }, { x: X, y: Y - r, c: { x: X, y: Y } },
+      { x: X - r, y: Y }, { x: x + r, y: Y, c: { x, y: Y } }, { x, y: Y - r }, { x, y: y + r, c: { x, y } }];
+  }
   if (shape === 'triangle') return [{ x: x + w / 2, y }, { x: x + w, y: y + h }, { x, y: y + h }];
   if (shape === 'ellipse') {
     // eight arcs: close enough to an ellipse that the eye cannot tell
@@ -177,4 +209,68 @@ export function snapAngle(from, to, step = 45) {
   if (!len) return { x: to.x, y: to.y };
   const s = step * Math.PI / 180, a = Math.round(Math.atan2(dy, dx) / s) * s;
   return { x: from.x + Math.cos(a) * len, y: from.y + Math.sin(a) * len };
+}
+
+// ---------- a shape repeated: patterns and stamps ----------
+
+// A motif is the shape that repeats: { kind } names a ready-made one, and
+// { kind: 'own', pts, w, h } carries an outline of its own (a library shape).
+// → its outline in its own box: { pts, w, h }
+export function motifOutline(m) {
+  if (m.kind === 'own') return { pts: m.pts, w: m.w, h: m.h };
+  const h = aspect(m.kind);
+  return { pts: boxOutline(m.kind, 0, 0, 1, h), w: 1, h };
+}
+// One copy as numbers [a, b, c, d, e, f] (a canvas matrix): its longer side
+// `size`, turned `turn` degrees about its middle, its middle on (x, y).
+export function placing(o, x, y, size, turn = 0) {
+  const k = size / Math.max(o.w, o.h), t = turn * Math.PI / 180, a = k * Math.cos(t), b = k * Math.sin(t);
+  return [a, b, -b, a, x - (a * o.w - b * o.h) / 2, y - (b * o.w + a * o.h) / 2];
+}
+const through = (f) => (p) => ({ x: f[0] * p.x + f[2] * p.y + f[4], y: f[1] * p.x + f[3] * p.y + f[5] });
+// that copy as an outline on the sheet: what Stamp places
+export function placed(m, x, y, size, turn = 0) {
+  const o = motifOutline(m);
+  return mapped(o.pts, through(placing(o, x, y, size, turn)));
+}
+
+// The middles of every copy that could show inside `box`. The grid is fixed
+// to the sheet, not to the shape it fills, so two shapes with the same
+// settings carry on the same pattern. stagger: how far every second row is
+// shifted, as a percentage of the step.
+export const CELL_LIMIT = 15000; // about a tenth of a second to paint
+export function cells({ size, gap = 0, stagger = 0 }, box) {
+  const pad = size * 0.75; // a turned copy reaches this far from its middle
+  const x0 = box.x - pad, y0 = box.y - pad, x1 = box.x + box.w + pad, y1 = box.y + box.h + pad;
+  // ponytail: past CELL_LIMIT copies the grid is opened up instead of drawn;
+  // raise the limit if a finer pattern is ever wanted and the screen keeps up.
+  const pitch = Math.max(2, size + gap, Math.sqrt((x1 - x0) * (y1 - y0) / CELL_LIMIT));
+  const out = [];
+  for (let j = Math.ceil(y0 / pitch); j * pitch <= y1; j++) {
+    const off = j % 2 ? stagger / 100 * pitch : 0;
+    for (let i = Math.ceil((x0 - off) / pitch); i * pitch + off <= x1; i++) out.push({ x: i * pitch + off, y: j * pitch, i, j });
+  }
+  return out;
+}
+
+// A mirror as numbers: found from where it sends three points. A pattern on a
+// mirrored shape is drawn through it, so the other side is a true mirror image.
+export function frameFrom(carry) {
+  const o = carry(0, 0), u = carry(1, 0), v = carry(0, 1);
+  return [u.x - o.x, u.y - o.y, v.x - o.x, v.y - o.y, o.x, o.y];
+}
+// g, then f
+export const framed = (f, g) => [
+  f[0] * g[0] + f[2] * g[1], f[1] * g[0] + f[3] * g[1],
+  f[0] * g[2] + f[2] * g[3], f[1] * g[2] + f[3] * g[3],
+  f[0] * g[4] + f[2] * g[5] + f[4], f[1] * g[4] + f[3] * g[5] + f[5],
+];
+// the box round `box` as it lies before the frame is applied
+export function unframed(f, box) {
+  const det = f[0] * f[3] - f[1] * f[2];
+  if (!det) return box;
+  const back = (x, y) => ({ x: (f[3] * (x - f[4]) - f[2] * (y - f[5])) / det, y: (f[0] * (y - f[5]) - f[1] * (x - f[4])) / det });
+  const cs = [back(box.x, box.y), back(box.x + box.w, box.y), back(box.x, box.y + box.h), back(box.x + box.w, box.y + box.h)];
+  const xs = cs.map(p => p.x), ys = cs.map(p => p.y), x = Math.min(...xs), y = Math.min(...ys);
+  return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
 }

@@ -18,7 +18,7 @@
 // or picture has a handle on each corner to resize it and one above to turn it.
 
 import { SIZE, createFillLayer, isRegionLayer, toLocal, layerCorners } from '../js/engine.js';
-import { bounds, contains, moved, segmentAt, midOf, bendTo, insertAt, removeAt, snapAngle, nextIndex } from '../js/shapes.js';
+import { bounds, contains, moved, segmentAt, midOf, bendTo, insertAt, removeAt, snapAngle, nextIndex, SHAPES, aspect, boxOutline, placed, joined } from '../js/shapes.js';
 import { regionOutline, snapToOutline, trimShape, growOutline, pointInPolygon } from '../js/regions.js';
 import { clipPolys } from '../js/engine.js';
 import { pieceAt } from '../js/mirror.js';
@@ -33,7 +33,9 @@ export const isShape = (l) => !!l && l.type === 'fill' && l.shape === 'path' && 
 export const isPic = (l) => !!l && !!l.img && (l.type === 'image' || l.type === 'text') && !l.corners;
 // a ready-made fill (circle, box, triangle…): sized by its box, not by points
 export const isBox = (l) => !!l && l.type === 'fill' && !isShape(l);
-export const READY = { ellipse: 'Circle', rect: 'Box', triangle: 'Triangle' };
+export const READY = SHAPES;
+// the three the engine draws from a box; the rest are made as outlines, so they can turn and be reshaped
+const BOXED = new Set(['ellipse', 'rect', 'triangle']);
 
 // Where a fill's fade runs: from the first point to the second (across), or
 // out from the first as far as the second (from the middle). `style`, when
@@ -148,11 +150,17 @@ export function initTools(app, env) {
   }
   function finishReady(even) {
     let box = evenBox(rubber.a, rubber.b, even);
-    if (box.w < 4 || box.h < 4) box = { x: rubber.a.x - 150, y: rubber.a.y - 150, w: 300, h: 300 }; // a plain click
+    const kind = app.shapeKind, name = READY[kind];
+    if (box.w < 4 || box.h < 4) { const h = 300 * aspect(kind); box = { x: rubber.a.x - 150, y: rubber.a.y - h / 2, w: 300, h }; } // a plain click
     const layer = createFillLayer(app.colour);
-    layer.shape = app.shapeKind;
-    layer.name = READY[app.shapeKind] + ' ' + (app.doc.layers.filter(l => isBox(l) && l.shape === app.shapeKind).length + 1);
-    layer.rx = box.x; layer.ry = box.y; layer.rw = box.w; layer.rh = box.h;
+    layer.name = name + ' ' + (app.doc.layers.filter(l => new RegExp('^' + name + ' \\d+$').test(l.name)).length + 1);
+    if (BOXED.has(kind)) {
+      layer.shape = kind;
+      layer.rx = box.x; layer.ry = box.y; layer.rw = box.w; layer.rh = box.h;
+    } else {
+      layer.shape = 'path';
+      setShape(layer, boxOutline(kind, box.x, box.y, box.w, box.h));
+    }
     addLayer(layer);
   }
   const bandPts = (a, b, width) => {
@@ -166,6 +174,26 @@ export function initTools(app, env) {
     layer.name = 'Band ' + (app.doc.layers.filter(l => /^Band \d+/.test(l.name)).length + 1);
     setShape(layer, bandPts(band.a, band.b, app.bandWidth));
     addLayer(layer);
+  }
+  // Stamp: each click places one copy. Every copy of one go (the tool left
+  // armed, the colour unchanged) is a piece of the same shape, so a scatter of
+  // stamps is one row in the Layers list; Split makes them shapes of their own.
+  let stampRun = null;
+  function stampAt(p) {
+    const pts = placed(env.motif(app.stamp.key), p.x, p.y, app.stamp.size);
+    let layer = app.doc.layers.find(l => l.id === stampRun && isShape(l) && !l.locked && l.color === app.colour);
+    if (layer) {
+      setShape(layer, joined([layer.pts, pts]));
+    } else {
+      layer = createFillLayer(app.colour);
+      layer.shape = 'path';
+      layer.name = 'Stamps ' + (app.doc.layers.filter(l => /^Stamps \d+$/.test(l.name)).length + 1);
+      setShape(layer, pts);
+      app.doc.layers.push(layer);
+      stampRun = layer.id;
+    }
+    app.sel = layer.id;
+    change({ now: true });
   }
   const far = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
   const onScreen = (p) => docToScreen(p.x, p.y);
@@ -247,6 +275,7 @@ export function initTools(app, env) {
     if (app.tool === 'piece') { fillPanel(p); return; }
     if (app.tool === 'text') { env.addText(p); return; }
     if (app.tool === 'shape') { rubber = { a: p, b: p }; return; }
+    if (app.tool === 'stamp') { stampAt(p); return; }
     if (app.tool === 'band') {
       if (band && !band.pressed) { band.b = bandEnd(p, e); finishBand(); return; } // the second click
       const a = snapToPieces(p, e);
@@ -317,6 +346,7 @@ export function initTools(app, env) {
   function move(e, s) {
     const p = screenToDoc(s.x, s.y);
     if (app.tool === 'pen') { cursor = nextPoint(p, e.shiftKey); requestDraw(); return; }
+    if (app.tool === 'stamp') { cursor = p; requestDraw(); return; }
     if (app.trimming || app.tool === 'piece') {
       const r = pieceAt(app.doc.regionMap, p.x, p.y);
       if (r !== hover) { hover = r; requestDraw(); }
@@ -441,7 +471,7 @@ export function initTools(app, env) {
     return false;
   }
 
-  function cancel() { draft = null; cursor = null; drag = null; rubber = null; band = null; hover = null; }
+  function cancel() { draft = null; cursor = null; drag = null; rubber = null; band = null; hover = null; stampRun = null; }
 
   const hint = () => {
     if (app.picking) return 'Click a colour on the sheet · Esc cancels';
@@ -459,6 +489,7 @@ export function initTools(app, env) {
     if (app.tool === 'select' && selFade()) return 'Drag the two dots to aim the fade · Shift holds 45°';
     if (app.tool === 'select' && selPic()) return 'Drag a corner to resize · the round handle turns it · Shift turns in steps';
     if (app.tool === 'shape') return 'Drag to draw · Shift keeps it even';
+    if (app.tool === 'stamp') return 'Click to place one · Split makes them separate';
     if (app.tool === 'band') return band ? 'Click the end · Shift holds 45°' : 'Click the start, then the end · snaps to panel edges';
     if (app.tool === 'select' && selBox()) return 'Drag a corner to resize · Shift keeps it even';
     if (app.tool === 'pen') return draft && draft.length ? 'Enter to finish · Backspace undoes a point · Shift holds 45°' : 'Click points to draw · Shift holds 45°';
@@ -547,6 +578,7 @@ export function initTools(app, env) {
     if (app.trimming) return;
     if (rubber) {
       const b = evenBox(rubber.a, rubber.b, rubber.even), A = onScreen(b), B = onScreen({ x: b.x + b.w, y: b.y + b.h });
+      if (!BOXED.has(app.shapeKind)) { if (b.w > 0 && b.h > 0) preview(boxOutline(app.shapeKind, b.x, b.y, b.w, b.h)); return; }
       ctx.beginPath();
       if (app.shapeKind === 'ellipse') ctx.ellipse((A.x + B.x) / 2, (A.y + B.y) / 2, (B.x - A.x) / 2, (B.y - A.y) / 2, 0, 0, Math.PI * 2);
       else if (app.shapeKind === 'triangle') { ctx.moveTo((A.x + B.x) / 2, A.y); ctx.lineTo(B.x, B.y); ctx.lineTo(A.x, B.y); ctx.closePath(); }
@@ -555,6 +587,7 @@ export function initTools(app, env) {
       ctx.strokeStyle = accent; ctx.lineWidth = 1.5; ctx.stroke();
       return;
     }
+    if (app.tool === 'stamp' && cursor) { preview(placed(env.motif(app.stamp.key), cursor.x, cursor.y, app.stamp.size)); return; }
     if (band) {
       if (far(band.a, band.b) > 0) preview(bandPts(band.a, band.b, app.bandWidth));
       square(onScreen(band.a), 4, accent);

@@ -19,7 +19,7 @@ import { loadTemplate } from '../js/template.js';
 import { saveToIracing, paintFilenames, validCustid, exportPaintCanvas, paintsDir } from '../js/iracing.js';
 import { initUI } from './ui.js';
 import { initTools, isShape, isBox, moveLayer, setShape, fadeEnds } from './tools.js';
-import { joined, boxOutline, pieces } from '../js/shapes.js';
+import { joined, boxOutline, pieces, SHAPES } from '../js/shapes.js';
 import { LIBRARY, libraryItemToLayerSource } from '../js/library.js';
 import { createFillLayer } from '../js/engine.js';
 import { moved } from '../js/shapes.js';
@@ -31,7 +31,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.35';
+export const VERSION = 'v0.68-pieces.36';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -58,6 +58,7 @@ export const app = {
   clipboard: null,                    // a copied layer
   shapeKind: 'ellipse',               // which ready-made shape the Shape tool draws
   bandWidth: 60,                      // px on the sheet
+  stamp: { key: 'star', size: 120 },  // what the Stamp tool places: a shape's key (see motifOf) and its size on the sheet
   picking: false,                     // the next click on the sheet picks a colour
   ways: { Hex: true, RGB: false },    // which colour read-outs the Colour panel shows
   trimming: false,                    // clicks on the sheet choose the selected layer's panels
@@ -494,6 +495,16 @@ function cloneLayer(l) {
   return c;
 }
 
+// What a pattern repeats or a stamp places, from its key: a ready-made
+// shape's name, or 'own:<id>' for one saved in the library. A library shape
+// is copied in, so the livery does not depend on this browser's library.
+function motifOf(key) {
+  if (SHAPES[key]) return { kind: key };
+  const it = library.shapes.find(x => 'own:' + x.id === key);
+  if (!it) return null;
+  return { kind: 'own', id: it.id, name: it.name, w: it.w, h: it.h, pts: (it.pts || boxOutline(it.shape, 0, 0, it.w, it.h)).map(q => (q.c ? { ...q, c: { ...q.c } } : { ...q })) };
+}
+
 const actions = {
   undo, redo, fit,
   zoomBy: (f) => setZoom(app.view.zoom * f),
@@ -862,6 +873,27 @@ const actions = {
     ui.refresh();
   },
   setShapeKind(kind) { app.shapeKind = kind; requestDraw(); ui.refreshChrome(); },
+  setStamp(part) { Object.assign(app.stamp, part); requestDraw(); },
+
+  // ---- patterns: a shape repeated inside a fill ----
+  ownShapes: () => library.shapes,
+  // '' takes the pattern off; a shape's key puts one on, or swaps what repeats
+  setMotif(key) {
+    const l = actions.selected();
+    if (!l || l.type !== 'fill' || !canChange()) return;
+    if (!key) { delete l.motif; delete l.motifFrame; return change(); }
+    const shape = motifOf(key);
+    if (!shape) return ui.refresh(); // its own shape, no longer in the library: nothing to swap to
+    const had = l.motif || { size: 80, gap: 40, stagger: 0, turn: 0 };
+    l.motif = { ...shape, size: had.size, gap: had.gap, stagger: had.stagger, turn: had.turn };
+    change();
+  },
+  tweakMotif(key, v) {
+    const l = actions.selected();
+    if (!l || !l.motif || !canChange()) return;
+    l.motif = { ...l.motif, [key]: v }; // a new object each time: the engine keeps patterns by their settings
+    change({ panels: false });
+  },
   setBandWidth(n) { app.bandWidth = Math.max(2, Math.min(800, Math.round(n) || 60)); requestDraw(); },
   redraw() { requestDraw(); ui.refresh(); },
   hint: () => (app.mode === 'map' ? (mapTools ? mapTools.hint() : '') : tools ? tools.hint() : ''),
@@ -940,7 +972,8 @@ const actions = {
     const shapes = targets.every(l => isShape(l) || (isBox(l) && ['rect', 'ellipse', 'triangle'].includes(l.shape) && !l.flipH && !l.flipV));
     const sameColour = same(l => (l.color || '').toLowerCase());
     const sameRest = same(l => l.fillType || 'solid') && same(l => l.color2 || '') && same(l => l.opacity ?? 1)
-      && same(l => !!l.mirrored) && same(l => JSON.stringify(finishSpec(app.doc, l))) && same(l => JSON.stringify(l.clip || null));
+      && same(l => !!l.mirrored) && same(l => JSON.stringify(finishSpec(app.doc, l))) && same(l => JSON.stringify(l.clip || null))
+      && same(l => JSON.stringify(l.motif || null)); // a pattern and a plain shape are not the same thing
     // They cannot simply become one shape as they are: ask what is wanted.
     // → 'shape' (like the top one) | a colour for them all | 'group' | 'picture'
     let how = 'shape';
@@ -1464,6 +1497,7 @@ async function boot() {
     endTrim: actions.endTrim, addText: actions.addText,
     selectedLayers, selectMany: actions.selectMany,
     // a shape made in Finish mode is an area: it paints nothing and carries a finish
+    motif: (key) => motifOf(key) || { kind: 'star' },
     created(layer) {
       if (app.mode !== 'finish') return;
       layer.specOnly = true;
