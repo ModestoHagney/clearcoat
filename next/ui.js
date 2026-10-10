@@ -17,7 +17,8 @@ const I = { // 20x20 line icons
   band: '<path d="M3 13 13 3M7 17 17 7"/>',
   text: '<path d="M4 5h12M10 5v11M8 16h4"/>',
   image: '<rect x="3" y="4" width="14" height="12" rx="2"/><circle cx="7.5" cy="8.5" r="1.3"/><path d="m4 14 4-3.5 3 2.5 2-1.5 3 2.5"/>',
-  piece: '<path d="M3 13c2-6 5-8 9-8l5 3v5H3z"/><path d="M9 5.5V13"/>',
+  // a tipped paint can with a drip
+  piece: '<path d="M8.5 3.5 3.6 8.4a1.6 1.6 0 0 0 0 2.2l4.3 4.3a1.6 1.6 0 0 0 2.2 0l5.4-5.4z"/><path d="M6.2 5.8 9.6 2.4"/><path d="M4 9.6h10.6"/><path d="M16.6 12.6c.8 1.2 1.3 2 1.3 2.7a1.3 1.3 0 0 1-2.6 0c0-.7.5-1.5 1.3-2.7z"/>',
   mcentre: '<path d="M10 2v3M10 8v4M10 15v3"/><path d="M4 6h3M13 6h3M4 14h3M13 14h3"/>',
   eye: '<path d="M2 10s3-5 8-5 8 5 8 5-3 5-8 5-8-5-8-5z"/><circle cx="10" cy="10" r="2.2"/>',
   float: '<rect x="4" y="4" width="9" height="9" rx="1.5"/><path d="M8 16h8V8"/>',

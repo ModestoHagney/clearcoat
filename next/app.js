@@ -21,7 +21,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.13 · stage 3';
+export const VERSION = 'v0.68-pieces.14 · stage 3';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
