@@ -462,7 +462,7 @@ export function initTools(app, env) {
       }
     }
     if (app.trimming && (e.key === 'Escape' || e.key === 'Enter')) { env.endTrim(); return true; }
-    if (e.key === 'Escape' && (app.picking || ['shape', 'band', 'piece', 'text'].includes(app.tool))) {
+    if (e.key === 'Escape' && (app.picking || ['shape', 'band', 'stamp', 'piece', 'text'].includes(app.tool))) {
       if (app.picking) env.picked(null);
       else if (band) { band = null; requestDraw(); }
       else env.setTool('select');

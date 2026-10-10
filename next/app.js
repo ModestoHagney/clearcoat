@@ -25,13 +25,13 @@ import { createFillLayer } from '../js/engine.js';
 import { moved } from '../js/shapes.js';
 import { paintLayers } from '../js/engine.js';
 import { finishSpec } from '../js/finish.js';
-import { withFinishes, setRule, clearRule, ruleFor, layerColour, isArea, hasOwnFinish, readFinish, writeFinish, presetOf, FINISHES, SPARKLE } from '../js/finish.js';
+import { withFinishes, withPatterns, setRule, clearRule, ruleFor, layerColour, isArea, hasOwnFinish, readFinish, writeFinish, presetOf, FINISHES, SPARKLE } from '../js/finish.js';
 import { MATERIALS } from '../js/engine.js';
 import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.36';
+export const VERSION = 'v0.68-pieces.37';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -495,6 +495,13 @@ function cloneLayer(l) {
   return c;
 }
 
+// the selected shapes a pattern can go on
+const patterned = () => selectedLayers().filter(l => l.type === 'fill' && !isArea(l));
+// a first colour for a pattern: one that shows on the shape's own
+const standsOut = (hex) => {
+  const [r, g, b] = [1, 3, 5].map(i => parseInt(String(hex || '#ffffff').slice(i, i + 2), 16) || 0);
+  return 0.299 * r + 0.587 * g + 0.114 * b > 150 ? '#101114' : '#ffffff';
+};
 // What a pattern repeats or a stamp places, from its key: a ready-made
 // shape's name, or 'own:<id>' for one saved in the library. A library shape
 // is copied in, so the livery does not depend on this browser's library.
@@ -878,20 +885,22 @@ const actions = {
   // ---- patterns: a shape repeated inside a fill ----
   ownShapes: () => library.shapes,
   // '' takes the pattern off; a shape's key puts one on, or swaps what repeats
+  // Every selected shape takes it, with the same settings: the grid is the
+  // sheet's, so together they carry one pattern.
   setMotif(key) {
-    const l = actions.selected();
-    if (!l || l.type !== 'fill' || !canChange()) return;
-    if (!key) { delete l.motif; delete l.motifFrame; return change(); }
+    const ls = patterned();
+    if (!ls.length || !canChange()) return;
+    if (!key) { for (const l of ls) { delete l.motif; delete l.motifFrame; } return change(); }
     const shape = motifOf(key);
     if (!shape) return ui.refresh(); // its own shape, no longer in the library: nothing to swap to
-    const had = l.motif || { size: 80, gap: 40, stagger: 0, turn: 0 };
-    l.motif = { ...shape, size: had.size, gap: had.gap, stagger: had.stagger, turn: had.turn };
+    const had = (ls.find(l => l.motif) || {}).motif || { size: 80, gap: 40, stagger: 0, turn: 0, only: false };
+    for (const l of ls) l.motif = { ...shape, size: had.size, gap: had.gap, stagger: had.stagger, turn: had.turn, only: !!had.only, color: had.color || standsOut(l.color) };
     change();
   },
   tweakMotif(key, v) {
-    const l = actions.selected();
-    if (!l || !l.motif || !canChange()) return;
-    l.motif = { ...l.motif, [key]: v }; // a new object each time: the engine keeps patterns by their settings
+    const ls = patterned().filter(l => l.motif);
+    if (!ls.length || !canChange()) return;
+    for (const l of ls) l.motif = { ...l.motif, [key]: v }; // a new object each time: the engine keeps patterns by their settings
     change({ panels: false });
   },
   setBandWidth(n) { app.bandWidth = Math.max(2, Math.min(800, Math.round(n) || 60)); requestDraw(); },
@@ -995,7 +1004,7 @@ const actions = {
       return;
     }
     // their mirrored sides are part of what is painted, so they are part of the picture
-    const sheet = paintLayers(withMirrors(withTints({ ...app.doc, layers: targets })).layers, { linearEdges: true });
+    const sheet = paintLayers(withMirrors(withTints(withPatterns({ ...app.doc, layers: targets }))).layers, { linearEdges: true });
     const px = sheet.getContext('2d').getImageData(0, 0, SIZE, SIZE).data;
     let x0 = SIZE, y0 = SIZE, x1 = -1, y1 = -1;
     for (let y = 0; y < SIZE; y++) {

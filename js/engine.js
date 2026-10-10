@@ -569,6 +569,9 @@ const num = (v, lo, hi, d) => (Number.isFinite(+v) ? Math.max(lo, Math.min(hi, +
 export function cleanMotif(m) {
   if (!m || typeof m !== 'object') return null;
   const out = { kind: m.kind, size: num(m.size, 4, 2048, 80), gap: num(m.gap, 0, 2048, 40), stagger: num(m.stagger, 0, 100, 0), turn: num(m.turn, -360, 360, 0) };
+  // color: what the pattern is painted in, over the shape's own paint; only: that paint is left out
+  if (/^#[0-9a-f]{6}$/i.test(m.color || '')) { out.color = m.color.toLowerCase(); out.only = !!m.only; }
+  else out.only = true; // from before a pattern had a colour of its own: it was the shape's, with gaps
   if (m.kind === 'own') {
     const pts = shapePts(m.pts);
     if (!pts || !(m.w > 0) || !(m.h > 0)) return null;

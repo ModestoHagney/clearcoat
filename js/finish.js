@@ -81,9 +81,29 @@ export function baseSpec(doc) {
 }
 export const baseFinish = (doc) => baseSpec(doc).material;
 
-// The doc as it is finished: each layer carrying the finish it ends up with.
-// The doc itself is returned when no colour rule changes anything.
-export function withFinishes(doc) {
+// A shape with a pattern over its paint is two things to paint and to finish:
+// the shape in its own colour, then the pattern in the pattern's colour. The
+// engine draws a layer that has a motif as the pattern alone, so the doc is
+// opened out here: each such layer becomes the plain shape and, in front of
+// it, the pattern (id + '~p'). `only` leaves the shape's own paint out.
+// The doc itself is returned when it has no patterns.
+export function withPatterns(doc) {
+  if (!doc.layers.some(l => l.motif)) return doc;
+  return {
+    ...doc,
+    layers: doc.layers.flatMap((l) => {
+      if (!l.motif) return [l];
+      const over = { ...l, id: l.id + '~p', color: l.motif.color || l.color, colorRef: null, fillType: 'solid', fx: null };
+      return l.motif.only ? [over] : [{ ...l, motif: undefined, motifFrame: undefined }, over];
+    }),
+  };
+}
+
+// The doc as it is painted and finished: patterns opened out (see above) and
+// each layer carrying the finish it ends up with. The doc itself is returned
+// when there is nothing to change.
+export function withFinishes(whole) {
+  const doc = withPatterns(whole);
   if (!(doc.finishRules || []).length) return doc;
   let changed = false;
   const layers = doc.layers.map((l) => {
@@ -124,7 +144,7 @@ export function finishList(doc) {
   const used = new Map(); // colour → count, base coat first, then back to front
   const count = (c) => { if (c) used.set(c, (used.get(c) || 0) + 1); };
   count(hex(doc.baseColor));
-  for (const l of doc.layers) if (l.visible !== false && !isArea(l) && !hasOwnFinish(l)) count(layerColour(l));
+  for (const l of withPatterns(doc).layers) if (l.visible !== false && !isArea(l) && !hasOwnFinish(l)) count(layerColour(l)); // a pattern's colour is one of the livery's
   const out = [];
   for (const [colour, n] of used) {
     const r = ruleFor(doc, colour);

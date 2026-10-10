@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 globalThis.document = {
   createElement: () => ({ width: 0, height: 0, getContext: () => null }),
 };
-const { finishOf, layerColour, baseFinish, withFinishes, setRule, clearRule, finishList, ruleFor, readFinish, writeFinish, finishLabel, presetOf, SPARKLE } = await import('../js/finish.js');
+const { finishOf, layerColour, withPatterns, baseFinish, withFinishes, setRule, clearRule, finishList, ruleFor, readFinish, writeFinish, finishLabel, presetOf, SPARKLE } = await import('../js/finish.js');
 const { createDoc, createFillLayer, serializeDoc, deserializeDoc, cleanFinishRules } = await import('../js/engine.js');
 
 function doc() {
@@ -154,4 +154,18 @@ test('a picture has a colour only once it is given one, and then follows that co
   assert.equal(layerColour({ type: 'image' }), null);
   assert.equal(finishOf(doc, { type: 'image' }), 'gloss');
   assert.equal(finishOf(doc, { type: 'image', color: '#FF0000' }), 'matte');
+});
+
+test('a pattern over a shape is painted and finished as two: the shape, then the pattern in its own colour', () => {
+  const shape = { id: 'a', type: 'fill', visible: true, color: '#ff0000', motif: { kind: 'star', size: 80, gap: 40, color: '#000000' } };
+  const doc = { baseColor: '#ffffff', finishRules: [{ color: '#000000', material: 'matte' }], layers: [shape] };
+  const [under, over] = withFinishes(doc).layers;
+  assert.deepEqual([under.id, under.color, under.motif, under.material || 'gloss'], ['a', '#ff0000', undefined, 'gloss']);
+  assert.deepEqual([over.id, over.color, over.motif.kind, over.material], ['a~p', '#000000', 'star', 'matte']); // black is matte, wherever it is
+  assert.deepEqual(finishList(doc).map(f => f.colour + ':' + f.material), ['#ffffff:gloss', '#ff0000:gloss', '#000000:matte']);
+  // pattern only: the shape's own paint is left out
+  const only = withPatterns({ layers: [{ ...shape, motif: { ...shape.motif, only: true } }] }).layers;
+  assert.deepEqual(only.map(l => l.id + l.color), ['a~p#000000']);
+  const plain = { layers: [{ id: 'b', type: 'fill', color: '#ff0000' }] };
+  assert.equal(withPatterns(plain), plain);
 });
