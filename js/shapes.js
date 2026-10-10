@@ -1,6 +1,9 @@
-// Free shapes: a closed outline of points in doc space, [{ x, y, c? }].
+// Free shapes: a closed outline of points in doc space, [{ x, y, c?, m? }].
 // `c` on a point is the bend handle (quadratic control point) of the line that
-// leaves it for the next point; without it that line is straight. The engine
+// leaves it for the next point; without it that line is straight. `m` on a
+// point starts a new, separate outline in the same shape (as "move to" does in
+// a path), so one shape can be several pieces: what merging shapes makes.
+// Each piece closes back on its own first point. The engine
 // draws these as a fill layer with shape 'path' (see fillShapePath); this file
 // is the geometry around them — pure, no canvas, so it runs under node --test.
 
@@ -8,9 +11,24 @@ import { pointInPolygon } from './regions.js';
 
 const lerp = (a, b, t) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
 
+// where each piece starts and stops in the list: [[start, end), …]
+export function pieces(pts) {
+  const out = [];
+  let start = 0;
+  for (let i = 1; i <= pts.length; i++) if (i === pts.length || pts[i].m) { out.push([start, i]); start = i; }
+  return out;
+}
+const pieceOf = (pts, i) => pieces(pts).find(([a, b]) => i >= a && i < b);
+// the point the line leaving pts[i] runs to: the next one, or its piece's first
+export function nextIndex(pts, i) {
+  const [a, b] = pieceOf(pts, i);
+  return i + 1 < b ? i + 1 : a;
+}
+const prevIndex = (pts, i) => { const [a, b] = pieceOf(pts, i); return i > a ? i - 1 : b - 1; };
+
 // the point at t along the line leaving pts[i]
 export function pointOn(pts, i, t) {
-  const a = pts[i], b = pts[(i + 1) % pts.length];
+  const a = pts[i], b = pts[nextIndex(pts, i)];
   if (!a.c) return lerp(a, b, t);
   const u = 1 - t;
   return { x: u * u * a.x + 2 * u * t * a.c.x + t * t * b.x, y: u * u * a.y + 2 * u * t * a.c.y + t * t * b.y };
@@ -35,11 +53,19 @@ export function bounds(pts) {
   return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
 }
 
-export const contains = (pts, x, y) => pointInPolygon(flatten(pts), x, y);
+// each piece as its own straight-sided outline
+export const outlines = (pts, steps = 12) => pieces(pts).map(([a, b]) => flatten(pts.slice(a, b).map((p, k) => (k ? p : { ...p, m: undefined })), steps));
+// inside any of its pieces
+export const contains = (pts, x, y) => outlines(pts).some(o => pointInPolygon(o, x, y));
 
-export const moved = (pts, dx, dy) => pts.map(p => (p.c
-  ? { x: p.x + dx, y: p.y + dy, c: { x: p.c.x + dx, y: p.c.y + dy } }
-  : { x: p.x + dx, y: p.y + dy }));
+// every point (and bend handle) through f, keeping what else the point carries
+export const mapped = (pts, f) => pts.map((p) => {
+  const q = f(p);
+  if (p.c) q.c = f(p.c);
+  if (p.m) q.m = true;
+  return q;
+});
+export const moved = (pts, dx, dy) => mapped(pts, p => ({ x: p.x + dx, y: p.y + dy }));
 
 // Nearest spot on the outline to (x, y), if within `reach`.
 // → { i, t, x, y, d }: on the line leaving pts[i], t of the way along it
@@ -66,7 +92,7 @@ export const midOf = (pts, i) => pointOn(pts, i, 0.5);
 // Bend the line leaving pts[i] so its half-way dot sits at m. Dropped within
 // `slack` of the straight line's middle, the bend is removed again.
 export function bendTo(pts, i, m, slack = 0) {
-  const a = pts[i], b = pts[(i + 1) % pts.length];
+  const a = pts[i], b = pts[nextIndex(pts, i)];
   const mid = lerp(a, b, 0.5);
   const out = pts.map(p => ({ ...p }));
   if (Math.hypot(m.x - mid.x, m.y - mid.y) <= slack) delete out[i].c;
@@ -77,7 +103,7 @@ export function bendTo(pts, i, m, slack = 0) {
 // A new point at t along the line leaving pts[i]. A bent line is split into
 // two bends that trace the same curve (de Casteljau).
 export function insertAt(pts, i, t) {
-  const a = pts[i], b = pts[(i + 1) % pts.length];
+  const a = pts[i], b = pts[nextIndex(pts, i)];
   const out = pts.map(p => ({ ...p }));
   const p = pointOn(pts, i, t);
   if (a.c) {
@@ -91,11 +117,57 @@ export function insertAt(pts, i, t) {
 // Remove pts[i]; the lines either side become one straight line. Never goes
 // below a triangle.
 export function removeAt(pts, i) {
-  if (pts.length <= 3) return pts;
+  const [a, b] = pieceOf(pts, i);
+  if (b - a <= 3) return pts; // its piece would stop being a shape
   const out = pts.map(p => ({ ...p }));
-  delete out[(i - 1 + out.length) % out.length].c;
+  delete out[prevIndex(pts, i)].c;
+  if (out[i].m) out[i + 1].m = true; // the piece now starts at the next point
   out.splice(i, 1);
   return out;
+}
+
+// ---------- several shapes as one ----------
+
+// twice the signed area of a piece's corners: its sign says which way round it runs
+const turn = (pts) => pts.reduce((s, p, i) => { const q = pts[(i + 1) % pts.length]; return s + p.x * q.y - q.x * p.y; }, 0);
+// the same outline, run the other way. A bend handle belongs to the line
+// leaving its point, so each moves to the point at that line's other end.
+function reversed(pts) {
+  const n = pts.length;
+  return pts.map((_, j) => {
+    const p = pts[(n - j) % n], before = pts[(n - j - 1 + n) % n]; // new point j is old point n-j; its line runs to old n-j-1
+    const q = { x: p.x, y: p.y };
+    if (before.c) q.c = { x: before.c.x, y: before.c.y };
+    return q;
+  });
+}
+// Outlines joined into one shape's point list. Every piece is made to run the
+// same way round, so where two overlap they add up instead of cutting a hole.
+export function joined(list) {
+  const out = [];
+  for (const pts of list) {
+    for (const [a, b] of pieces(pts)) {
+      let piece = pts.slice(a, b).map(p => (p.c ? { x: p.x, y: p.y, c: { ...p.c } } : { x: p.x, y: p.y }));
+      if (turn(flatten(piece)) < 0) piece = reversed(piece);
+      if (out.length) piece[0].m = true;
+      out.push(...piece);
+    }
+  }
+  return out;
+}
+
+// a ready-made fill's box as an outline, so it can join one
+export function boxOutline(shape, x, y, w, h) {
+  if (shape === 'triangle') return [{ x: x + w / 2, y }, { x: x + w, y: y + h }, { x, y: y + h }];
+  if (shape === 'ellipse') {
+    // eight arcs: close enough to an ellipse that the eye cannot tell
+    const cx = x + w / 2, cy = y + h / 2, k = 1 / Math.cos(Math.PI / 8);
+    return Array.from({ length: 8 }, (_, i) => {
+      const a = i * Math.PI / 4, m = a + Math.PI / 8;
+      return { x: cx + Math.cos(a) * w / 2, y: cy + Math.sin(a) * h / 2, c: { x: cx + Math.cos(m) * k * w / 2, y: cy + Math.sin(m) * k * h / 2 } };
+    });
+  }
+  return [{ x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h }];
 }
 
 // `to`, moved so the line from `from` runs at a multiple of `step` degrees

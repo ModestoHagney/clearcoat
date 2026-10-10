@@ -91,10 +91,12 @@ export function mirrorLayer(map, sel) {
   // mirror gives them is taken back out, about their own upright. (On a twin
   // that lies upside-down on the sheet that leaves them turned to match it.)
   if ((sel.type === 'image' || sel.type === 'text') && !sel.mirrorFlip && !copy.corners) copy.flipH = !copy.flipH;
+  // a fade's two points go across with the shape
+  if (sel.fadeFrom && sel.fadeTo) { copy.fadeFrom = pt(sel.fadeFrom); copy.fadeTo = pt(sel.fadeTo); }
   if (isPath(sel)) {
     // a free shape is its points: carry each across and it is the mirror
     // image, with nothing left to flip
-    copy.pts = sel.pts.map(q => (q.c ? { ...pt(q), c: pt(q.c) } : pt(q)));
+    copy.pts = sel.pts.map((q) => { const o = pt(q); if (q.c) o.c = pt(q.c); if (q.m) o.m = true; return o; });
     // the bend handle belongs to the line *leaving* a point; a reflection
     // keeps that pairing, so the list order can stay as it is
     copy.flipH = !!sel.flipH; copy.flipV = !!sel.flipV; copy.rotation = sel.rotation || 0;
@@ -118,6 +120,12 @@ export function mirrorLayer(map, sel) {
     copy.ry = Math.round(Math.min(...ys));
     copy.rw = Math.max(1, Math.round(Math.max(...xs) - Math.min(...xs)));
     copy.rh = Math.max(1, Math.round(Math.max(...ys) - Math.min(...ys)));
+    if (sel.fadeFrom && sel.fadeTo && sel.rw && sel.rh) {
+      // a box is mirrored by flipping it within its rect, fade and all, so its
+      // fade points keep their place in the rect and the flip carries them
+      const rel = (q) => ({ x: copy.rx + (q.x - sel.rx) / sel.rw * copy.rw, y: copy.ry + (q.y - sel.ry) / sel.rh * copy.rh });
+      copy.fadeFrom = rel(sel.fadeFrom); copy.fadeTo = rel(sel.fadeTo);
+    }
     if (sel.type === 'pattern') {
       const o = carry(sel.x || 0, sel.y || 0); // the point it tiles from moves too
       copy.x = o.x;

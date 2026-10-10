@@ -18,7 +18,8 @@ import { regionOutline } from '../js/regions.js';
 import { loadTemplate } from '../js/template.js';
 import { saveToIracing, paintFilenames, validCustid } from '../js/iracing.js';
 import { initUI } from './ui.js';
-import { initTools, isShape, moveLayer, setShape } from './tools.js';
+import { initTools, isShape, isBox, moveLayer, setShape, fadeEnds } from './tools.js';
+import { joined, boxOutline } from '../js/shapes.js';
 import { LIBRARY, libraryItemToLayerSource } from '../js/library.js';
 import { createFillLayer } from '../js/engine.js';
 import { moved } from '../js/shapes.js';
@@ -30,7 +31,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.30';
+export const VERSION = 'v0.68-pieces.31';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -470,7 +471,7 @@ function cloneLayer(l) {
   const c = { ...l, id: newId(), groupId: null }; // a copy does not join the original's group
   for (const k of ['pts', 'lassoPts', 'corners', 'clipAt']) if (Array.isArray(l[k])) c[k] = l[k].map(q => (q.c ? { ...q, c: { ...q.c } } : { ...q }));
   if (Array.isArray(l.clip)) c.clip = l.clip.map(poly => (Array.isArray(poly) ? poly.map(q => ({ ...q })) : { ...poly }));
-  for (const k of ['matParams', 'lumSpec', 'fx', 'cornerPan']) if (l[k]) c[k] = { ...l[k] };
+  for (const k of ['matParams', 'lumSpec', 'fx', 'cornerPan', 'fadeFrom', 'fadeTo']) if (l[k]) c[k] = { ...l[k] };
   return c;
 }
 
@@ -758,18 +759,23 @@ const actions = {
   },
   // ---- fades ----
   // A shape's fill fades from its colour to a second one, or to nothing.
-  // part: on | style ('linear' | 'radial') | to (a hex) | out (to nothing) | angle
+  // part: on | style ('linear' | 'radial') | to (a hex) | out (to nothing)
   setFade(part, value) {
     const l = actions.selected();
     if (!l || l.type !== 'fill') return;
     // switched on, it starts as the usual want: a smooth fade to nothing
     // (the engine's own default second colour means none has been chosen yet)
-    if (part === 'on') { l.fillType = value ? 'linear' : 'solid'; if (value && (!l.color2 || l.color2 === '#101114')) l.color2 = l.color + '00'; }
-    else if (part === 'style') l.fillType = value === 'radial' ? 'radial' : 'linear';
+    // Where it runs is set by two dots on the sheet (fadeFrom, fadeTo); they
+    // start out laid across the shape, and again whenever the style changes.
+    const lay = (style) => { const e = fadeEnds(l, style); l.fadeFrom = { ...e.a }; l.fadeTo = { ...e.b }; };
+    if (part === 'on') {
+      l.fillType = value ? 'linear' : 'solid';
+      if (value && (!l.color2 || l.color2 === '#101114')) l.color2 = l.color + '00';
+      if (value && !(l.fadeFrom && l.fadeTo)) lay('linear');
+    } else if (part === 'style') { l.fillType = value === 'radial' ? 'radial' : 'linear'; lay(l.fillType); }
     else if (part === 'to') l.color2 = value;
     else if (part === 'out') l.color2 = value ? l.color + '00' : '#ffffff'; // the same colour, see-through
-    else if (part === 'angle') l.gradAngle = value;
-    change(part === 'to' || part === 'angle' ? { panels: false } : { now: true });
+    change(part === 'to' ? { panels: false } : { now: true });
   },
   // the mirrored side becomes a layer of its own, to be changed separately
   separate() {
@@ -876,13 +882,30 @@ const actions = {
     pruneGroups();
     change({ now: true });
   },
-  // Merge: the selected layers become one picture, in the top one's place
+  // Merge: the selected layers become one, in the top one's place. Shapes of
+  // one colour become a single shape with several pieces, which can still be
+  // recoloured, faded, mirrored, trimmed and reshaped. Anything else (text,
+  // pictures, shapes of different colours) can only become one picture.
   async merge() {
     if (app.mode !== 'paint') return;
     const ids = new Set(selectedLayers().map(l => l.id));
     const targets = app.doc.layers.filter(l => ids.has(l.id) && l.visible && !isArea(l)); // back to front
     if (targets.length < 2) { ui.say('Select two or more layers to merge. Ctrl+click them, or drag a box round them.'); return; }
     const top = targets[targets.length - 1], spec = finishSpec(app.doc, top);
+    const same = (f) => targets.every(l => f(l) === f(top));
+    const asOneShape = targets.every(l => isShape(l) || (isBox(l) && ['rect', 'ellipse', 'triangle'].includes(l.shape) && !l.flipH && !l.flipV))
+      && same(l => (l.color || '').toLowerCase()) && same(l => l.fillType || 'solid') && same(l => l.color2 || '') && same(l => l.opacity ?? 1)
+      && same(l => !!l.mirrored) && same(l => JSON.stringify(finishSpec(app.doc, l))) && same(l => JSON.stringify(l.clip || null));
+    if (asOneShape) {
+      setShape(top, joined(targets.map(l => (isShape(l) ? l.pts : boxOutline(l.shape, l.rx, l.ry, l.rw, l.rh)))));
+      top.shape = 'path';
+      app.doc.layers = app.doc.layers.filter(l => l === top || !targets.includes(l));
+      pruneGroups();
+      app.sel = top.id; app.sels = [];
+      change({ now: true });
+      ui.say(`Merged ${targets.length} shapes into one. It is still a shape.`);
+      return;
+    }
     // their mirrored sides are part of what is painted, so they are part of the picture
     const sheet = paintLayers(withMirrors({ ...app.doc, layers: targets }).layers, { linearEdges: true });
     const px = sheet.getContext('2d').getImageData(0, 0, SIZE, SIZE).data;
@@ -912,7 +935,7 @@ const actions = {
     app.sel = merged.id; app.sels = [];
     change({ now: true });
     const finishes = new Set(targets.map(l => JSON.stringify(finishSpec(app.doc, l))));
-    ui.say(finishes.size > 1 ? `Merged ${targets.length} layers. They had different finishes, so it took the top one's.` : `Merged ${targets.length} layers. Ctrl+Z brings them back.`);
+    ui.say(finishes.size > 1 ? `Merged ${targets.length} layers into a picture. They had different finishes, so it took the top one's.` : `Merged ${targets.length} layers into a picture: they were not all shapes of one colour.`);
   },
   order(dir) { // +1 forward, -1 back
     const L = app.doc.layers, i = L.findIndex(l => l.id === app.sel), j = i + dir;

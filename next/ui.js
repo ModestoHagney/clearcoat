@@ -200,7 +200,7 @@ export function initUI(app, actions, version) {
       `<label class="switch">Fade<input id="f-fade" type="checkbox"${fading ? ' checked' : ''}></label>` + (!fading ? '' :
         `<div class="seg"><button data-fade="linear" aria-pressed="${l.fillType === 'linear'}">Across</button><button data-fade="radial" aria-pressed="${l.fillType === 'radial'}">From the middle</button></div>` +
         field('Fades to', `<span class="pair"><input id="f-fade-to" type="color" value="${esc(out ? '#ffffff' : hexOf(l.color2 || '') || '#ffffff')}"${out ? ' disabled' : ''} aria-label="The colour it fades to"><label class="inline"><input id="f-fade-out" type="checkbox"${out ? ' checked' : ''}>Nothing</label></span>`) +
-        (l.fillType === 'linear' ? field('Direction', range('f-fade-angle', 0, 360, l.gradAngle || 0)) : ''));
+        '<div class="note">Drag the two dots on the shape to aim it</div>');
     const main = !isText ? colour + fade :
       field('Text', `<input id="f-text" type="text" value="${esc(l.text)}">`) +
       field('Font', `<select id="f-font">${fonts.map((f) => opt(f, f, f === l.font)).join('')}${opt('__google', 'Google font by name…', false)}${opt('__upload', 'Upload a font file…', false)}</select>`) +
@@ -311,7 +311,9 @@ export function initUI(app, actions, version) {
     const add = (c) => { const h = hexOf(c || ''); if (h) n.set(h, (n.get(h) || 0) + 1); };
     add(app.doc.baseColor);
     for (const l of app.doc.layers) if (l.visible) add(l.type === 'fill' ? l.color : l.type === 'text' ? l.textColor : null);
-    return [...n].sort((a, b) => b[1] - a[1]).map((x) => x[0]).slice(0, 14);
+    // in the order they sit in the livery (base coat, then back to front), so
+    // a swatch does not jump about when a colour is used more or less
+    return [...n.keys()].slice(0, 14);
   }
   function colourHtml() {
     const d = app.doc, cur = actions.currentColour(), sel = actions.selected();
@@ -362,7 +364,6 @@ export function initUI(app, actions, version) {
     const fn = /^fn-(met|rough|clear|amount|size|strength)$/.exec(t.id || '');
     if (fn) { actions.tweakFinish(fn[1], +t.value); drawTile(); return; }
     if (t.id === 'f-fade-to') { actions.setFade('to', t.value); return; }
-    if (t.id === 'f-fade-angle') { actions.setFade('angle', +t.value); return; }
     // plain settings: the control's id names the layer setting it sets
     const m = /^f-(fx-)?(fontSize|outlineWidth|outlineColor|letterSpacing|curve|rotation|shadow|shadowColor|shadowDX|shadowDY|text)$/.exec(t.id || '');
     if (m && layer) {
@@ -528,11 +529,18 @@ export function initUI(app, actions, version) {
     const shapeSvg = (it) => {
       const pad = Math.max(it.w, it.h) * 0.06, box = `${-pad} ${-pad} ${it.w + 2 * pad} ${it.h + 2 * pad}`;
       let d;
-      if (it.pts) d = 'M' + it.pts.map((a, i) => { const b = it.pts[(i + 1) % it.pts.length]; return (i ? '' : `${a.x} ${a.y}`) + (a.c ? `Q${a.c.x} ${a.c.y} ${b.x} ${b.y}` : `L${b.x} ${b.y}`); }).join('') + 'Z';
+      if (it.pts) { // a point marked `m` starts a separate piece
+        let start = 0;
+        d = it.pts.map((a, i) => {
+          const head = !i || a.m ? ((start = i), `M${a.x} ${a.y}`) : '';
+          const last = i + 1 === it.pts.length || !!it.pts[i + 1].m, b = it.pts[last ? start : i + 1];
+          return head + (a.c ? `Q${a.c.x} ${a.c.y} ${b.x} ${b.y}` : `L${b.x} ${b.y}`) + (last ? 'Z' : '');
+        }).join('');
+      }
       else if (it.shape === 'ellipse') d = `M0 ${it.h / 2}A${it.w / 2} ${it.h / 2} 0 1 0 ${it.w} ${it.h / 2}A${it.w / 2} ${it.h / 2} 0 1 0 0 ${it.h / 2}Z`;
       else if (it.shape === 'triangle') d = `M${it.w / 2} 0L${it.w} ${it.h}L0 ${it.h}Z`;
       else d = `M0 0H${it.w}V${it.h}H0Z`;
-      return `<svg viewBox="${box}" aria-hidden="true"><path d="${d}" fill="currentColor"/></svg>`;
+      return `<svg viewBox="${box}" aria-hidden="true"><path d="${d}" fill="currentColor" fill-rule="nonzero"/></svg>`;
     };
     const tile = (kind, it, art, own) => `<span class="tilewrap"><button type="button" class="tile" data-lib="${kind}:${esc(it.id)}" title="${esc(it.name)}">${art}<span>${esc(it.name)}</span></button>${own ? `<button type="button" class="tilex" data-libx="${kind}:${esc(it.id)}" title="Remove from the library" aria-label="Remove ${esc(it.name)}">${svg('close')}</button>` : ''}</span>`;
     const draw = () => {

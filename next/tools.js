@@ -18,7 +18,7 @@
 // or picture has a handle on each corner to resize it and one above to turn it.
 
 import { SIZE, createFillLayer, isRegionLayer, toLocal, layerCorners } from '../js/engine.js';
-import { bounds, contains, moved, segmentAt, midOf, bendTo, insertAt, removeAt, snapAngle } from '../js/shapes.js';
+import { bounds, contains, moved, segmentAt, midOf, bendTo, insertAt, removeAt, snapAngle, nextIndex } from '../js/shapes.js';
 import { regionOutline, snapToOutline, trimShape, growOutline, pointInPolygon } from '../js/regions.js';
 import { clipPolys } from '../js/engine.js';
 import { pieceAt } from '../js/mirror.js';
@@ -35,6 +35,16 @@ export const isPic = (l) => !!l && !!l.img && (l.type === 'image' || l.type === 
 export const isBox = (l) => !!l && l.type === 'fill' && !isShape(l);
 export const READY = { ellipse: 'Circle', rect: 'Box', triangle: 'Triangle' };
 
+// Where a fill's fade runs: from the first point to the second (across), or
+// out from the first as far as the second (from the middle). `style`, when
+// given, asks for fresh points laid across the fill's box in that style.
+export function fadeEnds(l, style) {
+  if (!style && l.fadeFrom && l.fadeTo) return { a: l.fadeFrom, b: l.fadeTo };
+  const cy = l.ry + l.rh / 2, right = { x: l.rx + l.rw, y: cy };
+  return (style || l.fillType) === 'radial' ? { a: { x: l.rx + l.rw / 2, y: cy }, b: right } : { a: { x: l.rx, y: cy }, b: right };
+}
+export const hasFade = (l) => !!l && l.type === 'fill' && (l.fillType === 'linear' || l.fillType === 'radial');
+
 // keep a shape's box in step with its outline (gradients and the engine's
 // own hit-testing work from the box)
 export function setShape(layer, pts) {
@@ -45,6 +55,10 @@ export function setShape(layer, pts) {
 
 export function moveLayer(l, dx, dy) {
   if (isShape(l)) l.pts = moved(l.pts, dx, dy);
+  if (l.fadeFrom && l.fadeTo) { // a fade's two points belong to the shape
+    l.fadeFrom = { x: l.fadeFrom.x + dx, y: l.fadeFrom.y + dy };
+    l.fadeTo = { x: l.fadeTo.x + dx, y: l.fadeTo.y + dy };
+  }
   if (isRegionLayer(l)) { l.rx += dx; l.ry += dy; } else { l.x += dx; l.y += dy; }
 }
 
@@ -61,6 +75,7 @@ export function initTools(app, env) {
   const selShape = () => { const l = selLayer(); return isShape(l) && editable(l) ? l : null; };
   const selBox = () => { const l = selLayer(); return isBox(l) && editable(l) ? l : null; };
   const selPic = () => { const l = selLayer(); return isPic(l) && editable(l) ? l : null; };
+  const selFade = () => { const l = selLayer(); return hasFade(l) && editable(l) && app.mode === 'paint' ? l : null; };
   // where the turn handle sits: out from the middle of the top edge
   function turnHandle(l) {
     const c = layerCorners(l).map(onScreen), top = { x: (c[0].x + c[1].x) / 2, y: (c[0].y + c[1].y) / 2 }, mid = onScreen(l);
@@ -247,6 +262,11 @@ export function initTools(app, env) {
       return;
     }
     if (app.tool !== 'select') return;
+    const faded = selFade();
+    if (faded) { // the fade's two dots sit on top of everything else the shape has
+      const ends = fadeEnds(faded);
+      for (const end of ['b', 'a']) if (far(onScreen(ends[end]), s) <= GRAB) { drag = { kind: 'fade', layer: faded, end }; return; }
+    }
     const shape = selShape();
     if (shape) {
       const pts = shape.pts;
@@ -306,6 +326,14 @@ export function initTools(app, env) {
     if (band) { band.b = bandEnd(p, e); requestDraw(); return; }
     if (!drag) return;
     const l = drag.layer;
+    if (drag.kind === 'fade') {
+      const ends = fadeEnds(l), other = drag.end === 'a' ? ends.b : ends.a;
+      const q = e.shiftKey ? snapAngle(other, p) : p;
+      l.fadeFrom = drag.end === 'a' ? { x: q.x, y: q.y } : { ...ends.a };
+      l.fadeTo = drag.end === 'b' ? { x: q.x, y: q.y } : { ...ends.b };
+      change({ panels: false });
+      return;
+    }
     if (drag.kind === 'turn') {
       let r = drag.r0 + (Math.atan2(p.y - l.y, p.x - l.x) - drag.a0) * 180 / Math.PI;
       if (e.shiftKey) r = Math.round(r / 15) * 15;
@@ -428,6 +456,7 @@ export function initTools(app, env) {
     if (app.tool === 'piece') return 'Click a panel to fill it';
     if (app.tool === 'text') return 'Click where the text goes';
     if (app.tool === 'select' && env.selectedLayers().length > 1) return `${env.selectedLayers().length} layers · drag to move them · Ctrl+E merges · Ctrl+G groups`;
+    if (app.tool === 'select' && selFade()) return 'Drag the two dots to aim the fade · Shift holds 45°';
     if (app.tool === 'select' && selPic()) return 'Drag a corner to resize · the round handle turns it · Shift turns in steps';
     if (app.tool === 'shape') return 'Drag to draw · Shift keeps it even';
     if (app.tool === 'band') return band ? 'Click the end · Shift holds 45°' : 'Click the start, then the end · snaps to panel edges';
@@ -441,15 +470,15 @@ export function initTools(app, env) {
   function drawOverlay(ctx, accent) {
     const path = (pts, close) => {
       ctx.beginPath();
-      pts.forEach((a, i) => {
+      pts.forEach((a, i) => { // a point marked `m` starts a separate piece
         const A = onScreen(a);
-        if (!i) ctx.moveTo(A.x, A.y);
-        const last = i === pts.length - 1;
+        if (!i || a.m) ctx.moveTo(A.x, A.y);
+        const last = i === pts.length - 1 || !!pts[i + 1].m;
         if (last && !close) return;
-        const B = onScreen(pts[(i + 1) % pts.length]);
+        const B = onScreen(pts[last ? nextIndex(pts, i) : i + 1]);
         if (a.c) { const C = onScreen(a.c); ctx.quadraticCurveTo(C.x, C.y, B.x, B.y); } else ctx.lineTo(B.x, B.y);
+        if (last) ctx.closePath();
       });
-      if (close) ctx.closePath();
     };
     const square = (q, r, fill) => {
       ctx.fillStyle = fill; ctx.strokeStyle = fill === '#ffffff' ? accent : '#ffffff'; ctx.lineWidth = 1.5;
@@ -562,8 +591,21 @@ export function initTools(app, env) {
     }
     const box = app.tool === 'select' ? selBox() : null;
     if (box) corners(box).forEach((q) => square(onScreen(q), 4.5, accent));
+    const fadeDots = () => { // where the fade starts (a ring) and where it ends (a dot)
+      const faded = app.tool === 'select' ? selFade() : null;
+      if (!faded) return;
+      const ends = fadeEnds(faded), A = onScreen(ends.a), B = onScreen(ends.b);
+      ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y);
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 4; ctx.stroke();
+      ctx.strokeStyle = '#101114'; ctx.lineWidth = 1.5; ctx.setLineDash([6, 4]); ctx.stroke(); ctx.setLineDash([]);
+      for (const [q, solid] of [[A, false], [B, true]]) {
+        ctx.beginPath(); ctx.arc(q.x, q.y, 6.5, 0, Math.PI * 2);
+        ctx.fillStyle = solid ? '#101114' : '#ffffff'; ctx.fill();
+        ctx.strokeStyle = solid ? '#ffffff' : '#101114'; ctx.lineWidth = 2; ctx.stroke();
+      }
+    };
     const shape = app.tool === 'select' ? selShape() : null;
-    if (!shape) return;
+    if (!shape) { fadeDots(); return; }
     path(shape.pts, true);
     ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3.5; ctx.stroke();
     ctx.strokeStyle = accent; ctx.lineWidth = 1.5; ctx.stroke();
@@ -573,6 +615,7 @@ export function initTools(app, env) {
       ctx.fillStyle = '#ffffff'; ctx.fill(); ctx.strokeStyle = accent; ctx.lineWidth = 1.5; ctx.stroke();
     });
     shape.pts.forEach((q) => square(onScreen(q), 4.5, accent));
+    fadeDots();
   }
 
   return { down, move, up, key, context, cancel, hint, drawOverlay, drawing: () => !!(draft && draft.length) };

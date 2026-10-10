@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { flatten, bounds, contains, moved, segmentAt, midOf, bendTo, insertAt, removeAt, snapAngle, pointOn } from '../js/shapes.js';
+import { flatten, bounds, contains, moved, segmentAt, midOf, bendTo, insertAt, removeAt, snapAngle, pointOn, pieces, nextIndex, joined, boxOutline, outlines } from '../js/shapes.js';
 
 const sq = () => [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 }];
 const near = (a, b, eps = 1e-6) => Math.abs(a - b) <= eps;
@@ -77,4 +77,61 @@ test('snapAngle: locks to 45° steps and keeps the length', () => {
   const d = snapAngle({ x: 10, y: 10 }, { x: 60, y: 70 });
   assert.ok(near(d.x - 10, d.y - 10, 1e-9), 'on the 45° diagonal');
   assert.deepEqual(snapAngle({ x: 5, y: 5 }, { x: 5, y: 5 }), { x: 5, y: 5 });
+});
+
+// ---- several pieces in one shape
+
+const two = () => joined([sq(), moved(sq(), 300, 0)]);
+
+test('joined: two shapes become one list, the second starting a new piece', () => {
+  const pts = two();
+  assert.equal(pts.length, 8);
+  assert.deepEqual(pieces(pts), [[0, 4], [4, 8]]);
+  assert.equal(pts[4].m, true);
+  assert.equal(nextIndex(pts, 3), 0, 'a piece closes on its own first point');
+  assert.equal(nextIndex(pts, 7), 4);
+});
+
+test('pieces: inside either, not in the gap between; bounds span both', () => {
+  const pts = two();
+  assert.equal(contains(pts, 50, 50), true);
+  assert.equal(contains(pts, 350, 50), true);
+  assert.equal(contains(pts, 200, 50), false);
+  assert.deepEqual(bounds(pts), { x: 0, y: 0, w: 400, h: 100 });
+  assert.equal(outlines(pts).length, 2);
+});
+
+test('joined: pieces drawn opposite ways round are turned to match, so an overlap is not a hole', () => {
+  const back = [...sq()].reverse(); // the same square, run the other way
+  const pts = joined([sq(), moved(back, 50, 0)]);
+  const dir = (o) => Math.sign(o.reduce((s, p, i) => { const q = o[(i + 1) % o.length]; return s + p.x * q.y - q.x * p.y; }, 0));
+  const [a, b] = outlines(pts);
+  assert.equal(dir(a), dir(b));
+  assert.equal(contains(pts, 75, 50), true);
+});
+
+test('joined: a bent piece keeps its curve when it has to be turned round', () => {
+  const bent = bendTo(sq(), 0, { x: 50, y: -40 });
+  const pts = joined([[...bent].reverse().map((p, i, all) => { const q = { x: p.x, y: p.y }; const before = all[(i + 1) % all.length]; if (before.c) q.c = before.c; return q; })]);
+  const want = pointOn(bent, 0, 0.5);
+  assert.ok(segmentAt(pts, want.x, want.y, 0.5, 64), 'the bulge is still on the outline');
+});
+
+test('editing a piece leaves the other alone', () => {
+  const pts = two();
+  const added = insertAt(pts, 3, 0.5); // on the first piece's closing line
+  assert.deepEqual(pieces(added), [[0, 5], [5, 9]]);
+  assert.deepEqual(added[4], { x: 0, y: 50 });
+  const tri = removeAt(added, 5); // the second piece's first point: the next becomes its start
+  assert.deepEqual(pieces(tri), [[0, 5], [5, 8]]);
+  assert.equal(tri[5].m, true);
+  assert.equal(removeAt(tri, 5), tri, 'a piece keeps at least three points');
+  assert.equal(moved(pts, 10, 10)[4].m, true);
+});
+
+test('boxOutline: a box, a triangle, and an ellipse that stays within a hair of round', () => {
+  assert.equal(boxOutline('rect', 0, 0, 10, 20).length, 4);
+  assert.deepEqual(boxOutline('triangle', 0, 0, 10, 20)[0], { x: 5, y: 0 });
+  const o = flatten(boxOutline('ellipse', 0, 0, 200, 200), 16);
+  for (const p of o) assert.ok(Math.abs(Math.hypot(p.x - 100, p.y - 100) - 100) < 0.6, 'on the circle');
 });

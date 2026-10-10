@@ -469,12 +469,15 @@ export function createFillLayer(color = '#e8e6e1') {
 export function fillShapePath(shape, rx, ry, rw, rh, pts) {
   const p = new Path2D();
   if (shape === 'path' && Array.isArray(pts) && pts.length >= 3) {
-    p.moveTo(pts[0].x, pts[0].y);
+    // a point marked `m` starts a separate piece of the same shape; each
+    // piece closes on its own first point
+    let start = 0;
     pts.forEach((a, i) => {
-      const b = pts[(i + 1) % pts.length];
+      if (i === 0 || a.m) { start = i; p.moveTo(a.x, a.y); }
+      const last = i + 1 === pts.length || pts[i + 1].m, b = pts[last ? start : i + 1];
       if (a.c) p.quadraticCurveTo(a.c.x, a.c.y, b.x, b.y); else p.lineTo(b.x, b.y);
+      if (last) p.closePath();
     });
-    p.closePath();
     return p;
   }
   switch (shape) {
@@ -515,7 +518,14 @@ export function fillPaintStyle(ctx, layer, rx, ry, rw, rh) {
   if ((layer.fillType || 'solid') === 'solid') return color;
   const cx = rx + rw / 2, cy = ry + rh / 2;
   let g;
-  if (layer.fillType === 'radial') {
+  const A = layer.fadeFrom, B = layer.fadeTo;
+  if (A && B) {
+    // the fade runs between two points placed on the sheet: from the first to
+    // the second, or (radial) out from the first as far as the second
+    g = layer.fillType === 'radial'
+      ? ctx.createRadialGradient(A.x, A.y, 0, A.x, A.y, Math.max(1, Math.hypot(B.x - A.x, B.y - A.y)))
+      : ctx.createLinearGradient(A.x, A.y, B.x, B.y);
+  } else if (layer.fillType === 'radial') {
     // region center out to the farthest corner
     g = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.hypot(rw, rh) / 2);
   } else {
@@ -1603,7 +1613,9 @@ export function serializeDoc(doc) {
       // colour's finish rule (see finish.js)
       finishOwn: l.finishOwn ? true : undefined,
       linearMix: l.linearMix ? true : undefined, // a merged picture whose soft pixels mix as its parts' did
-      pts: Array.isArray(l.pts) ? l.pts.map(q => (q.c ? { x: q.x, y: q.y, c: { x: q.c.x, y: q.c.y } } : { x: q.x, y: q.y })) : undefined,
+      pts: Array.isArray(l.pts) ? l.pts.map((q) => { const o = { x: q.x, y: q.y }; if (q.c) o.c = { x: q.c.x, y: q.c.y }; if (q.m) o.m = true; return o; }) : undefined,
+      fadeFrom: l.fadeFrom ? { x: l.fadeFrom.x, y: l.fadeFrom.y } : undefined,
+      fadeTo: l.fadeTo ? { x: l.fadeTo.x, y: l.fadeTo.y } : undefined,
       colorMid: l.colorMid ?? null, midPos: l.midPos ?? 0.5,
       src: l.src,
       // car pattern: which kit design + its three slot colours
@@ -1663,7 +1675,8 @@ export function cleanPalette(palette) {
 function shapePts(pts) {
   if (!Array.isArray(pts)) return null;
   const ok = (q) => q && Number.isFinite(q.x) && Number.isFinite(q.y);
-  const out = pts.filter(ok).map(q => (ok(q.c) ? { x: q.x, y: q.y, c: { x: q.c.x, y: q.c.y } } : { x: q.x, y: q.y }));
+  const out = pts.filter(ok).map((q) => { const o = { x: q.x, y: q.y }; if (ok(q.c)) o.c = { x: q.c.x, y: q.c.y }; if (q.m) o.m = true; return o; });
+  if (out.length) delete out[0].m;
   return out.length >= 3 ? out : null;
 }
 
@@ -1888,6 +1901,8 @@ export async function deserializeDoc(data) {
     if (l.mirrorFlip) loaded.get(l.id).mirrorFlip = true;
     if (l.finishOwn) loaded.get(l.id).finishOwn = true;
     if (l.linearMix) loaded.get(l.id).linearMix = true;
+    const at = (q) => (q && Number.isFinite(q.x) && Number.isFinite(q.y) ? { x: q.x, y: q.y } : null);
+    if (at(l.fadeFrom) && at(l.fadeTo)) { loaded.get(l.id).fadeFrom = at(l.fadeFrom); loaded.get(l.id).fadeTo = at(l.fadeTo); }
     if (typeof l.colorRef === 'string' && l.type !== 'fill') loaded.get(l.id).colorRef = l.colorRef; // text follows a saved colour too
     const ok = (q) => q && Number.isFinite(q.x) && Number.isFinite(q.y);
     const clip = clipPolys(l).map(p => p.filter(ok).map(q => ({ x: q.x, y: q.y }))).filter(p => p.length >= 3);
