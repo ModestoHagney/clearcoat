@@ -114,14 +114,21 @@ export function clearRule(doc, colour) {
   doc.finishRules = (doc.finishRules || []).filter(r => r.color !== c);
 }
 
-// Everything that has a finish of its own, for the Finishes list:
+// The Finishes list. Nothing is ever without a finish, so every colour in the
+// livery is listed with the one it has (gloss until it is changed), then the
+// layers given a finish of their own, then the areas.
 // → [{ kind: 'colour', colour, material, params, used } | { kind: 'layer' | 'area', id, name, material, params }]
-// `used`: how many layers (and the base coat) that colour is on right now.
+// `used`: how many layers (and the base coat) that colour is on. A rule for a
+// colour no longer in the livery is kept, unlisted, in case the colour returns.
 export function finishList(doc) {
+  const used = new Map(); // colour → count, base coat first, then back to front
+  const count = (c) => { if (c) used.set(c, (used.get(c) || 0) + 1); };
+  count(hex(doc.baseColor));
+  for (const l of doc.layers) if (l.visible !== false && !isArea(l) && !hasOwnFinish(l)) count(layerColour(l));
   const out = [];
-  for (const r of doc.finishRules || []) {
-    const used = doc.layers.filter(l => !isArea(l) && !hasOwnFinish(l) && layerColour(l) === r.color).length + (hex(doc.baseColor) === r.color ? 1 : 0);
-    out.push({ kind: 'colour', colour: r.color, material: r.material, params: r.params || null, used });
+  for (const [colour, n] of used) {
+    const r = ruleFor(doc, colour);
+    out.push({ kind: 'colour', colour, material: r ? r.material : 'gloss', params: (r && r.params) || null, used: n });
   }
   for (const l of doc.layers) {
     if (isArea(l)) out.push({ kind: 'area', id: l.id, name: l.name, material: l.material || 'gloss', params: l.matParams || null });

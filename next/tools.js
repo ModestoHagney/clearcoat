@@ -393,7 +393,8 @@ export function initTools(app, env) {
       if (app.tool === 'piece') return 'Click a panel to give the whole panel a finish';
       if (app.tool === 'pen') return draft && draft.length ? 'Enter to finish the area · Backspace undoes a point' : 'Click points round the area · Shift holds 45°';
       if (app.tool === 'shape') return 'Drag out the area';
-      return 'Click a colour or a layer on the sheet, then choose its finish';
+      if (selLayer() && selLayer().specOnly) return 'Drag the area to move it · Delete removes it';
+      return 'Click a colour or a layer on the sheet, or pick one from the list';
     }
     if (app.tool === 'piece') return 'Click a panel to fill it';
     if (app.tool === 'text') return 'Click where the text goes';

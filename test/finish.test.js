@@ -62,26 +62,32 @@ test('setRule replaces a colour\'s rule in place; gloss is kept as a choice; cle
   setRule(d, '#d7263d', 'pearl');
   setRule(d, '#111214', 'satin');
   assert.deepEqual(d.finishRules, [{ color: '#111214', material: 'satin' }, { color: '#d7263d', material: 'pearl' }]);
-  setRule(d, '#111214', 'gloss'); // chosen on purpose: it stays listed
+  setRule(d, '#111214', 'gloss');
   assert.deepEqual(d.finishRules[0], { color: '#111214', material: 'gloss' });
-  assert.equal(finishList(d)[0].material, 'gloss');
+  assert.equal(finishList(d).find(f => f.colour === '#111214').material, 'gloss');
   assert.deepEqual(d.layers.map(l => finishOf(d, l)), ['gloss', 'gloss', 'pearl', 'gloss']);
   clearRule(d, '#111214');
   assert.equal(ruleFor(d, '#111214'), null);
   assert.equal(d.finishRules.length, 1);
 });
 
-test('finishList: rules with how much they cover, then layers and areas with their own', () => {
+test('finishList: every colour in the livery with its finish, then layers and areas with their own', () => {
   const d = doc();
+  // nothing set yet: each colour is there already, as gloss
+  assert.deepEqual(finishList(d).map(f => [f.kind, f.colour, f.material, f.used]),
+    [['colour', '#ffffff', 'gloss', 1], ['colour', '#111214', 'gloss', 2], ['colour', '#d7263d', 'gloss', 1]]);
   setRule(d, '#111214', 'matte');
-  d.layers[2].material = 'candy'; d.layers[2].finishOwn = true;
+  setRule(d, '#00a651', 'chrome'); // a colour not in the livery: kept, not listed
+  d.layers[2].material = 'candy'; d.layers[2].finishOwn = true; // Red is finished by itself now, so red is no longer a listed colour
   const area = createFillLayer('#000000'); area.name = 'Area 1'; area.specOnly = true; area.material = 'pearl';
   d.layers.push(area);
   assert.deepEqual(finishList(d), [
+    { kind: 'colour', colour: '#ffffff', material: 'gloss', params: null, used: 1 },
     { kind: 'colour', colour: '#111214', material: 'matte', params: null, used: 2 },
     { kind: 'layer', id: d.layers[2].id, name: 'Red', material: 'candy', params: null },
     { kind: 'area', id: area.id, name: 'Area 1', material: 'pearl', params: null },
   ]);
+  assert.equal(ruleFor(d, '#00a651').material, 'chrome');
 });
 
 test('rules and own-finish marks survive save and load; junk rules are dropped', async () => {

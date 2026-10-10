@@ -28,7 +28,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.27 · stage 5';
+export const VERSION = 'v0.68-pieces.28 · stage 5';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -652,13 +652,12 @@ const actions = {
     requestDraw();
     ui.refresh();
   },
-  finishRemove(kind, key) {
+  // Back to the default finish, plain gloss. A finish cannot be taken away:
+  // everything has one, so the row stays. (An area is a shape: Delete removes it.)
+  finishDefault(kind, key) {
     const d = app.doc, l = d.layers.find(x => x.id === key);
     if (kind === 'colour') clearRule(d, key);
-    else if (kind === 'area' && l) d.layers.splice(d.layers.indexOf(l), 1);
-    else if (l) { l.finishOwn = false; l.material = 'gloss'; l.matParams = null; }
-    const t = app.ftarget;
-    if (t && ((t.kind === 'colour' && t.colour === key) || t.id === key)) { app.ftarget = null; if (kind !== 'colour') app.sel = null; }
+    else if (l) { l.material = 'gloss'; l.matParams = null; }
     change({ now: true });
   },
 

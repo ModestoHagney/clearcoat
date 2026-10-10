@@ -28,6 +28,7 @@ const I = { // 20x20 line icons
   dock: '<rect x="3" y="4" width="14" height="12" rx="1.5"/><path d="M12 4v12"/>',
   fold: '<path d="m5 8 5 5 5-5"/>',
   close: '<path d="m5 5 10 10M15 5 5 15"/>',
+  reset: '<path d="M4.5 10a5.5 5.5 0 1 0 1.8-4.1"/><path d="M4 3.5v3.4h3.4"/>',
   dropper: '<path d="M4 16v-2.5l6.5-6.5 2.5 2.5L6.5 16z"/><path d="m9.5 6 4.5 4.5"/><path d="m12 7.5 2.2-2.2a1.6 1.6 0 0 1 2.3 2.3l-2.2 2.2"/>',
 };
 I.mpick = I.select;
@@ -219,10 +220,13 @@ export function initUI(app, actions, version) {
       const layer = f.kind === 'colour' ? null : app.doc.layers.find((l) => l.id === f.id);
       const sw = f.kind === 'colour' ? `background:${esc(f.colour)}` : f.kind === 'area' ? 'background:var(--accent-soft);border-style:dashed' : swatch(layer);
       const what = f.kind === 'colour' ? finishLabel(f.material, f.params) : `${esc(f.name)} · ${finishLabel(f.material, f.params)}`;
-      const tag = f.kind === 'colour' ? (f.used ? 'colour' : 'unused') : f.kind;
-      return `<div class="row${on ? ' sel' : ''}" data-fin="${f.kind}:${esc(key)}"><span class="sw" style="${sw}"></span><span class="name">${what}</span><span class="tags"><i>${tag}</i></span><button class="eye" data-finx="${f.kind}:${esc(key)}" title="Back to gloss" aria-label="Remove this finish">${svg('close')}</button></div>`;
+      const tag = f.kind === 'colour' ? 'colour' : f.kind;
+      // already the default: nothing to put back
+      const plain = f.material === 'gloss' && !f.params;
+      const reset = plain ? '' : `<button class="eye" data-findef="${f.kind}:${esc(key)}" title="Back to Gloss, the default" aria-label="Reset this finish to Gloss">${svg('reset')}</button>`;
+      return `<div class="row${on ? ' sel' : ''}" data-fin="${f.kind}:${esc(key)}"><span class="sw" style="${sw}"></span><span class="name">${what}</span><span class="tags"><i>${tag}</i></span>${reset}</div>`;
     });
-    return rows.join('') + '<div class="note">Everything else is Gloss</div>';
+    return rows.join('');
   }
   // the colour the preview is shown in: the target's own, or neutral grey
   // for an area (it paints nothing) or a picture
@@ -570,7 +574,7 @@ export function initUI(app, actions, version) {
     if (!t || t.disabled) return;
     if (t.dataset.act !== undefined) { closeMenus(); return run(t.dataset.act); }
     if (t.dataset.mode) return actions.setMode(t.dataset.mode);
-    if (t.dataset.finx) { const [kind, key] = t.dataset.finx.split(/:(.*)/); return actions.finishRemove(kind, key); }
+    if (t.dataset.findef) { const [kind, key] = t.dataset.findef.split(/:(.*)/); return actions.finishDefault(kind, key); }
     if (t.dataset.fin) { const [kind, key] = t.dataset.fin.split(/:(.*)/); return actions.finishSelect(kind, key); }
     if (t.dataset.finish) return actions.setFinish(t.dataset.finish);
     if (t.dataset.scope) return actions.finishScope(t.dataset.scope);
