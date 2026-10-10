@@ -311,3 +311,13 @@ export function unframed(f, box) {
   const xs = cs.map(p => p.x), ys = cs.map(p => p.y), x = Math.min(...xs), y = Math.min(...ys);
   return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
 }
+
+// How far along a fade a point is: 0 at `from` (or before it), 1 at `to` (or
+// past it). Across: measured along the line between them. From the middle
+// ('radial'): by distance from `from`.
+export function fadeAt(p, from, to, style) {
+  const dx = to.x - from.x, dy = to.y - from.y, len2 = dx * dx + dy * dy;
+  if (!len2) return 0;
+  const t = style === 'radial' ? Math.hypot(p.x - from.x, p.y - from.y) / Math.sqrt(len2) : ((p.x - from.x) * dx + (p.y - from.y) * dy) / len2;
+  return Math.max(0, Math.min(1, t));
+}

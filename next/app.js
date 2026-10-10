@@ -18,7 +18,7 @@ import { regionOutline } from '../js/regions.js';
 import { loadTemplate } from '../js/template.js';
 import { saveToIracing, paintFilenames, validCustid, exportPaintCanvas, paintsDir } from '../js/iracing.js';
 import { initUI } from './ui.js';
-import { initTools, isShape, isBox, moveLayer, setShape, fadeEnds } from './tools.js';
+import { initTools, isShape, isBox, moveLayer, setShape, fadeEnds, hasFade, hasAim } from './tools.js';
 import { joined, boxOutline, pieces, SHAPES } from '../js/shapes.js';
 import { LIBRARY, libraryItemToLayerSource } from '../js/library.js';
 import { createFillLayer } from '../js/engine.js';
@@ -26,12 +26,12 @@ import { moved } from '../js/shapes.js';
 import { paintLayers } from '../js/engine.js';
 import { finishSpec } from '../js/finish.js';
 import { withFinishes, withPatterns, setRule, clearRule, ruleFor, layerColour, isArea, hasOwnFinish, readFinish, writeFinish, presetOf, FINISHES, SPARKLE } from '../js/finish.js';
-import { MATERIALS } from '../js/engine.js';
+import { MATERIALS, fadeStyleOf } from '../js/engine.js';
 import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.49';
+export const VERSION = 'v0.68-pieces.50';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -495,6 +495,20 @@ function cloneLayer(l) {
   return c;
 }
 
+// Where a fade runs is set by two dots on the sheet (fadeFrom, fadeTo). Shapes
+// selected together share them, so one fade runs across them all: those of
+// `ls` that follow a fade line and have no dots yet take the dots another of
+// them has, or else fresh ones laid across them all. fresh: lay them anew (the
+// style changed, and its dots start somewhere else).
+function aim(ls, fresh) {
+  const using = ls.filter(hasAim);
+  if (!using.length) return;
+  const had = fresh ? null : using.find(l => l.fadeFrom && l.fadeTo);
+  const x0 = Math.min(...using.map(l => l.rx)), y0 = Math.min(...using.map(l => l.ry));
+  const box = { x: x0, y: y0, w: Math.max(...using.map(l => l.rx + l.rw)) - x0, h: Math.max(...using.map(l => l.ry + l.rh)) - y0 };
+  const ends = had ? { a: had.fadeFrom, b: had.fadeTo } : fadeEnds(using[0], fadeStyleOf(using[0]), box);
+  for (const l of using) if (fresh || !(l.fadeFrom && l.fadeTo)) { l.fadeFrom = { ...ends.a }; l.fadeTo = { ...ends.b }; }
+}
 // the selected shapes a pattern can go on
 const patterned = () => selectedLayers().filter(l => l.type === 'fill' && !isArea(l));
 // Change the pattern of every selected shape that has one. f(motif, layer) →
@@ -844,21 +858,28 @@ const actions = {
   // A shape's fill fades from its colour to a second one, or to nothing.
   // part: on | style ('linear' | 'radial') | to (a hex) | out (to nothing)
   setFade(part, value) {
-    const l = actions.selected();
-    if (!l || l.type !== 'fill') return;
-    // switched on, it starts as the usual want: a smooth fade to nothing
-    // (the engine's own default second colour means none has been chosen yet)
-    // Where it runs is set by two dots on the sheet (fadeFrom, fadeTo); they
-    // start out laid across the shape, and again whenever the style changes.
-    const lay = (style) => { const e = fadeEnds(l, style); l.fadeFrom = { ...e.a }; l.fadeTo = { ...e.b }; };
-    if (part === 'on') {
-      l.fillType = value ? 'linear' : 'solid';
-      if (value && (!l.color2 || l.color2 === '#101114')) l.color2 = l.color + '00';
-      if (value && !(l.fadeFrom && l.fadeTo)) lay('linear');
-    } else if (part === 'style') { l.fillType = value === 'radial' ? 'radial' : 'linear'; lay(l.fillType); }
-    else if (part === 'to') l.color2 = value;
-    else if (part === 'out') l.color2 = value ? l.color + '00' : '#ffffff'; // the same colour, see-through
+    const ls = patterned(); // every selected shape: together they fade as one
+    if (!ls.length || !canChange()) return;
+    for (const l of ls) {
+      // switched on, it starts as the usual want: a smooth fade to nothing
+      // (the engine's own default second colour means none has been chosen yet)
+      if (part === 'on') {
+        l.fillType = value ? fadeStyleOf(l) : 'solid';
+        if (value && (!l.color2 || l.color2 === '#101114')) l.color2 = l.color + '00';
+      } else if (part === 'style') {
+        l.fadeStyle = value === 'radial' ? 'radial' : 'linear'; // kept, for a pattern that fades on paint that does not
+        if (hasFade(l)) l.fillType = l.fadeStyle;
+      } else if (part === 'to') l.color2 = value;
+      else if (part === 'out') l.color2 = value ? l.color + '00' : '#ffffff'; // the same colour, see-through
+    }
+    aim(ls, part === 'style');
     change(part === 'to' ? { panels: false } : { now: true });
+  },
+  // a pattern's own fades, along the same line: 'fadeOut' (to nothing) or 'shrink' (smaller and smaller)
+  motifFade(key, on) {
+    if (!eachMotif(() => ({ [key]: !!on }))) return;
+    aim(patterned(), false);
+    change({ now: true });
   },
   // the mirrored side becomes a layer of its own, to be changed separately
   separate() {

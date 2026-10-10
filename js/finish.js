@@ -10,7 +10,7 @@
 //               follows the colour: recolour a shape and its finish changes.
 // Anything else is gloss. Pure: no canvas, runs under node --test.
 
-import { MATERIALS, resolveParams } from './engine.js';
+import { MATERIALS, resolveParams, fadeStyleOf } from './engine.js';
 
 // The finishes offered, in the order shown. Each is a starting point: three
 // numbers (metallic, roughness, clearcoat — the spec map's three channels)
@@ -96,9 +96,12 @@ export function withPatterns(doc) {
     ...doc,
     layers: doc.layers.flatMap((l) => {
       if (!l.motif) return [l];
-      const over = { ...l, id: l.id + '~p', color: l.motif.color || l.color, colorRef: null, fillType: 'solid', fx: null };
+      // Fade out: the pattern's own paint fades to nothing along the layer's fade line
+      const style = fadeStyleOf(l), fades = !!l.motif.fadeOut && !!l.fadeFrom && !!l.fadeTo;
+      const part = (color) => ({ color, color2: color + '00', colorMid: null, fillType: fades ? style : 'solid', fadeStyle: style });
+      const over = { ...l, id: l.id + '~p', colorRef: null, fx: null, ...part(l.motif.color || l.color) };
       const more = l.motif.colors || [];
-      const overs = !more.length ? [over] : [over.color, ...more].map((color, k) => ({ ...over, id: `${l.id}~p${k}`, color, motif: { ...l.motif, part: k } }));
+      const overs = !more.length ? [over] : [over.color, ...more].map((color, k) => ({ ...over, id: `${l.id}~p${k}`, ...part(color), motif: { ...l.motif, part: k } }));
       return l.motif.only ? overs : [{ ...l, motif: undefined, motifFrame: undefined }, ...overs];
     }),
   };

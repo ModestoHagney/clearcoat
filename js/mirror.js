@@ -146,7 +146,8 @@ export function mirrorLayer(map, sel) {
     copy.ry = Math.round(Math.min(...ys));
     copy.rw = Math.max(1, Math.round(Math.max(...xs) - Math.min(...xs)));
     copy.rh = Math.max(1, Math.round(Math.max(...ys) - Math.min(...ys)));
-    if (sel.fadeFrom && sel.fadeTo && sel.rw && sel.rh) {
+    // (a pattern is not flipped with the box but drawn through the mirror, so its fade points stay carried across)
+    if (sel.fadeFrom && sel.fadeTo && sel.rw && sel.rh && !sel.motif) {
       // a box is mirrored by flipping it within its rect, fade and all, so its
       // fade points keep their place in the rect and the flip carries them
       const rel = (q) => ({ x: copy.rx + (q.x - sel.rx) / sel.rw * copy.rw, y: copy.ry + (q.y - sel.ry) / sel.rh * copy.rh });

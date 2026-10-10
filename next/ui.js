@@ -4,7 +4,7 @@
 
 import { pieces, hue } from './map.js';
 import { SHAPES } from '../js/shapes.js';
-import { TEXT_FONTS, GOOGLE_FONTS } from '../js/engine.js';
+import { TEXT_FONTS, GOOGLE_FONTS, fadeStyleOf } from '../js/engine.js';
 import { FINISHES, finishName, finishLabel, finishList, layerColour, isArea, readFinish, presetOf, withPatterns } from '../js/finish.js';
 import { renderTile } from './preview.js';
 
@@ -216,6 +216,20 @@ export function initUI(app, actions, version) {
     return rows.join('');
   }
   const field = (label, html) => `<label class="field"><span>${label}</span>${html}</label>`;
+  // Across, or from the middle: which way the fade line runs. Shown with
+  // whatever follows it: the paint's fade, or else the pattern's.
+  const fadeWay = (l) => `<div class="seg"><button data-fade="linear" aria-pressed="${fadeStyleOf(l) === 'linear'}">Across</button><button data-fade="radial" aria-pressed="${fadeStyleOf(l) === 'radial'}">From the middle</button></div>`;
+  const aimNote = '<div class="note">Drag the two dots on the shape to aim it</div>';
+  // A shape's paint can fade to a second colour, or to nothing.
+  // `l`: the shape whose settings show (the first, when several are selected).
+  function fadeHtml(l) {
+    const fading = l.fillType === 'linear' || l.fillType === 'radial';
+    const out = fading && typeof l.color2 === 'string' && l.color2.length === 9 && l.color2.endsWith('00');
+    return `<label class="switch">Fade<input id="f-fade" type="checkbox"${fading ? ' checked' : ''}></label>` + (!fading ? '' :
+      fadeWay(l) +
+      field('Fades to', `<span class="pair"><input id="f-fade-to" type="color" value="${esc(out ? '#ffffff' : hexOf(l.color2 || '') || '#ffffff')}"${out ? ' disabled' : ''} aria-label="The colour it fades to"><label class="inline"><input id="f-fade-out" type="checkbox"${out ? ' checked' : ''}>Nothing</label></span>`) +
+      aimNote);
+  }
   // A pattern over a shape's paint: what repeats, its own colour, and how.
   // `l`: the shape whose settings show (the first, when several are selected).
   function patternHtml(l) {
@@ -251,6 +265,10 @@ export function initUI(app, actions, version) {
           field('Turn', range('f-pat-rTurn', 0, 100, Math.round(mo.rTurn || 0))) +
           `<div class="acts"><button class="btn" data-act="reshuffle" title="Roll again">Reshuffle</button></div>` +
         `</div>`) +
+        `<label class="switch" title="The copies get fainter along the fade line, down to nothing">Fade out<input id="f-pat-fadeOut" type="checkbox"${mo.fadeOut ? ' checked' : ''}></label>` +
+        `<label class="switch" title="The copies get smaller along the fade line, down to nothing">Shrink<input id="f-pat-shrink" type="checkbox"${mo.shrink ? ' checked' : ''}></label>` +
+        // the line they follow is the paint's fade line; when the paint does not fade, its controls are here instead
+        ((mo.fadeOut || mo.shrink) && !(l.fillType === 'linear' || l.fillType === 'radial') ? fadeWay(l) + aimNote : '') +
         `<label class="switch" title="Leave out the shape's own paint, so what is underneath shows between the pattern">Pattern only<input id="f-pat-only" type="checkbox"${mo.only ? ' checked' : ''}></label>`) +
       `</details>`;
   }
@@ -272,7 +290,7 @@ export function initUI(app, actions, version) {
       const grouped = many.some((x) => x.groupId);
       const fills = many.filter((x) => x.type === 'fill' && !x.specOnly);
       return `<div class="note">${many.length} layers selected</div>` + colourNote() +
-        (fills.length ? patternHtml(fills.find((x) => x.motif) || fills[0]) : '') +
+        (fills.length ? fadeHtml(fills.find((x) => x.fillType === 'linear' || x.fillType === 'radial') || fills[0]) + patternHtml(fills.find((x) => x.motif) || fills[0]) : '') +
         `<label class="switch" title="Paint them on the twin panel too, or across the centreline (Ctrl+M)">Mirrored<input id="f-mirrored" type="checkbox"${many.some((x) => x.mirrored) ? ' checked' : ''}></label>` +
         `<div class="acts"><button class="btn" data-act="merge" title="Make them one picture (Ctrl+E)">Merge</button>` +
         `<button class="btn" data-act="${grouped ? 'ungroup' : 'group'}" title="${grouped ? 'They stop being picked up together (Ctrl+Shift+G)' : 'Pick them up together from now on (Ctrl+G)'}">${grouped ? 'Ungroup' : 'Group'}</button></div>`;
@@ -286,14 +304,8 @@ export function initUI(app, actions, version) {
     const fonts = [...new Set([...TEXT_FONTS, ...GOOGLE_FONTS, ...(app.doc.googleFonts || []), ...(app.doc.customFonts || []).map((f) => f.name)])];
     // what you reach for first, then the switch and buttons, then the rest folded away
     // a shape's fill can fade to a second colour, or to nothing
-    const fading = l.type === 'fill' && (l.fillType === 'linear' || l.fillType === 'radial');
-    const out = fading && typeof l.color2 === 'string' && l.color2.length === 9 && l.color2.endsWith('00');
     const pattern = l.type !== 'fill' || l.specOnly ? '' : patternHtml(l);
-    const fade = l.type !== 'fill' ? '' :
-      `<label class="switch">Fade<input id="f-fade" type="checkbox"${fading ? ' checked' : ''}></label>` + (!fading ? '' :
-        `<div class="seg"><button data-fade="linear" aria-pressed="${l.fillType === 'linear'}">Across</button><button data-fade="radial" aria-pressed="${l.fillType === 'radial'}">From the middle</button></div>` +
-        field('Fades to', `<span class="pair"><input id="f-fade-to" type="color" value="${esc(out ? '#ffffff' : hexOf(l.color2 || '') || '#ffffff')}"${out ? ' disabled' : ''} aria-label="The colour it fades to"><label class="inline"><input id="f-fade-out" type="checkbox"${out ? ' checked' : ''}>Nothing</label></span>`) +
-        '<div class="note">Drag the two dots on the shape to aim it</div>');
+    const fade = l.type !== 'fill' ? '' : fadeHtml(l);
     const main = !isText ? colour + fade + pattern :
       field('Text', `<input id="f-text" type="text" value="${esc(l.text)}">`) +
       field('Font', `<select id="f-font">${fonts.map((f) => opt(f, f, f === l.font)).join('')}${opt('__google', 'Google font by name…', false)}${opt('__upload', 'Upload a font file…', false)}</select>`) +
@@ -576,6 +588,8 @@ export function initUI(app, actions, version) {
     if (id === 'f-pat-add') { if (e.target.value) actions.addMotifShape(e.target.value); return; }
     if (id === 'f-pat-only') return actions.tweakMotif('only', e.target.checked);
     if (id === 'f-pat-random') return actions.motifRandom(e.target.checked);
+    if (id === 'f-pat-fadeOut') return actions.motifFade('fadeOut', e.target.checked);
+    if (id === 'f-pat-shrink') return actions.motifFade('shrink', e.target.checked);
     if (e.target.dataset.pat) return; // nothing is redrawn: that would swallow the click that took the focus away (the eyedropper, say)
     if (id === 'f-fade-out') return actions.setFade('out', e.target.checked);
     if (id === 'f-italic') { actions.setProp('italic', e.target.checked); return; }

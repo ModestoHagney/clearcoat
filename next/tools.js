@@ -20,7 +20,7 @@
 import { SIZE, createFillLayer, isRegionLayer, toLocal, layerCorners } from '../js/engine.js';
 import { bounds, contains, moved, segmentAt, midOf, bendTo, insertAt, removeAt, snapAngle, nextIndex, SHAPES, aspect, boxOutline, placed, joined } from '../js/shapes.js';
 import { regionOutline, snapToOutline, trimShape, growOutline, pointInPolygon } from '../js/regions.js';
-import { clipPolys } from '../js/engine.js';
+import { clipPolys, fadeStyleOf } from '../js/engine.js';
 import { pieceAt } from '../js/mirror.js';
 
 const GRAB = 9;        // px: how close counts as "on" a point or dot
@@ -40,12 +40,15 @@ const BOXED = new Set(['ellipse', 'rect', 'triangle']);
 // Where a fill's fade runs: from the first point to the second (across), or
 // out from the first as far as the second (from the middle). `style`, when
 // given, asks for fresh points laid across the fill's box in that style.
-export function fadeEnds(l, style) {
+// `box`: lay them across this instead (several shapes fading as one).
+export function fadeEnds(l, style, box = { x: l.rx, y: l.ry, w: l.rw, h: l.rh }) {
   if (!style && l.fadeFrom && l.fadeTo) return { a: l.fadeFrom, b: l.fadeTo };
-  const cy = l.ry + l.rh / 2, right = { x: l.rx + l.rw, y: cy };
-  return (style || l.fillType) === 'radial' ? { a: { x: l.rx + l.rw / 2, y: cy }, b: right } : { a: { x: l.rx, y: cy }, b: right };
+  const cy = box.y + box.h / 2, right = { x: box.x + box.w, y: cy };
+  return (style || fadeStyleOf(l)) === 'radial' ? { a: { x: box.x + box.w / 2, y: cy }, b: right } : { a: { x: box.x, y: cy }, b: right };
 }
 export const hasFade = (l) => !!l && l.type === 'fill' && (l.fillType === 'linear' || l.fillType === 'radial');
+// something of the layer follows its fade line: its paint, or its pattern (fading out, or shrinking)
+export const hasAim = (l) => hasFade(l) || (!!l && l.type === 'fill' && !!l.motif && (!!l.motif.fadeOut || !!l.motif.shrink));
 
 // keep a shape's box in step with its outline (gradients and the engine's
 // own hit-testing work from the box)
@@ -77,7 +80,10 @@ export function initTools(app, env) {
   const selShape = () => { const l = selLayer(); return isShape(l) && editable(l) ? l : null; };
   const selBox = () => { const l = selLayer(); return isBox(l) && editable(l) ? l : null; };
   const selPic = () => { const l = selLayer(); return isPic(l) && editable(l) ? l : null; };
-  const selFade = () => { const l = selLayer(); return hasFade(l) && editable(l) && app.mode === 'paint' ? l : null; };
+  // The fade line on show: the selected shape's, or with several selected the
+  // first one's that has one. They share it: dragging a dot moves it for them all.
+  const fadeMates = () => (app.mode === 'paint' ? env.selectedLayers().filter(l => hasAim(l) && !l.locked && l.visible) : []);
+  const selFade = () => fadeMates()[0] || null;
   // where the turn handle sits: out from the middle of the top edge
   function turnHandle(l) {
     const c = layerCorners(l).map(onScreen), top = { x: (c[0].x + c[1].x) / 2, y: (c[0].y + c[1].y) / 2 }, mid = onScreen(l);
@@ -359,8 +365,8 @@ export function initTools(app, env) {
     if (drag.kind === 'fade') {
       const ends = fadeEnds(l), other = drag.end === 'a' ? ends.b : ends.a;
       const q = e.shiftKey ? snapAngle(other, p) : p;
-      l.fadeFrom = drag.end === 'a' ? { x: q.x, y: q.y } : { ...ends.a };
-      l.fadeTo = drag.end === 'b' ? { x: q.x, y: q.y } : { ...ends.b };
+      const from = drag.end === 'a' ? { x: q.x, y: q.y } : { ...ends.a }, to = drag.end === 'b' ? { x: q.x, y: q.y } : { ...ends.b };
+      for (const m of fadeMates()) { m.fadeFrom = { ...from }; m.fadeTo = { ...to }; } // every selected shape that fades takes the same line
       change({ panels: false });
       return;
     }
@@ -485,8 +491,8 @@ export function initTools(app, env) {
     }
     if (app.tool === 'piece') return 'Click a panel to fill it';
     if (app.tool === 'text') return 'Click where the text goes';
+    if (app.tool === 'select' && selFade()) return fadeMates().length > 1 ? 'Drag the two dots to aim the fade for all of them · Shift holds 45°' : 'Drag the two dots to aim the fade · Shift holds 45°';
     if (app.tool === 'select' && env.selectedLayers().length > 1) return `${env.selectedLayers().length} layers · drag to move them · Ctrl+E merges · Ctrl+G groups`;
-    if (app.tool === 'select' && selFade()) return 'Drag the two dots to aim the fade · Shift holds 45°';
     if (app.tool === 'select' && selPic()) return 'Drag a corner to resize · the round handle turns it · Shift turns in steps';
     if (app.tool === 'shape') return 'Drag to draw · Shift keeps it even';
     if (app.tool === 'stamp') return 'Click to place one · Split makes them separate';

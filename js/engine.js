@@ -1,7 +1,7 @@
 // Clearcoat render engine — document model, paint compositing, spec map generation.
 
 import { parseRegionMap } from './regions.js';
-import { SHAPES, motifOutline, placing, cells, framed, unframed } from './shapes.js';
+import { SHAPES, motifOutline, placing, cells, framed, unframed, fadeAt } from './shapes.js';
 
 export const SIZE = 2048;
 
@@ -549,10 +549,15 @@ export function fillPaintStyle(ctx, layer, rx, ry, rw, rh) {
 // motif: { kind, pts?, w?, h?, name?, size, gap, stagger, turn } — what
 // repeats and how (see shapes.js). motifFrame: the mirror a copy's pattern is
 // drawn through. Every copy goes into one path, so the pattern is one fill.
+// which way a layer's fade line runs: its fill's own style while that fades,
+// else the one kept for it (a pattern can fade on a shape whose paint does not)
+export const fadeStyleOf = (layer) => (layer.fillType === 'radial' || layer.fillType === 'linear' ? layer.fillType : layer.fadeStyle === 'radial' ? 'radial' : 'linear');
 const motifPaths = new Map(); // settings → path, the last few worked out
 function motifPath(layer, rx, ry, rw, rh) {
   const m = layer.motif, f = layer.motifFrame || null;
-  const key = JSON.stringify([m, f, rx, ry, rw, rh]);
+  // Shrink: the copies get smaller along the layer's fade line, down to nothing at its far end
+  const A = layer.fadeFrom, B = layer.fadeTo, shrink = m.shrink && A && B ? [A.x, A.y, B.x, B.y, fadeStyleOf(layer)] : null;
+  const key = JSON.stringify([m, f, rx, ry, rw, rh, shrink]);
   let all = motifPaths.get(key);
   if (all) return all;
   // the main shape, then any more the pattern takes turns with
@@ -560,7 +565,13 @@ function motifPath(layer, rx, ry, rw, rh) {
   all = new Path2D();
   for (const c of cells(m, f ? unframed(f, box) : box)) {
     if (m.part !== undefined && c.pick !== m.part) continue; // one colour's share of a mixed pattern (see finish.js withPatterns)
-    const at = placing(outs[c.shape], c.x, c.y, c.size, c.turn), [a, b, cc, d, e, ff] = f ? framed(f, at) : at;
+    let size = c.size;
+    if (shrink) { // by where the copy's middle lands on the sheet
+      const p = f ? { x: f[0] * c.x + f[2] * c.y + f[4], y: f[1] * c.x + f[3] * c.y + f[5] } : c;
+      size *= 1 - fadeAt(p, A, B, shrink[4]);
+      if (size < 0.75) continue; // too small to see
+    }
+    const at = placing(outs[c.shape], c.x, c.y, size, c.turn), [a, b, cc, d, e, ff] = f ? framed(f, at) : at;
     all.addPath(ones[c.shape], { a, b, c: cc, d, e, f: ff });
   }
   if (motifPaths.size > 40) motifPaths.delete(motifPaths.keys().next().value);
@@ -585,6 +596,9 @@ export function cleanMotif(m) {
   // color: what the pattern is painted in, over the shape's own paint; only: that paint is left out
   if (/^#[0-9a-f]{6}$/i.test(m.color || '')) { out.color = m.color.toLowerCase(); out.only = !!m.only; }
   else out.only = true; // from before a pattern had a colour of its own: it was the shape's, with gaps
+  // along the layer's fade line: the copies fade to nothing, get smaller, or both
+  if (m.fadeOut) out.fadeOut = true;
+  if (m.shrink) out.shrink = true;
   // random: each copy varies by its own roll (see shapes.js cells)
   if (m.random !== undefined || m.seed !== undefined) {
     out.random = !!m.random;
@@ -1686,6 +1700,7 @@ export function serializeDoc(doc) {
       pts: Array.isArray(l.pts) ? l.pts.map((q) => { const o = { x: q.x, y: q.y }; if (q.c) o.c = { x: q.c.x, y: q.c.y }; if (q.m) o.m = true; return o; }) : undefined,
       fadeFrom: l.fadeFrom ? { x: l.fadeFrom.x, y: l.fadeFrom.y } : undefined,
       fadeTo: l.fadeTo ? { x: l.fadeTo.x, y: l.fadeTo.y } : undefined,
+      fadeStyle: l.fadeStyle === 'radial' || l.fadeStyle === 'linear' ? l.fadeStyle : undefined,
       colorMid: l.colorMid ?? null, midPos: l.midPos ?? 0.5,
       src: l.src,
       // car pattern: which kit design + its three slot colours
@@ -1973,6 +1988,7 @@ export async function deserializeDoc(data) {
     if (l.linearMix) loaded.get(l.id).linearMix = true;
     const at = (q) => (q && Number.isFinite(q.x) && Number.isFinite(q.y) ? { x: q.x, y: q.y } : null);
     if (at(l.fadeFrom) && at(l.fadeTo)) { loaded.get(l.id).fadeFrom = at(l.fadeFrom); loaded.get(l.id).fadeTo = at(l.fadeTo); }
+    if (l.fadeStyle === 'radial' || l.fadeStyle === 'linear') loaded.get(l.id).fadeStyle = l.fadeStyle;
     if (typeof l.colorRef === 'string' && l.type !== 'fill') loaded.get(l.id).colorRef = l.colorRef; // text follows a saved colour too
     if (l.type === 'image' && /^#[0-9a-f]{6}$/i.test(l.color || '')) loaded.get(l.id).color = l.color; // a picture painted in one colour
     const motif = l.type === 'fill' ? cleanMotif(l.motif) : null;

@@ -137,7 +137,8 @@ test('boxOutline: a box, a triangle, and an ellipse that stays within a hair of 
 });
 
 // ---------- ready-made shapes, patterns and stamps ----------
-const { SHAPES, motifOutline, placed, cells, frameFrom, framed, unframed } = await import('../js/shapes.js');
+const shapesMod = await import('../js/shapes.js');
+const { SHAPES, motifOutline, placed, cells, frameFrom, framed, unframed } = shapesMod;
 
 test('every ready-made shape fills the box it is drawn in', () => {
   for (const kind of Object.keys(SHAPES)) {
@@ -208,4 +209,15 @@ test('a pattern with more shapes: they take turns across the grid, or mix by the
   assert.deepEqual([...new Set(mixed.map(c => c.shape))].sort(), [0, 1, 2]);
   assert.ok(mixed.some(c => c.shape !== Math.abs(c.i + c.j) % 3)); // not simply in turn
   assert.deepEqual(mixed, cells({ ...m, more: [{ kind: 'star' }, { kind: 'cross' }], random: true, seed: 5 }, box));
+});
+
+test('how far along a fade a point is: across, and from the middle', () => {
+  const { fadeAt } = shapesMod, A = { x: 100, y: 100 }, B = { x: 300, y: 100 };
+  assert.equal(fadeAt({ x: 100, y: 500 }, A, B), 0);          // level with the start, wherever it is sideways
+  assert.equal(fadeAt({ x: 200, y: -40 }, A, B), 0.5);
+  assert.equal(fadeAt({ x: 50, y: 100 }, A, B), 0);           // before the start
+  assert.equal(fadeAt({ x: 900, y: 100 }, A, B), 1);          // past the end
+  assert.equal(fadeAt({ x: 100, y: 200 }, A, B, 'radial'), 0.5); // by distance from the start
+  assert.equal(fadeAt({ x: 0, y: 100 }, A, B, 'radial'), 0.5);
+  assert.equal(fadeAt({ x: 7, y: 7 }, A, A), 0);              // no line at all
 });
