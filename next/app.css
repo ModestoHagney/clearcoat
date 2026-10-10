@@ -125,6 +125,8 @@ button:disabled { cursor: default; opacity: .38; }
 .pair.wrap { flex-wrap: wrap; }
 input[type="color"].mini { width: 24px; height: 24px; }
 .pair.wrap { gap: 4px; }
+.pair select { flex: 1; min-width: 0; }
+.pair > .icon { width: 24px; height: 26px; flex: none; font-size: 17px; line-height: 1; }
 .pair.wrap .icon { width: 22px; height: 24px; font-size: 17px; line-height: 1; }
 .pair { display: flex; gap: 6px; align-items: center; min-width: 0; }
 .pair .num { font: 12px var(--mono); min-width: 30px; text-align: right; }

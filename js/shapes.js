@@ -239,7 +239,10 @@ export function placed(m, x, y, size, turn = 0) {
 // settings carry on the same pattern. stagger: how far every second row is
 // shifted, as a percentage of the step.
 //
-// → [{ x, y, size, turn, pick, i, j }]: where each copy goes and how. A plain
+// → [{ x, y, size, turn, pick, shape, i, j }]: where each copy goes and how.
+// `shape` says which of the pattern's shapes it is (0 = the main one, then
+// m.more in order): they take turns across the grid, or with Random on each
+// copy takes one by its roll. A plain
 // pattern gives every copy the motif's own size and turn. A random one
 // (m.random) varies each by its own roll: rSize, rPos and rTurn say how much,
 // 0 to 100, and `pick` says which of the pattern's colours it takes (0 = the
@@ -257,7 +260,7 @@ function roll(seed, i, j, k) { // 0 ≤ … < 1, steady for the same four number
 export function cells(m, box) {
   const { size, gap = 0, stagger = 0 } = m, turn = m.turn || 0;
   const rnd = !!m.random, rSize = rnd ? (m.rSize || 0) / 100 : 0, rPos = rnd ? (m.rPos || 0) / 100 : 0, rTurn = rnd ? (m.rTurn || 0) / 100 : 0;
-  const colours = rnd ? 1 + (m.colors || []).length : 1, seed = m.seed || 0;
+  const colours = rnd ? 1 + (m.colors || []).length : 1, seed = m.seed || 0, shapes = 1 + (m.more || []).length;
   const step = Math.max(2, size + gap);
   // a turned copy reaches this far from its middle: more if it may grow or drift
   const pad = size * 0.75 * (1 + SIZE_SWING * rSize) + step / 2 * rPos;
@@ -269,7 +272,7 @@ export function cells(m, box) {
   for (let j = Math.ceil(y0 / pitch); j * pitch <= y1; j++) {
     const off = j % 2 ? stagger / 100 * pitch : 0;
     for (let i = Math.ceil((x0 - off) / pitch); i * pitch + off <= x1; i++) {
-      const c = { x: i * pitch + off, y: j * pitch, size, turn, pick: 0, i, j };
+      const c = { x: i * pitch + off, y: j * pitch, size, turn, pick: 0, shape: (((i + j) % shapes) + shapes) % shapes, i, j };
       if (rnd) {
         const u = (k) => roll(seed, i, j, k) * 2 - 1; // −1 … 1
         c.x += u(1) * rPos * pitch / 2;
@@ -277,6 +280,7 @@ export function cells(m, box) {
         c.size = size * (1 + u(3) * SIZE_SWING * rSize);
         c.turn = turn + u(4) * 180 * rTurn;
         c.pick = Math.floor(roll(seed, i, j, 5) * colours);
+        c.shape = Math.floor(roll(seed, i, j, 6) * shapes);
       }
       out.push(c);
     }

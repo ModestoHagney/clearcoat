@@ -194,10 +194,15 @@ export function initUI(app, actions, version) {
   // A pattern over a shape's paint: what repeats, its own colour, and how.
   // `l`: the shape whose settings show (the first, when several are selected).
   function patternHtml(l) {
-    const mo = l.motif, key = mo ? (mo.kind === 'own' ? 'own:' + mo.id : mo.kind) : '';
+    const keyOf = (sh) => (sh.kind === 'own' ? 'own:' + sh.id : sh.kind), kept = (sh) => (sh.kind === 'own' ? sh.name : null);
+    const mo = l.motif, key = mo ? keyOf(mo) : '', more = mo ? mo.more || [] : [];
     const range = (id, min, max, v) => `<input id="${id}" type="range" min="${min}" max="${max}" value="${v}">`;
     const col = mo ? esc(hexOf(mo.color || '') || hexOf(l.color || '') || '#ffffff') : '';
-    return field('Pattern', `<select id="f-pat">${opt('', 'None', !mo)}${motifOptions(key, mo && mo.kind === 'own' ? mo.name : null)}</select>`) +
+    // the shape that repeats; + adds another for it to take turns with, each on a row of its own
+    return `<div class="field"><span>Pattern</span><span class="pair"><select id="f-pat">${opt('', 'None', !mo)}${motifOptions(key, mo ? kept(mo) : null)}</select>` +
+        (mo && more.length < 3 ? `<button type="button" class="icon" data-act="addMotifShape" title="Add another shape: they take turns, or mix when Random is on" aria-label="Add another shape to the pattern">+</button>` : '') + `</span></div>` +
+      more.map((sh, k) => `<div class="field"><span></span><span class="pair"><select data-patshape="${k}" id="f-pat-s${k}" aria-label="Shape ${k + 2} of the pattern">${motifOptions(keyOf(sh), kept(sh))}</select>` +
+        `<button type="button" class="icon" data-patdrop="${k}" title="Take this shape out" aria-label="Take shape ${k + 2} out of the pattern">−</button></span></div>`).join('') +
       (!mo ? '' :
         `<label class="field wide"><span>Pattern colour</span><span class="pair"><input data-pat="pick" id="f-pat-color" type="color" value="${col}" aria-label="Pattern colour"><button type="button" class="icon${app.picking === 'pattern' ? ' on' : ''}" data-act="pickPatternColour" title="Pick the pattern's colour from the sheet" aria-label="Pick the pattern's colour from the sheet">${svg('dropper')}</button></span></label>` +
         (TYPED_COLOURS && app.ways.Hex ? field('Hex', `<input data-pat="hex" id="f-pat-hex" class="mono" type="text" maxlength="7" spellcheck="false" value="${col}">`) : '') +
@@ -539,6 +544,7 @@ export function initUI(app, actions, version) {
     if (id === 'f-font') return actions.setFont(e.target.value);
     if (id === 'f-fade') return actions.setFade('on', e.target.checked);
     if (id === 'f-pat') return actions.setMotif(e.target.value);
+    if (e.target.dataset.patshape !== undefined) return actions.setMotifShape(+e.target.dataset.patshape, e.target.value);
     if (id === 'f-pat-only') return actions.tweakMotif('only', e.target.checked);
     if (id === 'f-pat-random') return actions.motifRandom(e.target.checked);
     if (e.target.dataset.pat) return; // nothing is redrawn: that would swallow the click that took the focus away (the eyedropper, say)
@@ -743,6 +749,7 @@ export function initUI(app, actions, version) {
     if (t.dataset.finish) return actions.setFinish(t.dataset.finish);
     if (t.dataset.scope) return actions.finishScope(t.dataset.scope);
     if (t.dataset.fade) return actions.setFade('style', t.dataset.fade);
+    if (t.dataset.patdrop !== undefined) return actions.dropMotifShape(+t.dataset.patdrop);
     if (t.dataset.piece) return actions.pickPiece(t.dataset.piece);
     if (t.dataset.tool === 'image') return actions.openLibrary(); // nothing to arm: it opens the library
     if (t.dataset.tool) return actions.setTool(t.dataset.tool);

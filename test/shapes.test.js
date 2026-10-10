@@ -195,3 +195,14 @@ test('a random pattern rolls the same every time, and differently for another se
   const shared = b.filter(c => byKey.has(key(c)));
   assert.ok(shared.length > 10 && shared.every(c => c.x === byKey.get(key(c)).x && c.pick === byKey.get(key(c)).pick));
 });
+
+test('a pattern with more shapes: they take turns across the grid, or mix by the roll when random', () => {
+  const box = { x: 0, y: 0, w: 400, h: 400 }, m = { size: 40, gap: 10, stagger: 0, turn: 0, more: [{ kind: 'star' }] };
+  const plain = cells(m, box);
+  assert.ok(plain.every(c => c.shape === Math.abs(c.i + c.j) % 2)); // next to each one, the other
+  assert.ok(cells({ ...m, more: [] }, box).every(c => c.shape === 0));
+  const mixed = cells({ ...m, more: [{ kind: 'star' }, { kind: 'cross' }], random: true, seed: 5 }, box);
+  assert.deepEqual([...new Set(mixed.map(c => c.shape))].sort(), [0, 1, 2]);
+  assert.ok(mixed.some(c => c.shape !== Math.abs(c.i + c.j) % 3)); // not simply in turn
+  assert.deepEqual(mixed, cells({ ...m, more: [{ kind: 'star' }, { kind: 'cross' }], random: true, seed: 5 }, box));
+});

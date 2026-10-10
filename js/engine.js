@@ -555,21 +555,33 @@ function motifPath(layer, rx, ry, rw, rh) {
   const key = JSON.stringify([m, f, rx, ry, rw, rh]);
   let all = motifPaths.get(key);
   if (all) return all;
-  const o = motifOutline(m), one = fillShapePath('path', 0, 0, 0, 0, o.pts), box = { x: rx, y: ry, w: rw, h: rh };
+  // the main shape, then any more the pattern takes turns with
+  const outs = [m, ...(m.more || [])].map(motifOutline), ones = outs.map(o => fillShapePath('path', 0, 0, 0, 0, o.pts)), box = { x: rx, y: ry, w: rw, h: rh };
   all = new Path2D();
   for (const c of cells(m, f ? unframed(f, box) : box)) {
     if (m.part !== undefined && c.pick !== m.part) continue; // one colour's share of a mixed pattern (see finish.js withPatterns)
-    const at = placing(o, c.x, c.y, c.size, c.turn), [a, b, cc, d, e, ff] = f ? framed(f, at) : at;
-    all.addPath(one, { a, b, c: cc, d, e, f: ff });
+    const at = placing(outs[c.shape], c.x, c.y, c.size, c.turn), [a, b, cc, d, e, ff] = f ? framed(f, at) : at;
+    all.addPath(ones[c.shape], { a, b, c: cc, d, e, f: ff });
   }
   if (motifPaths.size > 40) motifPaths.delete(motifPaths.keys().next().value);
   motifPaths.set(key, all);
   return all;
 }
 const num = (v, lo, hi, d) => (Number.isFinite(+v) ? Math.max(lo, Math.min(hi, +v)) : d);
-export function cleanMotif(m) {
+// what repeats: a ready-made shape by name, or an outline of its own
+function cleanMotifShape(m) {
   if (!m || typeof m !== 'object') return null;
-  const out = { kind: m.kind, size: num(m.size, 4, 2048, 80), gap: num(m.gap, 0, 2048, 40), stagger: num(m.stagger, 0, 100, 0), turn: num(m.turn, -360, 360, 0) };
+  if (m.kind !== 'own') return SHAPES[m.kind] ? { kind: m.kind } : null;
+  const pts = shapePts(m.pts);
+  if (!pts || !(m.w > 0) || !(m.h > 0)) return null;
+  return { kind: 'own', pts, w: +m.w, h: +m.h, id: typeof m.id === 'string' ? m.id : undefined, name: typeof m.name === 'string' ? m.name : 'Shape' };
+}
+export function cleanMotif(m) {
+  const shape = cleanMotifShape(m);
+  if (!shape) return null;
+  const out = { ...shape, size: num(m.size, 4, 2048, 80), gap: num(m.gap, 0, 2048, 40), stagger: num(m.stagger, 0, 100, 0), turn: num(m.turn, -360, 360, 0) };
+  const more = (Array.isArray(m.more) ? m.more : []).map(cleanMotifShape).filter(Boolean).slice(0, 3);
+  if (more.length) out.more = more; // the other shapes it takes turns with
   // color: what the pattern is painted in, over the shape's own paint; only: that paint is left out
   if (/^#[0-9a-f]{6}$/i.test(m.color || '')) { out.color = m.color.toLowerCase(); out.only = !!m.only; }
   else out.only = true; // from before a pattern had a colour of its own: it was the shape's, with gaps
@@ -580,12 +592,7 @@ export function cleanMotif(m) {
     out.seed = Number.isFinite(+m.seed) ? +m.seed | 0 : 1;
     out.colors = (Array.isArray(m.colors) ? m.colors : []).filter(c => /^#[0-9a-f]{6}$/i.test(c || '')).slice(0, 6).map(c => c.toLowerCase());
   }
-  if (m.kind === 'own') {
-    const pts = shapePts(m.pts);
-    if (!pts || !(m.w > 0) || !(m.h > 0)) return null;
-    return { ...out, pts, w: +m.w, h: +m.h, id: typeof m.id === 'string' ? m.id : undefined, name: typeof m.name === 'string' ? m.name : 'Shape' };
-  }
-  return SHAPES[m.kind] ? out : null;
+  return out;
 }
 
 // ---------- car pattern layer ----------

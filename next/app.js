@@ -31,7 +31,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.43';
+export const VERSION = 'v0.68-pieces.44';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -915,12 +915,26 @@ const actions = {
     const shape = motifOf(key);
     if (!shape) return ui.refresh(); // its own shape, no longer in the library: nothing to swap to
     // everything but what repeats is kept: size, spacing, colours, the random roll
+    // (more shapes included)
     const { kind, pts, w, h, id, name, ...had } = (ls.find(l => l.motif) || {}).motif || { size: 80, gap: 40, stagger: 0, turn: 0, only: false };
     for (const l of ls) l.motif = { ...had, ...shape, color: had.color || standsOut(l.color) };
     change();
   },
   tweakMotif(key, v) {
     if (eachMotif(() => ({ [key]: v }))) change({ panels: false });
+  },
+  // more shapes for the pattern to take turns with (or, with Random on, pick between)
+  addMotifShape() {
+    const fresh = (m) => ({ kind: Object.keys(SHAPES).find(k => ![m, ...(m.more || [])].some(x => x.kind === k)) || 'ellipse' });
+    if (eachMotif(m => ({ more: [...(m.more || []), fresh(m)].slice(0, 3) }))) change();
+  },
+  setMotifShape(k, key) {
+    const shape = motifOf(key);
+    if (!shape) return ui.refresh();
+    if (eachMotif(m => ({ more: (m.more || []).map((x, i) => (i === k ? shape : x)) }))) change();
+  },
+  dropMotifShape(k) {
+    if (eachMotif(m => ({ more: (m.more || []).filter((_, i) => i !== k) }))) change();
   },
   // Random: each copy varies by a roll kept with the livery (the seed). The
   // selected shapes share one seed, so they carry one random pattern.
