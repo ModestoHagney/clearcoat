@@ -69,6 +69,10 @@ const MAP_TOOLS = [
 const LATER = 'later stage';
 const PANELS = ['layers', 'props', 'colour'];
 const KINDS = SHAPES;
+// ponytail: the Hex and RGB boxes, and the buttons that switch them, are
+// hidden for now: Chrome's own colour pop-up has both. Set this to true to
+// bring them back (Colour panel and Pattern colour alike).
+const TYPED_COLOURS = false;
 const hexOf = (v) => (/^#?[0-9a-f]{6}$/i.test(String(v).trim()) ? '#' + String(v).trim().replace('#', '').toLowerCase() : null);
 const rgbOf = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(', ');
 const hexOfRgb = (v) => {
@@ -196,8 +200,8 @@ export function initUI(app, actions, version) {
     return field('Pattern', `<select id="f-pat">${opt('', 'None', !mo)}${motifOptions(key, mo && mo.kind === 'own' ? mo.name : null)}</select>`) +
       (!mo ? '' :
         `<label class="field wide"><span>Pattern colour</span><span class="pair"><input data-pat="pick" id="f-pat-color" type="color" value="${col}" aria-label="Pattern colour"><button type="button" class="icon${app.picking === 'pattern' ? ' on' : ''}" data-act="pickPatternColour" title="Pick the pattern's colour from the sheet" aria-label="Pick the pattern's colour from the sheet">${svg('dropper')}</button></span></label>` +
-        (app.ways.Hex ? field('Hex', `<input data-pat="hex" id="f-pat-hex" class="mono" type="text" maxlength="7" spellcheck="false" value="${col}">`) : '') +
-        (app.ways.RGB ? field('RGB', `<input data-pat="rgb" id="f-pat-rgb" class="mono" type="text" spellcheck="false" value="${rgbOf(col)}">`) : '') +
+        (TYPED_COLOURS && app.ways.Hex ? field('Hex', `<input data-pat="hex" id="f-pat-hex" class="mono" type="text" maxlength="7" spellcheck="false" value="${col}">`) : '') +
+        (TYPED_COLOURS && app.ways.RGB ? field('RGB', `<input data-pat="rgb" id="f-pat-rgb" class="mono" type="text" spellcheck="false" value="${rgbOf(col)}">`) : '') +
         field('Size', range('f-pat-size', 10, 400, Math.round(mo.size))) +
         field('Spacing', range('f-pat-gap', 0, 400, Math.round(mo.gap))) +
         field('Stagger', range('f-pat-stagger', 0, 100, Math.round(mo.stagger))) +
@@ -366,9 +370,9 @@ export function initUI(app, actions, version) {
     const used = usedColours();
     return `<div class="sub">Saved with this livery</div><div class="chips">${saved}<button class="chip add" data-act="saveColour" title="Save the current colour">+ Save</button></div>` +
       (used.length ? `<div class="sub">In this livery</div><div class="dots">${used.map((c) => `<button class="dot" data-col="${c}" style="background:${c}" title="${c.toUpperCase()}" aria-label="${c}"></button>`).join('')}</div>` : '') +
-      `<div class="cur"><input data-colour="pick" id="c-pick" type="color" value="${esc(cur)}" aria-label="Colour"><button class="icon${app.picking === true ? ' on' : ''}" data-act="pickColour" title="Pick a colour from the sheet (I)" aria-label="Pick a colour from the sheet">${svg('dropper')}</button><span class="ways">${Object.keys(app.ways).map((w) => `<button data-way="${w}" aria-pressed="${app.ways[w]}">${w}</button>`).join('')}</span></div>` +
-      (app.ways.Hex ? field('Hex', `<input data-colour="hex" id="c-hex" class="mono" type="text" maxlength="7" spellcheck="false" value="${esc(cur)}">`) : '') +
-      (app.ways.RGB ? field('RGB', `<input data-colour="rgb" id="c-rgb" class="mono" type="text" spellcheck="false" value="${rgbOf(cur)}">`) : '');
+      `<div class="cur"><input data-colour="pick" id="c-pick" type="color" value="${esc(cur)}" aria-label="Colour"><button class="icon${app.picking === true ? ' on' : ''}" data-act="pickColour" title="Pick a colour from the sheet (I)" aria-label="Pick a colour from the sheet">${svg('dropper')}</button>${TYPED_COLOURS ? `<span class="ways">${Object.keys(app.ways).map((w) => `<button data-way="${w}" aria-pressed="${app.ways[w]}">${w}</button>`).join('')}</span>` : ''}</div>` +
+      (TYPED_COLOURS && app.ways.Hex ? field('Hex', `<input data-colour="hex" id="c-hex" class="mono" type="text" maxlength="7" spellcheck="false" value="${esc(cur)}">`) : '') +
+      (TYPED_COLOURS && app.ways.RGB ? field('RGB', `<input data-colour="rgb" id="c-rgb" class="mono" type="text" spellcheck="false" value="${rgbOf(cur)}">`) : '');
   }
   function drawPanels() {
     const inMap = app.mode === 'map', inFinish = app.mode === 'finish';
