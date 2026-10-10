@@ -92,7 +92,7 @@ export function initUI(app, actions, version) {
     File: [
       ['New', '', 'newLivery'], ['Open…', '', 'open'], ['Save', 'Ctrl+S', 'save'], 0,
       ['Load template…', '', 'pickTemplate'], ['Car setup…', '', 'carSetup'], ['Link iRacing folder…', '', 'linkFolder'], ['Save to iRacing', '', 'saveIracing'], 0,
-      ['Export TGA', '', 'exportTga'], ['Export PNG', '', 'exportPng'],
+      ['Export TGA', '', 'exportTga'], ['Export PNG', '', 'exportPng'], ['Send to Trading Paints', '', 'sendTp'],
     ],
     Edit: [
       ['Undo', 'Ctrl+Z', 'undo', { off: !app.canUndo }], ['Redo', 'Ctrl+Y', 'redo', { off: !app.canRedo }], 0,

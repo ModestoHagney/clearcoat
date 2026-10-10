@@ -16,7 +16,7 @@ import { canvasToTGA } from '../js/tga.js';
 import * as persist from '../js/persist.js';
 import { regionOutline } from '../js/regions.js';
 import { loadTemplate } from '../js/template.js';
-import { saveToIracing, paintFilenames, validCustid } from '../js/iracing.js';
+import { saveToIracing, paintFilenames, validCustid, exportPaintCanvas, paintsDir } from '../js/iracing.js';
 import { initUI } from './ui.js';
 import { initTools, isShape, isBox, moveLayer, setShape, fadeEnds } from './tools.js';
 import { joined, boxOutline, pieces } from '../js/shapes.js';
@@ -31,7 +31,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.32';
+export const VERSION = 'v0.68-pieces.33';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -592,6 +592,31 @@ const actions = {
   },
   exportPng() {
     paint().toBlob((b) => { if (b) download(b, safeName() + '.png'); }, 'image/png');
+  },
+
+  // Trading Paints takes the paint as a PNG, and a finish map only as the
+  // .mip the sim itself makes from the last Save to iRacing.
+  async sendTp() {
+    // the tab first: an await before window.open spends the click and the browser blocks it
+    // (no 'noopener' in the call: with it the answer is always null, blocked or not)
+    const tab = window.open('https://www.tradingpaints.com/upload', '_blank'), blocked = !tab;
+    if (tab) tab.opener = null;
+    const car = app.doc.target === 'car' && validCustid(app.custid);
+    const name = (car ? `car_${app.doc.customNumber ? 'num_' : ''}${app.custid}` : safeName()) + '.png';
+    const blob = await new Promise(done => exportPaintCanvas(app.doc, paint()).toBlob(done, 'image/png'));
+    if (!blob) { ui.say('The paint could not be exported', true); return; }
+    download(blob, name);
+    let mip = null, old = false;
+    try {
+      const dir = car && await paintsDir();
+      mip = dir && await persist.readFileFromFolder(dir, `car_spec_${app.custid}.mip`);
+      const tga = mip && await persist.readFileFromFolder(dir, `car_spec_${app.custid}.tga`);
+      old = !!tga && mip.lastModified < tga.lastModified; // made before the finishes last changed
+      if (mip && !old) download(mip, mip.name);
+    } catch { /* no folder linked: the paint alone still uploads */ }
+    if (blocked) ui.say('Allow pop-ups for this site, then send again', true);
+    else if (old) ui.say(`${name} downloaded. Finish file is out of date: open the car in iRacing once, then send again.`, true);
+    else ui.say(mip ? `Downloaded ${name} (paint) and ${mip.name} (finish)` : `Downloaded ${name}. Upload it as the paint.`);
   },
 
   setMode(mode) {
