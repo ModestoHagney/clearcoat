@@ -121,6 +121,11 @@ button:disabled { cursor: default; opacity: .38; }
 .field > span { color: var(--muted); }
 .field.wide { grid-template-columns: auto minmax(0, 1fr); }
 .field.wide > span:first-child { white-space: nowrap; }
+.nest { margin: 0 0 4px 8px; border-left: 2px solid var(--line); } /* what belongs to the switch above it */
+.pair.wrap { flex-wrap: wrap; }
+input[type="color"].mini { width: 24px; height: 24px; }
+.pair.wrap { gap: 4px; }
+.pair.wrap .icon { width: 22px; height: 24px; font-size: 17px; line-height: 1; }
 .pair { display: flex; gap: 6px; align-items: center; min-width: 0; }
 .pair .num { font: 12px var(--mono); min-width: 30px; text-align: right; }
 .field input[type="text"], .field select, dialog input[type="text"], dialog select { width: 100%; min-width: 0; padding: 4px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--bar); }

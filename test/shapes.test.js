@@ -175,3 +175,23 @@ test('a mirror read off three points sends every point where the mirror does', (
   assert.deepEqual(at(framed(f, f), 120, 40), { x: 120, y: 100 }); // twice: back across, shifted twice
   assert.deepEqual(unframed(f, { x: 700, y: 130, w: 100, h: 50 }), { x: 100, y: 100, w: 100, h: 50 });
 });
+
+test('a random pattern rolls the same every time, and differently for another seed', () => {
+  const box = { x: 0, y: 0, w: 400, h: 400 }, plain = { size: 40, gap: 10, stagger: 0, turn: 10 };
+  const m = { ...plain, random: true, rSize: 100, rPos: 100, rTurn: 100, seed: 7, colors: ['#111111', '#222222'] };
+  const a = cells(m, box), again = cells(m, box), other = cells({ ...m, seed: 8 }, box);
+  assert.deepEqual(a, again);
+  assert.notDeepEqual(a.map(c => c.x), other.map(c => c.x));
+  // off: nothing varies, whatever the amounts say
+  assert.ok(cells({ ...m, random: false }, box).every(c => c.size === 40 && c.turn === 10 && c.pick === 0 && c.x % 50 === 0));
+  // amounts at nothing: random, but only the colours are mixed
+  assert.ok(cells({ ...m, rSize: 0, rPos: 0, rTurn: 0 }, box).every(c => c.size === 40 && c.turn === 10 && c.x % 50 === 0));
+  // within what the amounts allow, and every colour gets used
+  const at = (c) => ({ gx: c.i * 50, gy: c.j * 50 });
+  assert.ok(a.every(c => c.size >= 10 && c.size <= 70 && Math.abs(c.turn - 10) <= 180 && Math.abs(c.x - at(c).gx) <= 25 && Math.abs(c.y - at(c).gy) <= 25));
+  assert.deepEqual([...new Set(a.map(c => c.pick))].sort(), [0, 1, 2]);
+  // the same copy rolls the same from another shape's box: one pattern across shapes
+  const b = cells(m, { x: 200, y: 200, w: 400, h: 400 }), key = (c) => c.i + ',' + c.j, byKey = new Map(a.map(c => [key(c), c]));
+  const shared = b.filter(c => byKey.has(key(c)));
+  assert.ok(shared.length > 10 && shared.every(c => c.x === byKey.get(key(c)).x && c.pick === byKey.get(key(c)).pick));
+});

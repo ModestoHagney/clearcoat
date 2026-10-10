@@ -85,7 +85,10 @@ export const baseFinish = (doc) => baseSpec(doc).material;
 // the shape in its own colour, then the pattern in the pattern's colour. The
 // engine draws a layer that has a motif as the pattern alone, so the doc is
 // opened out here: each such layer becomes the plain shape and, in front of
-// it, the pattern (id + '~p'). `only` leaves the shape's own paint out.
+// it, the pattern (id + '~p'). `only` leaves the shape's own paint out. A
+// random pattern mixed from several colours is one such layer per colour
+// (id + '~p0', '~p1', …), each drawing only the copies that took its colour,
+// so every colour can have its own finish.
 // The doc itself is returned when it has no patterns.
 export function withPatterns(doc) {
   if (!doc.layers.some(l => l.motif)) return doc;
@@ -94,7 +97,9 @@ export function withPatterns(doc) {
     layers: doc.layers.flatMap((l) => {
       if (!l.motif) return [l];
       const over = { ...l, id: l.id + '~p', color: l.motif.color || l.color, colorRef: null, fillType: 'solid', fx: null };
-      return l.motif.only ? [over] : [{ ...l, motif: undefined, motifFrame: undefined }, over];
+      const more = l.motif.random ? l.motif.colors || [] : [];
+      const overs = !more.length ? [over] : [over.color, ...more].map((color, k) => ({ ...over, id: `${l.id}~p${k}`, color, motif: { ...l.motif, part: k } }));
+      return l.motif.only ? overs : [{ ...l, motif: undefined, motifFrame: undefined }, ...overs];
     }),
   };
 }

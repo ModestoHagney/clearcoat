@@ -206,6 +206,18 @@ export function initUI(app, actions, version) {
         field('Spacing', range('f-pat-gap', 0, 400, Math.round(mo.gap))) +
         field('Stagger', range('f-pat-stagger', 0, 100, Math.round(mo.stagger))) +
         field('Turn', range('f-pat-turn', -180, 180, Math.round(mo.turn))) +
+        `<label class="switch" title="Each copy differs a little. The roll is kept with the livery.">Random<input id="f-pat-random" type="checkbox"${mo.random ? ' checked' : ''}></label>` +
+        (!mo.random ? '' : `<div class="nest">` +
+          field('Size', range('f-pat-rSize', 0, 100, Math.round(mo.rSize || 0))) +
+          field('Position', range('f-pat-rPos', 0, 100, Math.round(mo.rPos || 0))) +
+          field('Turn', range('f-pat-rTurn', 0, 100, Math.round(mo.rTurn || 0))) +
+          `<div class="field"><span title="Colours mixed in with the pattern's own">Mix in</span><span class="pair wrap">` +
+            (mo.colors || []).map((c, k) => `<input class="mini" data-patc="${k}" id="f-pat-c${k}" type="color" value="${esc(c)}" aria-label="Mixed-in colour ${k + 1}">`).join('') +
+            ((mo.colors || []).length < 6 ? `<button type="button" class="icon" data-act="addPatternColour" title="Mix in another colour" aria-label="Mix in another colour">+</button>` : '') +
+            ((mo.colors || []).length ? `<button type="button" class="icon" data-act="dropPatternColour" title="Take the last one out" aria-label="Take the last colour out">−</button>` : '') +
+          `</span></div>` +
+          `<div class="acts"><button class="btn" data-act="reshuffle" title="Roll again">Reshuffle</button></div>` +
+        `</div>`) +
         `<label class="switch" title="Leave out the shape's own paint, so what is underneath shows between the pattern">Pattern only<input id="f-pat-only" type="checkbox"${mo.only ? ' checked' : ''}></label>`);
   }
   // what a pattern can repeat or a stamp place: the ready-made shapes, then
@@ -422,7 +434,8 @@ export function initUI(app, actions, version) {
       actions.tweakMotif('color', v);
       return;
     }
-    const pat = /^f-pat-(size|gap|stagger|turn)$/.exec(t.id || '');
+    if (t.dataset.patc !== undefined) { actions.patternColour(+t.dataset.patc, t.value); return; }
+    const pat = /^f-pat-(size|gap|stagger|turn|rSize|rPos|rTurn)$/.exec(t.id || '');
     if (pat) { actions.tweakMotif(pat[1], +t.value); return; }
     // plain settings: the control's id names the layer setting it sets
     const m = /^f-(fx-)?(fontSize|outlineWidth|outlineColor|letterSpacing|curve|rotation|shadow|shadowColor|shadowDX|shadowDY|text)$/.exec(t.id || '');
@@ -527,6 +540,7 @@ export function initUI(app, actions, version) {
     if (id === 'f-fade') return actions.setFade('on', e.target.checked);
     if (id === 'f-pat') return actions.setMotif(e.target.value);
     if (id === 'f-pat-only') return actions.tweakMotif('only', e.target.checked);
+    if (id === 'f-pat-random') return actions.motifRandom(e.target.checked);
     if (e.target.dataset.pat) return; // nothing is redrawn: that would swallow the click that took the focus away (the eyedropper, say)
     if (id === 'f-fade-out') return actions.setFade('out', e.target.checked);
     if (id === 'f-italic') { actions.setProp('italic', e.target.checked); return; }

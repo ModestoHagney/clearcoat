@@ -31,7 +31,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.40';
+export const VERSION = 'v0.68-pieces.41';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -497,6 +497,23 @@ function cloneLayer(l) {
 
 // the selected shapes a pattern can go on
 const patterned = () => selectedLayers().filter(l => l.type === 'fill' && !isArea(l));
+// Change the pattern of every selected shape that has one. f(motif, layer) →
+// the settings to change. A new motif object each time: the engine keeps
+// patterns by their settings. → whether there was anything to change
+function eachMotif(f) {
+  const ls = patterned().filter(l => l.motif);
+  if (!ls.length || !canChange()) return false;
+  for (const l of ls) l.motif = { ...l.motif, ...f(l.motif, l) };
+  return true;
+}
+const newSeed = () => (Math.random() * 0x7fffffff) | 0;
+// the next colour to mix into a pattern: one already in the livery that it
+// does not have yet, else one that shows on the shape
+function nextMix(m, l) {
+  const has = new Set([l.color, m.color, ...(m.colors || [])].map(c => String(c || '').toLowerCase()));
+  const livery = [app.doc.baseColor, ...withPatterns(app.doc).layers.map(layerColour)].filter(Boolean).map(c => c.toLowerCase());
+  return [...livery, '#ffffff', '#101114', '#808080'].find(c => !has.has(c)) || '#808080';
+}
 // a first colour for a pattern: one that shows on the shape's own
 const standsOut = (hex) => {
   const [r, g, b] = [1, 3, 5].map(i => parseInt(String(hex || '#ffffff').slice(i, i + 2), 16) || 0);
@@ -893,15 +910,33 @@ const actions = {
     if (!key) { for (const l of ls) { delete l.motif; delete l.motifFrame; } return change(); }
     const shape = motifOf(key);
     if (!shape) return ui.refresh(); // its own shape, no longer in the library: nothing to swap to
-    const had = (ls.find(l => l.motif) || {}).motif || { size: 80, gap: 40, stagger: 0, turn: 0, only: false };
-    for (const l of ls) l.motif = { ...shape, size: had.size, gap: had.gap, stagger: had.stagger, turn: had.turn, only: !!had.only, color: had.color || standsOut(l.color) };
+    // everything but what repeats is kept: size, spacing, colours, the random roll
+    const { kind, pts, w, h, id, name, ...had } = (ls.find(l => l.motif) || {}).motif || { size: 80, gap: 40, stagger: 0, turn: 0, only: false };
+    for (const l of ls) l.motif = { ...had, ...shape, color: had.color || standsOut(l.color) };
     change();
   },
   tweakMotif(key, v) {
-    const ls = patterned().filter(l => l.motif);
-    if (!ls.length || !canChange()) return;
-    for (const l of ls) l.motif = { ...l.motif, [key]: v }; // a new object each time: the engine keeps patterns by their settings
-    change({ panels: false });
+    if (eachMotif(() => ({ [key]: v }))) change({ panels: false });
+  },
+  // Random: each copy varies by a roll kept with the livery (the seed). The
+  // selected shapes share one seed, so they carry one random pattern.
+  motifRandom(on) {
+    const lead = (patterned().find(l => l.motif && l.motif.seed !== undefined) || {}).motif, seed = lead ? lead.seed : newSeed();
+    if (eachMotif(m => ({ random: !!on, seed, rSize: m.rSize ?? 30, rPos: m.rPos ?? 30, rTurn: m.rTurn ?? 30, colors: m.colors || [] }))) change();
+  },
+  reshuffle() {
+    const seed = newSeed();
+    if (eachMotif(() => ({ seed }))) change();
+  },
+  // the colours a random pattern is mixed from, besides its own
+  addPatternColour() {
+    if (eachMotif((m, l) => ({ colors: [...(m.colors || []), nextMix(m, l)].slice(0, 6) }))) change();
+  },
+  dropPatternColour() {
+    if (eachMotif(m => ({ colors: (m.colors || []).slice(0, -1) }))) change();
+  },
+  patternColour(k, hex) {
+    if (eachMotif(m => ({ colors: (m.colors || []).map((c, i) => (i === k ? hex : c)) }))) change({ panels: false });
   },
   setBandWidth(n) { app.bandWidth = Math.max(2, Math.min(800, Math.round(n) || 60)); requestDraw(); },
   redraw() { requestDraw(); ui.refresh(); },

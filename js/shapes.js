@@ -238,17 +238,48 @@ export function placed(m, x, y, size, turn = 0) {
 // to the sheet, not to the shape it fills, so two shapes with the same
 // settings carry on the same pattern. stagger: how far every second row is
 // shifted, as a percentage of the step.
+//
+// → [{ x, y, size, turn, pick, i, j }]: where each copy goes and how. A plain
+// pattern gives every copy the motif's own size and turn. A random one
+// (m.random) varies each by its own roll: rSize, rPos and rTurn say how much,
+// 0 to 100, and `pick` says which of the pattern's colours it takes (0 = the
+// main one, then m.colors in order). A roll comes from the seed and the
+// copy's place in the grid, so it is the same every time it is painted, on
+// every shape that shares the grid, until the seed is changed.
 export const CELL_LIMIT = 15000; // about a tenth of a second to paint
-export function cells({ size, gap = 0, stagger = 0 }, box) {
-  const pad = size * 0.75; // a turned copy reaches this far from its middle
+export const SIZE_SWING = 0.75;  // rSize 100: from a quarter of the size to one and three quarters
+function roll(seed, i, j, k) { // 0 ≤ … < 1, steady for the same four numbers
+  let h = (seed | 0) ^ Math.imul(i, 374761393) ^ Math.imul(j, 668265263) ^ Math.imul(k, 2246822519);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h = Math.imul(h ^ (h >>> 16), 2246822507);
+  return ((h ^ (h >>> 13)) >>> 0) / 4294967296;
+}
+export function cells(m, box) {
+  const { size, gap = 0, stagger = 0 } = m, turn = m.turn || 0;
+  const rnd = !!m.random, rSize = rnd ? (m.rSize || 0) / 100 : 0, rPos = rnd ? (m.rPos || 0) / 100 : 0, rTurn = rnd ? (m.rTurn || 0) / 100 : 0;
+  const colours = rnd ? 1 + (m.colors || []).length : 1, seed = m.seed || 0;
+  const step = Math.max(2, size + gap);
+  // a turned copy reaches this far from its middle: more if it may grow or drift
+  const pad = size * 0.75 * (1 + SIZE_SWING * rSize) + step / 2 * rPos;
   const x0 = box.x - pad, y0 = box.y - pad, x1 = box.x + box.w + pad, y1 = box.y + box.h + pad;
   // ponytail: past CELL_LIMIT copies the grid is opened up instead of drawn;
   // raise the limit if a finer pattern is ever wanted and the screen keeps up.
-  const pitch = Math.max(2, size + gap, Math.sqrt((x1 - x0) * (y1 - y0) / CELL_LIMIT));
+  const pitch = Math.max(step, Math.sqrt((x1 - x0) * (y1 - y0) / CELL_LIMIT));
   const out = [];
   for (let j = Math.ceil(y0 / pitch); j * pitch <= y1; j++) {
     const off = j % 2 ? stagger / 100 * pitch : 0;
-    for (let i = Math.ceil((x0 - off) / pitch); i * pitch + off <= x1; i++) out.push({ x: i * pitch + off, y: j * pitch, i, j });
+    for (let i = Math.ceil((x0 - off) / pitch); i * pitch + off <= x1; i++) {
+      const c = { x: i * pitch + off, y: j * pitch, size, turn, pick: 0, i, j };
+      if (rnd) {
+        const u = (k) => roll(seed, i, j, k) * 2 - 1; // −1 … 1
+        c.x += u(1) * rPos * pitch / 2;
+        c.y += u(2) * rPos * pitch / 2;
+        c.size = size * (1 + u(3) * SIZE_SWING * rSize);
+        c.turn = turn + u(4) * 180 * rTurn;
+        c.pick = Math.floor(roll(seed, i, j, 5) * colours);
+      }
+      out.push(c);
+    }
   }
   return out;
 }

@@ -169,3 +169,13 @@ test('a pattern over a shape is painted and finished as two: the shape, then the
   const plain = { layers: [{ id: 'b', type: 'fill', color: '#ff0000' }] };
   assert.equal(withPatterns(plain), plain);
 });
+
+test('a random pattern mixed from several colours is one part per colour, each with that colour\'s finish', () => {
+  const shape = { id: 'a', type: 'fill', visible: true, color: '#ff0000', motif: { kind: 'star', size: 80, gap: 40, color: '#000000', random: true, seed: 3, colors: ['#ffffff', '#00ff00'] } };
+  const doc = { baseColor: '#808080', finishRules: [{ color: '#00ff00', material: 'chrome' }], layers: [shape] };
+  const ls = withFinishes(doc).layers;
+  assert.deepEqual(ls.map(l => [l.id, l.color, l.motif ? l.motif.part : '-', l.material || 'gloss'].join(' ')), ['a #ff0000 - gloss', 'a~p0 #000000 0 gloss', 'a~p1 #ffffff 1 gloss', 'a~p2 #00ff00 2 chrome']);
+  assert.deepEqual(finishList(doc).map(f => f.colour), ['#808080', '#ff0000', '#000000', '#ffffff', '#00ff00']);
+  // with Random off the extra colours are not used
+  assert.deepEqual(withPatterns({ layers: [{ ...shape, motif: { ...shape.motif, random: false } }] }).layers.map(l => l.id), ['a', 'a~p']);
+});
