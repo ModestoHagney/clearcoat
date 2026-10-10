@@ -180,6 +180,7 @@ export function createDoc() {
     templateColor: '#ffffff',   // recolor linework for contrast; 'original' = multiply as-is
     templateBold: true,         // thicken 1px linework
     customFonts: [],            // { name, data (base64) } — uploaded fonts travel with the project
+    googleFonts: [],            // names of Google fonts added by name, beyond the built-in list
     regionMap: null,            // parsed clearcoat-regions/1 map (see regions.js)
     drivers: [],                // driver variants { id, name, number, custid, enabled } (see variants.js)
     paintMask: null,            // greyscale canvas from the template's Mask layer: paintable = white (zones.js)
@@ -1569,6 +1570,7 @@ export function serializeDoc(doc) {
     patternCar: typeof doc.patternCar === 'string' && doc.patternCar ? doc.patternCar : null,
     palette: cleanPalette(doc.palette),
     baseRef: doc.baseRef || null,
+    googleFonts: (doc.googleFonts || []).filter(f => typeof f === 'string' && f).slice(0, 60),
     groups: (doc.groups || []).map(g => ({ id: g.id, name: g.name, collapsed: !!g.collapsed })),
     layers: doc.layers.map(l => ({
       id: l.id, type: l.type, name: l.name,
@@ -1725,6 +1727,7 @@ export async function deserializeDoc(data) {
   doc.showUnpaintable = !!data.showUnpaintable;
   doc.patternCar = typeof data.patternCar === 'string' && data.patternCar ? data.patternCar : null;
   doc.palette = cleanPalette(data.palette);
+  doc.googleFonts = Array.isArray(data.googleFonts) ? data.googleFonts.filter(f => typeof f === 'string' && f).slice(0, 60) : [];
   doc.baseRef = doc.palette.some(c => c.id === data.baseRef) ? data.baseRef : null;
   // custom fonts must be live before text layers regenerate below
   doc.fontWarnings = [];

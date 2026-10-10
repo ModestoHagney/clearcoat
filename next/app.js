@@ -25,7 +25,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.21 · stage 4';
+export const VERSION = 'v0.68-pieces.22 · stage 4';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -352,24 +352,35 @@ async function liveTick(attempt = 0) {
 // ---------- fonts ----------
 // text layers are pictures of text; a Google font has to be on the page
 // before they can be re-drawn in it
-const fontLoads = new Map();
+const fontLoads = new Map(), fontReady = new Set();
+const isWebFont = (f) => GOOGLE_FONTS.includes(f) || (app.doc.googleFonts || []).includes(f);
+// Puts a Google font on the page. → true once it can be drawn with, false if
+// Google has no such font (its names are case-sensitive) or it is unreachable.
+function loadWebFont(family) {
+  if (fontLoads.has(family)) return fontLoads.get(family);
+  const p = (async () => {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = 'https://fonts.googleapis.com/css2?family=' + encodeURIComponent(family).replace(/%20/g, '+') + '&display=swap';
+    const found = await new Promise(r => { link.onload = () => r(true); link.onerror = () => r(false); document.head.appendChild(link); });
+    if (!found) { link.remove(); return false; }
+    try { await document.fonts.load(`160px "${family}"`); } catch { return false; }
+    return document.fonts.check(`160px "${family}"`);
+  })();
+  fontLoads.set(family, p);
+  p.then((ok) => { if (ok) fontReady.add(family); else fontLoads.delete(family); }); // a miss may be retried later
+  return p;
+}
 function ensureDocFonts() {
   const families = new Set(app.doc.layers.filter(l => l.type === 'text').map(l => l.font));
   for (const family of families) {
-    if (!GOOGLE_FONTS.includes(family) || fontLoads.has(family)) continue;
-    const link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = 'https://fonts.googleapis.com/css2?family=' + family.replace(/ /g, '+') + '&display=swap';
-    document.head.appendChild(link);
-    const p = new Promise(r => { link.onload = r; link.onerror = r; })
-      .then(() => document.fonts.load(`160px "${family}"`))
-      .then(() => {
-        let touched = false;
-        for (const l of app.doc.layers) if (l.type === 'text' && l.font === family) { regenerateText(l); touched = true; }
-        if (touched) { dirty = true; requestDraw(); }
-      })
-      .catch(() => fontLoads.delete(family)); // offline: a later open may retry
-    fontLoads.set(family, p);
+    if (!isWebFont(family) || fontReady.has(family)) continue;
+    loadWebFont(family).then((ok) => {
+      if (!ok) return;
+      let touched = false;
+      for (const l of app.doc.layers) if (l.type === 'text' && l.font === family) { regenerateText(l); touched = true; }
+      if (touched) { dirty = true; requestDraw(); }
+    });
   }
 }
 
@@ -740,6 +751,7 @@ const actions = {
   },
   setFont(name) {
     if (name === '__upload') { $('file-font').click(); ui.refresh(); return; }
+    if (name === '__google') { ui.refresh(); return actions.addGoogleFont(); }
     const l = actions.selected();
     app.font = name;
     if (!l || l.type !== 'text') return;
@@ -747,6 +759,25 @@ const actions = {
     regenerateText(l);
     ensureDocFonts(); // a Google font arrives a moment later and the text is redrawn in it
     change({ now: true });
+  },
+  // any font on Google Fonts, by its name
+  async addGoogleFont() {
+    const typed = await ui.askText({ title: 'Add a Google font', label: 'Font name', value: '', ok: 'Add' });
+    if (!typed) return;
+    const clean = typed.trim().replace(/\s+/g, ' ');
+    ui.say(`Looking for ${clean}…`);
+    // Google's names are case-sensitive: try it as typed, then with each word capitalised
+    let name = null;
+    for (const cand of new Set([clean, clean.toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase())])) {
+      if (await loadWebFont(cand)) { name = cand; break; }
+    }
+    if (!name) { ui.say(`No Google font called "${clean}" was found. Check the spelling and capitals.`, true); return; }
+    const d = app.doc;
+    d.googleFonts = [...new Set([...(d.googleFonts || []), name])];
+    actions.setFont(name);
+    if (!actions.selected()) change();
+    ui.refresh();
+    ui.say(`${name} added`);
   },
   async uploadFont(file) {
     if (file.size > 4 * 1024 * 1024) { ui.say('That font file is over 4 MB', true); return; }
@@ -954,8 +985,9 @@ const typing = () => {
   return el.tagName === 'INPUT' && !['range', 'color', 'checkbox', 'radio', 'button', 'file'].includes(el.type);
 };
 window.addEventListener('keydown', (e) => {
-  if ($('dlg').open || typing()) return;
   const mod = e.ctrlKey || e.metaKey, k = (e.key || '').toLowerCase();
+  // in a box you type in, only the keys that have nothing to do with typing work
+  if ($('dlg').open || (typing() && !(mod && (k === 's' || k === 'm')))) return;
   if (e.code === 'Space') { spaceHeld = true; cv.classList.add('pan'); e.preventDefault(); return; }
   if (!mod && onSheet().key(e)) { e.preventDefault(); return; }
   if (mod && k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }

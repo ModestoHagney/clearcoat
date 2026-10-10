@@ -165,26 +165,31 @@ export function initUI(app, actions, version) {
     const isText = l.type === 'text', isPic = (isText || l.type === 'image') && !l.corners;
     const range = (id, min, max, v) => `<input id="${id}" type="range" min="${min}" max="${max}" value="${v}">`;
     const fx = l.fx || {};
-    const fonts = [...TEXT_FONTS, ...GOOGLE_FONTS, ...(app.doc.customFonts || []).map((f) => f.name)];
-    const text = !isText ? '' :
+    const fonts = [...new Set([...TEXT_FONTS, ...GOOGLE_FONTS, ...(app.doc.googleFonts || []), ...(app.doc.customFonts || []).map((f) => f.name)])];
+    // what you reach for first, then the switch and buttons, then the rest folded away
+    const main = !isText ? colour :
       field('Text', `<input id="f-text" type="text" value="${esc(l.text)}">`) +
-      field('Font', `<select id="f-font">${fonts.map((f) => opt(f, f, f === l.font)).join('')}${opt('__upload', 'Upload a font…', false)}</select>`) +
+      field('Font', `<select id="f-font">${fonts.map((f) => opt(f, f, f === l.font)).join('')}${opt('__google', 'Google font by name…', false)}${opt('__upload', 'Upload a font file…', false)}</select>`) +
       colourField('f-colour', hexOf(l.textColor || '') || '#ffffff') +
-      field('Size', range('f-fontSize', 40, 400, l.fontSize || 160)) +
+      field('Size', range('f-fontSize', 40, 400, l.fontSize || 160));
+    const acts = l.locked ? '' :
+      `<label class="switch" title="Paint it on the twin panel too, or across the centreline (Ctrl+M)">Mirrored<input id="f-mirrored" type="checkbox"${l.mirrored ? ' checked' : ''}></label>` +
+      (l.mirrored && isPic ? `<label class="switch" title="Off: it reads the right way round on both sides. On: a true mirror image.">Reverse the other side<input id="f-mirrorFlip" type="checkbox"${l.mirrorFlip ? ' checked' : ''}></label>` : '') +
+      `<div class="acts">${trimButtons(l)}${l.mirrored ? '<button class="btn" data-act="separate" title="Make the mirrored side a layer of its own">Separate</button>' : ''}</div>`;
+    const more = (!isText ? '' :
       field('Outline', `<span class="pair">${range('f-outlineWidth', 0, 30, l.outlineWidth || 0)}<input id="f-outlineColor" type="color" value="${esc(hexOf(l.outlineColor || '') || '#000000')}" aria-label="Outline colour"></span>`) +
       field('Spacing', range('f-letterSpacing', 0, 40, l.letterSpacing || 0)) +
       field('Curve', range('f-curve', -180, 180, l.curve || 0)) +
-      `<label class="switch">Italic<input id="f-italic" type="checkbox"${l.italic ? ' checked' : ''}></label>`;
-    const pic = !isPic ? '' :
+      `<label class="switch">Italic<input id="f-italic" type="checkbox"${l.italic ? ' checked' : ''}></label>`) +
+      (!isPic ? '' :
       field('Turn', range('f-rotation', -180, 180, Math.round(l.rotation || 0))) +
       field('Shadow', `<span class="pair">${range('f-fx-shadow', 0, 60, fx.shadow || 0)}<input id="f-fx-shadowColor" type="color" value="${esc(hexOf(fx.shadowColor || '') || '#000000')}" aria-label="Shadow colour"></span>`) +
-      field('Shadow at', `<span class="pair">${range('f-fx-shadowDX', -60, 60, fx.shadowDX ?? 8)}${range('f-fx-shadowDY', -60, 60, fx.shadowDY ?? 8)}</span>`);
-    return colour + text + field('Name', `<input id="f-name" type="text" value="${esc(l.name)}">`) +
-      field('Opacity', `<input id="f-opacity" type="range" min="0" max="100" value="${Math.round((l.opacity ?? 1) * 100)}">`) + pic +
-      (l.mirrored && isPic ? `<label class="switch" title="Off: it reads the right way round on both sides. On: a true mirror image.">Reverse the other side<input id="f-mirrorFlip" type="checkbox"${l.mirrorFlip ? ' checked' : ''}></label>` : '') +
-      (l.locked ? '' : `<label class="switch" title="Paint it on the twin panel too, or across the centreline (Ctrl+M)">Mirrored<input id="f-mirrored" type="checkbox"${l.mirrored ? ' checked' : ''}></label>` +
-        `<div class="acts">${trimButtons(l)}${l.mirrored ? '<button class="btn" data-act="separate" title="Make the mirrored side a layer of its own">Separate</button>' : ''}</div>`);
+      field('Shadow at', `<span class="pair">${range('f-fx-shadowDX', -60, 60, fx.shadowDX ?? 8)}${range('f-fx-shadowDY', -60, 60, fx.shadowDY ?? 8)}</span>`)) +
+      field('Opacity', `<input id="f-opacity" type="range" min="0" max="100" value="${Math.round((l.opacity ?? 1) * 100)}">`) +
+      field('Name', `<input id="f-name" type="text" value="${esc(l.name)}">`);
+    return main + acts + `<details class="more" id="f-more"${moreOpen ? ' open' : ''}><summary>More</summary>${more}</details>`;
   }
+  let moreOpen = false; // stays as the user left it while the panel is redrawn
   const trimCount = (l) => (Array.isArray(l.clip) ? (Array.isArray(l.clip[0]) ? l.clip.length : 1) : 0);
   function trimButtons(l) {
     const n = trimCount(l);
@@ -290,6 +295,7 @@ export function initUI(app, actions, version) {
   };
   panels.colour.addEventListener('contextmenu', editChip);
   panels.colour.addEventListener('dblclick', editChip);
+  panels.props.addEventListener('toggle', (e) => { if (e.target.id === 'f-more') moreOpen = e.target.open; }, true);
   panels.props.addEventListener('change', (e) => {
     const id = e.target.id;
     if (id === 'f-mirrored') return actions.mirror();
