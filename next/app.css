@@ -171,6 +171,20 @@ dialog table { width: 100%; border-collapse: collapse; }
 dialog td { padding: 4px 0; }
 dialog td:last-child { text-align: right; font: 12px var(--mono); color: var(--muted); }
 dialog footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px 16px; }
+dialog.wide { width: min(720px, calc(100% - 32px)); }
+.tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.tabs button[data-libtab] { padding: 4px 12px; border: 1px solid var(--line); border-radius: 99px; color: var(--muted); }
+.tabs button[data-libtab][aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--fg); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+.tilewrap { position: relative; display: flex; }
+.tile { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 6px 6px; border: 1px solid var(--line); border-radius: 9px; background: var(--bar); }
+.tile:hover { border-color: var(--accent); }
+/* art sits on a mid grey so black, white and coloured graphics all show */
+.tile img, .tile svg { width: 100%; height: 68px; object-fit: contain; border-radius: 6px; background: #8a909a; color: #f4f2ec; padding: 5px; }
+.tile span { font-size: 12px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tilex { position: absolute; right: -5px; top: -6px; width: 20px; height: 20px; display: grid; place-items: center; border-radius: 50%; background: var(--fg); color: var(--bar); opacity: 0; transition: opacity .12s; }
+.tilex svg { width: 11px; height: 11px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; }
+.tilewrap:hover .tilex, .tilex:focus-visible { opacity: 1; }
 .plist { display: flex; flex-direction: column; gap: 4px; }
 .plist button { display: flex; align-items: center; gap: 10px; padding: 6px; border-radius: 8px; text-align: left; width: 100%; }
 .plist button:hover { background: var(--hover); }

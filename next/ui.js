@@ -73,6 +73,7 @@ export function initUI(app, actions, version) {
   const layerItems = () => [
     ['Copy', 'Ctrl+C', 'copy', { off: !hasLayer() }], ['Paste', 'Ctrl+V', 'paste', { off: !app.clipboard }], ['Duplicate', 'Ctrl+D', 'duplicate', { off: !hasLayer() }], 0,
     ['Bring forward', 'Ctrl+]', 'forward', { off: !hasLayer() }], ['Send backward', 'Ctrl+[', 'backward', { off: !hasLayer() }], 0,
+    ['Save to library', '', 'saveShape', { off: (actions.selected() || {}).type !== 'fill' }],
     ['Mirrored', 'Ctrl+M', 'mirror', { off: !hasLayer(), tick: !!(actions.selected() || {}).mirrored }], ['Trim to panels', '', 'trim', { off: !hasLayer() }], 0,
     ['Delete', 'Del', 'remove', { off: !hasLayer() }],
   ];
@@ -382,6 +383,47 @@ export function initUI(app, actions, version) {
     if (!await p) return null;
     return del ? 'delete' : { name: $('ec-name').value.trim(), color: $('ec-pick').value };
   }
+  // ---------- the library ----------
+  // → { kind: 'logos' | 'graphics' | 'shapes' | 'file', item } or null
+  async function library(lib, builtIn, { remove }) {
+    let tab = lib.logos.length ? 'logos' : 'graphics', picked = null;
+    const shapeSvg = (it) => {
+      const pad = Math.max(it.w, it.h) * 0.06, box = `${-pad} ${-pad} ${it.w + 2 * pad} ${it.h + 2 * pad}`;
+      let d;
+      if (it.pts) d = 'M' + it.pts.map((a, i) => { const b = it.pts[(i + 1) % it.pts.length]; return (i ? '' : `${a.x} ${a.y}`) + (a.c ? `Q${a.c.x} ${a.c.y} ${b.x} ${b.y}` : `L${b.x} ${b.y}`); }).join('') + 'Z';
+      else if (it.shape === 'ellipse') d = `M0 ${it.h / 2}A${it.w / 2} ${it.h / 2} 0 1 0 ${it.w} ${it.h / 2}A${it.w / 2} ${it.h / 2} 0 1 0 0 ${it.h / 2}Z`;
+      else if (it.shape === 'triangle') d = `M${it.w / 2} 0L${it.w} ${it.h}L0 ${it.h}Z`;
+      else d = `M0 0H${it.w}V${it.h}H0Z`;
+      return `<svg viewBox="${box}" aria-hidden="true"><path d="${d}" fill="currentColor"/></svg>`;
+    };
+    const tile = (kind, it, art, own) => `<span class="tilewrap"><button type="button" class="tile" data-lib="${kind}:${esc(it.id)}" title="${esc(it.name)}">${art}<span>${esc(it.name)}</span></button>${own ? `<button type="button" class="tilex" data-libx="${kind}:${esc(it.id)}" title="Remove from the library" aria-label="Remove ${esc(it.name)}">${svg('close')}</button>` : ''}</span>`;
+    const draw = () => {
+      const tabs = [['logos', `Your pictures${lib.logos.length ? ' · ' + lib.logos.length : ''}`], ['graphics', 'Graphics'], ['shapes', `Your shapes${lib.shapes.length ? ' · ' + lib.shapes.length : ''}`]];
+      const grid = tab === 'logos' ? lib.logos.map((it) => tile('logos', it, `<img alt="" src="${esc(it.src)}">`, true)).join('')
+        : tab === 'graphics' ? builtIn.map((it) => tile('graphics', it, `<img alt="" src="data:image/svg+xml;utf8,${encodeURIComponent(it.svg)}">`, false)).join('')
+        : lib.shapes.map((it) => tile('shapes', it, shapeSvg(it), true)).join('');
+      const empty = tab === 'logos' ? 'Pictures you bring in are kept here.' : 'Select a shape and choose Edit › Save to library.';
+      $('dlg-body').innerHTML = `<div class="tabs">${tabs.map(([k, name]) => `<button type="button" data-libtab="${k}" aria-pressed="${k === tab}">${name}</button>`).join('')}<button type="button" class="btn" data-lib="file:" style="margin-left:auto">From a file…</button></div>` +
+        (grid ? `<div class="tiles">${grid}</div>` : `<div class="note">${empty}</div>`);
+    };
+    const p = ask({ title: 'Library', ok: null, cancel: 'Close' });
+    dlg.classList.add('wide');
+    draw();
+    $('dlg-body').onclick = (e) => {
+      const t = e.target.closest('button');
+      if (!t) return;
+      if (t.dataset.libtab) { tab = t.dataset.libtab; draw(); return; }
+      const [kind, id] = (t.dataset.libx || t.dataset.lib || '').split(':');
+      if (t.dataset.libx) { remove(kind, id); lib[kind] = lib[kind].filter((x) => x.id !== id); draw(); return; }
+      if (!kind) return;
+      picked = kind === 'file' ? { kind } : { kind, item: (kind === 'graphics' ? builtIn : lib[kind]).find((x) => x.id === id) };
+      dlg.close('ok');
+    };
+    await p;
+    $('dlg-body').onclick = null;
+    dlg.classList.remove('wide');
+    return picked && (picked.kind === 'file' || picked.item) ? picked : null;
+  }
   const shortcuts = () => ask({
     title: 'Shortcuts', ok: 'Close', cancel: null,
     body: '<table>' + [
@@ -418,7 +460,7 @@ export function initUI(app, actions, version) {
     if (t.dataset.act !== undefined) { closeMenus(); return run(t.dataset.act); }
     if (t.dataset.mode) return actions.setMode(t.dataset.mode);
     if (t.dataset.piece) return actions.pickPiece(t.dataset.piece);
-    if (t.dataset.tool === 'image') return actions.pickImage(); // nothing to arm: it opens the file chooser
+    if (t.dataset.tool === 'image') return actions.openLibrary(); // nothing to arm: it opens the library
     if (t.dataset.tool) return actions.setTool(t.dataset.tool);
     if (t.dataset.edit) return actions.editColour(t.dataset.edit);
     if (t.dataset.pal) return actions.usePalette(t.dataset.pal);
@@ -483,5 +525,5 @@ export function initUI(app, actions, version) {
 
   // put the cursor in a Properties box, ready to type over what is there
   const focusField = (id) => { const el = $(id); if (el) { el.focus(); if (el.select) el.select(); } };
-  return { refresh, refreshChrome, say, ask, askText, pickProject, carSetup, shortcuts, editColour, focusField };
+  return { refresh, refreshChrome, say, ask, askText, pickProject, carSetup, shortcuts, editColour, focusField, library };
 }

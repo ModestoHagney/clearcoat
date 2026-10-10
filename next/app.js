@@ -17,12 +17,15 @@ import { regionOutline } from '../js/regions.js';
 import { loadTemplate } from '../js/template.js';
 import { saveToIracing, paintFilenames, validCustid } from '../js/iracing.js';
 import { initUI } from './ui.js';
-import { initTools, isShape, moveLayer } from './tools.js';
+import { initTools, isShape, moveLayer, setShape } from './tools.js';
+import { LIBRARY, libraryItemToLayerSource } from '../js/library.js';
+import { createFillLayer } from '../js/engine.js';
+import { moved } from '../js/shapes.js';
 import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.20 · stage 4';
+export const VERSION = 'v0.68-pieces.21 · stage 4';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -409,6 +412,9 @@ function sampleColour(p) {
   return '#' + [d[0], d[1], d[2]].map(v => v.toString(16).padStart(2, '0')).join('');
 }
 
+let library = { logos: [], shapes: [] };
+const saveLibrary = () => persist.saveBlob('next-library', library).catch(() => { /* quota: it still works this session */ });
+
 // settings of a text layer that change what its picture looks like
 const TEXT_KEYS = new Set(['text', 'font', 'fontSize', 'textColor', 'outlineColor', 'outlineWidth', 'italic', 'letterSpacing', 'curve']);
 
@@ -776,11 +782,52 @@ const actions = {
       ui.say('Could not read that picture', true);
     }
   },
-  async addImage(src, name, at) {
+  // keep: remember it in the library (not for the built-in graphics, which are there already)
+  async addImage(src, name, at, keep = true) {
     const l = createImageLayer(await loadImage(src), src, name || 'Picture');
+    if (keep && !library.logos.some(x => x.src === src)) {
+      library.logos.unshift({ id: 'g' + newId(), name: name || 'Picture', src });
+      library.logos.length = Math.min(library.logos.length, 80); // ponytail: the oldest fall off; add folders if 80 is ever tight
+      saveLibrary();
+    }
     const mid = at || screenToDoc(cv.clientWidth / 2, cv.clientHeight / 2);
     l.x = Math.round(Math.max(0, Math.min(SIZE, mid.x)));
     l.y = Math.round(Math.max(0, Math.min(SIZE, mid.y)));
+    app.doc.layers.push(l);
+    actions.setTool('select');
+    app.sel = l.id;
+    change({ now: true });
+  },
+
+  // ---- the library ----
+  // Kept in this browser, across liveries: pictures you have brought in, and
+  // shapes you have saved. The built-in graphics come with the app.
+  async openLibrary() {
+    const pick = await ui.library(library, LIBRARY, {
+      remove(kind, id) { library[kind] = library[kind].filter(x => x.id !== id); saveLibrary(); },
+    });
+    if (!pick) return;
+    if (pick.kind === 'file') return actions.pickImage();
+    if (pick.kind === 'logos') return actions.addImage(pick.item.src, pick.item.name);
+    if (pick.kind === 'graphics') return actions.addImage(await libraryItemToLayerSource(pick.item), pick.item.name, null, false);
+    if (pick.kind === 'shapes') return actions.addShape(pick.item);
+  },
+  saveShape() {
+    const l = actions.selected();
+    if (!l || l.type !== 'fill') return;
+    const item = { id: 's' + newId(), name: l.name, shape: l.shape, w: l.rw, h: l.rh };
+    if (isShape(l)) item.pts = moved(l.pts, -l.rx, -l.ry); // from its own corner, so it can be put anywhere
+    library.shapes.unshift(item);
+    saveLibrary();
+    ui.say(`${l.name} saved to the library`);
+  },
+  addShape(item) {
+    const l = createFillLayer(app.colour), mid = screenToDoc(cv.clientWidth / 2, cv.clientHeight / 2);
+    const x = Math.round(mid.x - item.w / 2), y = Math.round(mid.y - item.h / 2);
+    l.name = item.name;
+    l.shape = item.shape;
+    if (item.pts) setShape(l, moved(item.pts, x, y));
+    else { l.rx = x; l.ry = y; l.rw = item.w; l.rh = item.h; }
     app.doc.layers.push(l);
     actions.setTool('select');
     app.sel = l.id;
@@ -1018,6 +1065,10 @@ async function boot() {
   // started with, while the saved one was still loading: draw it again
   dirty = true;
   syncLineColour(app.doc);
+  try {
+    const lib = await persist.loadBlob('next-library');
+    if (lib) library = { logos: Array.isArray(lib.logos) ? lib.logos : [], shapes: Array.isArray(lib.shapes) ? lib.shapes : [] };
+  } catch { /* an empty library */ }
   ui = initUI(app, actions, VERSION);
   tools = initTools(app, {
     screenToDoc, docToScreen, change, requestDraw,
