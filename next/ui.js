@@ -146,7 +146,7 @@ export function initUI(app, actions, version) {
       ['Light', '', 'theme:light', { tick: app.theme === 'light' }], ['Dark', '', 'theme:dark', { tick: app.theme === 'dark' }], ['Match system', '', 'theme:system', { tick: app.theme === 'system' }], 0,
       ['Fit to screen', 'F', 'fit'],
     ],
-    Help: [['Shortcuts…', '?', 'shortcuts'], ['About…', '', 'about']],
+    Help: [['Shortcuts…', 'F1', 'shortcuts'], ['About…', '', 'about']],
   });
   const itemHtml = (it) => {
     if (!it) return '<hr>';
@@ -237,7 +237,7 @@ export function initUI(app, actions, version) {
     const range = (id, min, max, v) => `<input id="${id}" type="range" min="${min}" max="${max}" value="${v}">`;
     const col = mo ? esc(hexOf(mo.color || '') || hexOf(l.color || '') || '#ffffff') : '';
     const cols = mo ? mo.colors || [] : [];
-    // one small tile for each shape, one swatch for each colour, each with a × to take it out (the first colour stays)
+    // one small tile for each shape, one swatch for each colour, each with a × to take it out (the last colour left stays)
     const out = (attr, k, what) => `<button type="button" class="mx" ${attr}="${k}" title="Take this ${what} out" aria-label="Take ${what} ${k + 2} out of the pattern">${svg('close')}</button>`;
     const tile = (sh, k) => `<span class="mwrap"><span class="mtile" title="${esc(sh.kind === 'own' ? sh.name : KINDS[sh.kind])}">${sh.kind === 'own' ? shapeSvg(sh) : svg(sh.kind)}</span>${out('data-patdrop', k, 'shape')}</span>`;
     // Everything about a pattern folds away under one heading. Its shapes and
@@ -248,7 +248,7 @@ export function initUI(app, actions, version) {
     return `<details class="more fold" id="f-patfold"${patOpen ? ' open' : ''}><summary>Pattern</summary>` +
         `<div class="field tiles"><span>Shapes</span><span class="pair wrap">${mo ? tile(mo, -1) + more.map(tile).join('') : ''}${more.length < 6 ? add : ''}</span></div>` +
       (!mo ? '' :
-        `<div class="field tiles"><span>Colours</span><span class="pair wrap"><input class="mini" data-pat="pick" id="f-pat-color" type="color" value="${col}" aria-label="Pattern colour">` +
+        `<div class="field tiles"><span>Colours</span><span class="pair wrap"><span class="mwrap"><input class="mini" data-pat="pick" id="f-pat-color" type="color" value="${col}" aria-label="Pattern colour">${cols.length ? out('data-patcdrop', -1, 'colour') : ''}</span>` +
           cols.map((c, k) => `<span class="mwrap"><input class="mini" data-patc="${k}" id="f-pat-c${k}" type="color" value="${esc(c)}" aria-label="Colour ${k + 2} of the pattern">${out('data-patcdrop', k, 'colour')}</span>`).join('') +
           (cols.length < 6 ? `<button type="button" class="icon" data-act="addPatternColour" title="Add another colour: they take turns, or mix when Random is on" aria-label="Add another colour to the pattern">+</button>` : '') +
           `<button type="button" class="icon${app.picking === 'pattern' ? ' on' : ''}" data-act="pickPatternColour" title="Pick the first colour from the sheet" aria-label="Pick the pattern's first colour from the sheet">${svg('dropper')}</button></span></div>` +
@@ -742,7 +742,7 @@ export function initUI(app, actions, version) {
       ['Select, Pen, Shape, Band, Fill a panel, Text', 'V, P, S, B, G, T'], ['Mirrored on or off', 'Ctrl+M'], ['Pick a colour from the sheet', 'I'], ['Finish a pen shape', 'Enter'], ['Undo the last point', 'Backspace'], ['Hold 45°', 'Shift'],
       ['Copy, paste, duplicate', 'Ctrl+C, V, D'], ['Nudge 1 px, 10 px', 'Arrows, Shift+Arrows'], ['Select several', 'Ctrl+click, or drag a box'], ['Select all', 'Ctrl+A'], ['Merge', 'Ctrl+E'], ['Group, ungroup', 'Ctrl+G, Ctrl+Shift+G'],
       ['Forward, backward', 'Ctrl+], Ctrl+['], ['To the front, to the back', 'Ctrl+Shift+], Ctrl+Shift+['], ['Delete', 'Del'],
-      ['Undo, redo', 'Ctrl+Z, Ctrl+Y'], ['Save', 'Ctrl+S'],
+      ['Undo, redo', 'Ctrl+Z, Ctrl+Y'], ['Save', 'Ctrl+S'], ['This list', 'F1'],
     ].map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join('') + '</table>',
   });
   const about = () => ask({ title: 'Clearcoat', ok: 'Close', cancel: null, body: `<div class="note">New screen, ${esc(version)}</div><div class="note"><a href="../">Open the original screen</a></div>` });
@@ -813,17 +813,29 @@ export function initUI(app, actions, version) {
     }
   });
 
-  // right-click menu on the sheet
-  $('stage').addEventListener('contextmenu', (e) => {
-    if (e.target.closest('.panel')) return;
+  // right-click menus: on the sheet, and on a row of the Layers list
+  const openCtx = (e, items) => {
     e.preventDefault();
     document.querySelector('.ctx')?.remove();
     const m = document.createElement('div'), box = $('stage').getBoundingClientRect();
     m.className = 'drop ctx';
-    m.innerHTML = [...layerItems(), 0, ['Fit to screen', 'F', 'fit']].map(itemHtml).join('');
+    m.innerHTML = items.map(itemHtml).join('');
     $('stage').append(m);
     m.style.left = Math.max(4, Math.min(e.clientX - box.left, box.width - m.offsetWidth - 4)) + 'px';
     m.style.top = Math.max(4, Math.min(e.clientY - box.top, box.height - m.offsetHeight - 4)) + 'px';
+  };
+  $('stage').addEventListener('contextmenu', (e) => {
+    if (e.target.closest('.panel')) return;
+    openCtx(e, [...layerItems(), 0, ['Fit to screen', 'F', 'fit']]);
+  });
+  panels.layers.addEventListener('contextmenu', (e) => {
+    const row = e.target.closest('.row[data-layer]');
+    if (!row || app.mode !== 'paint') return;
+    e.preventDefault();
+    const id = row.dataset.layer;
+    if (id === 'base') return; // nothing in the menu applies to the base coat
+    if (!actions.selectedLayers().some((l) => l.id === id)) actions.select(id); // the menu is about what is selected
+    openCtx(e, layerItems());
   });
 
   // floating panels move by their header

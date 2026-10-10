@@ -31,7 +31,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.50';
+export const VERSION = 'v0.68-pieces.51';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -973,8 +973,11 @@ const actions = {
   addPatternColour() {
     if (eachMotif((m, l) => ({ colors: [...(m.colors || []), nextMix(m, l)].slice(0, 6) }))) change();
   },
+  // k: which of the extra colours, or -1 for the first, whose place the next one then takes
   dropPatternColour(k) {
-    if (eachMotif(m => ({ colors: (m.colors || []).filter((_, i) => i !== k) }))) change();
+    const without = (m) => (k >= 0 ? { colors: (m.colors || []).filter((_, i) => i !== k) }
+      : (m.colors || []).length ? { color: m.colors[0], colors: m.colors.slice(1) } : {}); // the only colour stays
+    if (eachMotif(without)) change();
   },
   patternColour(k, hex) {
     if (eachMotif(m => ({ colors: (m.colors || []).map((c, i) => (i === k ? hex : c)) }))) change({ panels: false });
@@ -1477,7 +1480,7 @@ window.addEventListener('keydown', (e) => {
     if (k === 'f') fit();
     else if (k === '+' || k === '=') actions.zoomBy(1.25);
     else if (k === '-') actions.zoomBy(0.8);
-    else if (k === '?') ui.shortcuts();
+    else if (k === 'f1') { e.preventDefault(); ui.shortcuts(); }
     return;
   }
   if (app.mode === 'finish' && mod) return; // copy, paste, order and mirror belong to Paint
@@ -1510,7 +1513,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'f') fit();
   else if (k === '+' || k === '=') actions.zoomBy(1.25);
   else if (k === '-') actions.zoomBy(0.8);
-  else if (k === '?') ui.shortcuts();
+  else if (k === 'f1') { e.preventDefault(); ui.shortcuts(); } // not '?': on some keyboards that shares a key with an arrow
 });
 window.addEventListener('keyup', (e) => { if (e.code === 'Space') { spaceHeld = false; cv.classList.remove('pan'); } });
 window.addEventListener('blur', () => { spaceHeld = false; cv.classList.remove('pan'); });
