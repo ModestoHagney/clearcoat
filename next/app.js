@@ -15,7 +15,7 @@ import { loadTemplate } from '../js/template.js';
 import { saveToIracing, paintFilenames, validCustid } from '../js/iracing.js';
 import { initUI } from './ui.js';
 
-export const VERSION = 'v0.68-pieces.7 · stage 1';
+export const VERSION = 'v0.68-pieces.8 · stage 1';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -27,7 +27,9 @@ export const app = {
   mode: 'paint',
   tool: 'select',
   sel: 'base',                        // a layer id, 'base', or null
-  show: { layers: true, props: true, outlines: true, lines: true },
+  // the template's own linework already draws every piece's border, so the
+  // computed piece outlines start off here; they are Map mode's to show
+  show: { layers: true, props: true, outlines: false, lines: true },
   custid: '',
   live: false,
   liveBad: false,                     // the last live save failed
@@ -47,14 +49,14 @@ const luminance = (hex) => {
 // template linework has to read against the base coat it sits on
 // how strongly the template's inner linework shows; this screen sets it, not
 // the doc (the original screen's per-project opacity suited its dark canvas)
-const LINE_ALPHA = 0.5;
+const LINE_ALPHA = 0.8;
 function syncLineColour(doc) {
   doc.templateColor = luminance(doc.baseColor) > 0.5 ? '#101114' : '#ffffff';
+  doc.templateBold = true; // hairlines are too faint at fit-to-screen zoom
 }
 function newDoc() {
   const doc = createDoc();
   doc.baseColor = '#ffffff';
-  doc.templateBold = false;
   syncLineColour(doc);
   return doc;
 }
@@ -533,6 +535,7 @@ async function boot() {
       lastJson = json;
     }
   } catch { /* a bad autosave must not stop the app opening */ }
+  syncLineColour(app.doc);
   ui = initUI(app, actions, VERSION);
   ensureDocFonts();
   fit();

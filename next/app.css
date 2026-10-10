@@ -50,8 +50,7 @@ button:disabled { cursor: default; opacity: .38; }
 .drop button > span { flex: 1; }
 .drop kbd { font: 11px var(--mono); color: var(--muted); }
 .drop hr { border: 0; border-top: 1px solid var(--line); margin: 5px 0; }
-.drop .tick::before { content: "✓"; display: inline-block; width: 16px; color: var(--accent); }
-.drop .notick::before { content: ""; display: inline-block; width: 16px; }
+.drop .tick::after { content: "✓"; width: 14px; text-align: right; color: var(--accent); }
 .modes { display: flex; padding: 2px; background: var(--hover); border-radius: 8px; margin-inline: auto; }
 .modes button { padding: 4px 16px; font-weight: 500; color: var(--muted); }
 .modes button[aria-pressed="true"] { background: var(--panel); color: var(--fg); box-shadow: 0 1px 3px var(--shade); }
