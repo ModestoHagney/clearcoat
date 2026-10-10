@@ -224,3 +224,8 @@ dialog.wide { width: min(720px, calc(100% - 32px)); }
 .row.grouped.drop-below { box-shadow: inset 3px 0 0 var(--accent), inset 0 -2px 0 var(--accent); }
 .inline { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); white-space: nowrap; }
 .inline input { accent-color: var(--accent); width: 15px; height: 15px; }
+
+.dot.big { width: 34px; height: 34px; border-radius: 8px; }
+.dot.big:hover { outline: 2px solid var(--accent); outline-offset: 2px; }
+dialog .dbody .acts { padding-inline: 0; }
+dialog .dbody .sub, dialog .dbody .note, dialog .dbody .dots { padding-inline: 0; }

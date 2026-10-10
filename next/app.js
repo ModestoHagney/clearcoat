@@ -19,7 +19,7 @@ import { loadTemplate } from '../js/template.js';
 import { saveToIracing, paintFilenames, validCustid } from '../js/iracing.js';
 import { initUI } from './ui.js';
 import { initTools, isShape, isBox, moveLayer, setShape, fadeEnds } from './tools.js';
-import { joined, boxOutline } from '../js/shapes.js';
+import { joined, boxOutline, pieces } from '../js/shapes.js';
 import { LIBRARY, libraryItemToLayerSource } from '../js/library.js';
 import { createFillLayer } from '../js/engine.js';
 import { moved } from '../js/shapes.js';
@@ -31,7 +31,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.31';
+export const VERSION = 'v0.68-pieces.32';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -893,17 +893,28 @@ const actions = {
     if (targets.length < 2) { ui.say('Select two or more layers to merge. Ctrl+click them, or drag a box round them.'); return; }
     const top = targets[targets.length - 1], spec = finishSpec(app.doc, top);
     const same = (f) => targets.every(l => f(l) === f(top));
-    const asOneShape = targets.every(l => isShape(l) || (isBox(l) && ['rect', 'ellipse', 'triangle'].includes(l.shape) && !l.flipH && !l.flipV))
-      && same(l => (l.color || '').toLowerCase()) && same(l => l.fillType || 'solid') && same(l => l.color2 || '') && same(l => l.opacity ?? 1)
+    const shapes = targets.every(l => isShape(l) || (isBox(l) && ['rect', 'ellipse', 'triangle'].includes(l.shape) && !l.flipH && !l.flipV));
+    const sameColour = same(l => (l.color || '').toLowerCase());
+    const sameRest = same(l => l.fillType || 'solid') && same(l => l.color2 || '') && same(l => l.opacity ?? 1)
       && same(l => !!l.mirrored) && same(l => JSON.stringify(finishSpec(app.doc, l))) && same(l => JSON.stringify(l.clip || null));
-    if (asOneShape) {
+    // They cannot simply become one shape as they are: ask what is wanted.
+    // → 'shape' (like the top one) | a colour for them all | 'group' | 'picture'
+    let how = 'shape';
+    if (!(shapes && sameColour && sameRest)) {
+      const colours = [...new Set(targets.filter(l => l.type === 'fill').map(l => (l.color || '').toLowerCase()).filter(Boolean))];
+      how = await ui.mergeChoice({ shapes, sameColour, colours, top: top.name });
+      if (!how) return;
+    }
+    if (how === 'group') return actions.group();
+    if (how !== 'picture') {
+      if (how !== 'shape') { top.color = how; top.colorRef = null; keepFadeOut(top); } // the colour chosen for them all
       setShape(top, joined(targets.map(l => (isShape(l) ? l.pts : boxOutline(l.shape, l.rx, l.ry, l.rw, l.rh)))));
       top.shape = 'path';
       app.doc.layers = app.doc.layers.filter(l => l === top || !targets.includes(l));
       pruneGroups();
       app.sel = top.id; app.sels = [];
       change({ now: true });
-      ui.say(`Merged ${targets.length} shapes into one. It is still a shape.`);
+      ui.say(`Merged ${targets.length} shapes into one. Split takes it apart again.`);
       return;
     }
     // their mirrored sides are part of what is painted, so they are part of the picture
@@ -935,7 +946,24 @@ const actions = {
     app.sel = merged.id; app.sels = [];
     change({ now: true });
     const finishes = new Set(targets.map(l => JSON.stringify(finishSpec(app.doc, l))));
-    ui.say(finishes.size > 1 ? `Merged ${targets.length} layers into a picture. They had different finishes, so it took the top one's.` : `Merged ${targets.length} layers into a picture: they were not all shapes of one colour.`);
+    ui.say(finishes.size > 1 ? `Merged ${targets.length} layers into a picture. They had different finishes, so it took the top one's.` : `Merged ${targets.length} layers into a picture. Ctrl+Z brings them back.`);
+  },
+  // Split: a shape of several pieces becomes one shape per piece again
+  split() {
+    const l = actions.selected();
+    if (!l || !isShape(l) || app.mode !== 'paint') return;
+    const parts = pieces(l.pts);
+    if (parts.length < 2) return;
+    const made = parts.map(([a, b], i) => {
+      const c = cloneLayer(l);
+      c.name = `${l.name} ${i + 1}`;
+      setShape(c, l.pts.slice(a, b).map((p, k) => { const q = { x: p.x, y: p.y }; if (p.c) q.c = { ...p.c }; return q; }));
+      return c;
+    });
+    app.doc.layers.splice(app.doc.layers.indexOf(l), 1, ...made);
+    app.sel = made[made.length - 1].id;
+    app.sels = made.map(x => x.id);
+    change({ now: true });
   },
   order(dir) { // +1 forward, -1 back
     const L = app.doc.layers, i = L.findIndex(l => l.id === app.sel), j = i + dir;

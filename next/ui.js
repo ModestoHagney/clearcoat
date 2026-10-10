@@ -99,6 +99,7 @@ export function initUI(app, actions, version) {
       ...layerItems(), 0,
       ['Select all', 'Ctrl+A', 'selectAll'], 0,
       ['Merge layers', 'Ctrl+E', 'merge', { off: actions.selectedLayers().length < 2 }],
+      ['Split', '', 'split', { off: !((actions.selected() || {}).pts || []).some((q) => q.m) }],
       ['Group', 'Ctrl+G', 'group', { off: actions.selectedLayers().length < 2 }],
       ['Ungroup', 'Ctrl+Shift+G', 'ungroup', { off: !actions.selectedLayers().some((l) => l.groupId) }],
     ],
@@ -206,10 +207,11 @@ export function initUI(app, actions, version) {
       field('Font', `<select id="f-font">${fonts.map((f) => opt(f, f, f === l.font)).join('')}${opt('__google', 'Google font by name…', false)}${opt('__upload', 'Upload a font file…', false)}</select>`) +
       colour +
       field('Size', range('f-fontSize', 40, 400, l.fontSize || 160));
+    const inPieces = Array.isArray(l.pts) && l.pts.some((q) => q.m);
     const acts = l.locked ? '' :
       `<label class="switch" title="Paint it on the twin panel too, or across the centreline (Ctrl+M)">Mirrored<input id="f-mirrored" type="checkbox"${l.mirrored ? ' checked' : ''}></label>` +
       (l.mirrored && isPic ? `<label class="switch" title="Off: it reads the right way round on both sides. On: a true mirror image.">Reverse the other side<input id="f-mirrorFlip" type="checkbox"${l.mirrorFlip ? ' checked' : ''}></label>` : '') +
-      `<div class="acts">${trimButtons(l)}${l.mirrored ? '<button class="btn" data-act="separate" title="Make the mirrored side a layer of its own">Separate</button>' : ''}</div>`;
+      `<div class="acts">${trimButtons(l)}${l.mirrored ? '<button class="btn" data-act="separate" title="Make the mirrored side a layer of its own">Separate</button>' : ''}${inPieces ? '<button class="btn" data-act="split" title="Undo a merge: one shape for each piece again">Split</button>' : ''}</div>`;
     const more = (!isText ? '' :
       field('Outline', `<span class="pair">${range('f-outlineWidth', 0, 30, l.outlineWidth || 0)}<input id="f-outlineColor" type="color" value="${esc(hexOf(l.outlineColor || '') || '#000000')}" aria-label="Outline colour"></span>`) +
       field('Spacing', range('f-letterSpacing', 0, 40, l.letterSpacing || 0)) +
@@ -570,6 +572,28 @@ export function initUI(app, actions, version) {
     dlg.classList.remove('wide');
     return picked && (picked.kind === 'file' || picked.item) ? picked : null;
   }
+  // Merging layers that cannot simply become one shape: what should happen?
+  // → 'shape' | '#rrggbb' (make them all this colour, then one shape) | 'group' | 'picture' | null
+  async function mergeChoice({ shapes, sameColour, colours, top }) {
+    let picked = null;
+    const why = !shapes ? 'Text and pictures cannot be part of a shape.'
+      : !sameColour ? 'These shapes are different colours. One shape has one colour.'
+      : 'These shapes have different settings (fade, finish, trim or Mirrored).';
+    const oneShape = !shapes ? ''
+      : !sameColour ? `<div class="sub">Make them all</div><div class="dots">${colours.map((c) => `<button type="button" class="dot big" data-pick="${esc(c)}" style="background:${esc(c)}" title="${esc(c.toUpperCase())}" aria-label="Make them all ${esc(c)}"></button>`).join('')}</div>`
+      : `<button type="button" class="btn" data-pick="shape">One shape, like ${esc(top)}</button>`;
+    const p = ask({
+      title: 'Merge', ok: null,
+      body: `<div class="note">${why}</div>${oneShape}<div class="acts"><button type="button" class="btn" data-pick="group" title="They stay separate, but are picked up together">Group them instead</button><button type="button" class="btn" data-pick="picture" title="One flat picture: it cannot be recoloured or reshaped afterwards">Merge into a picture</button></div>`,
+    });
+    $('dlg-body').onclick = (e) => {
+      const t = e.target.closest('[data-pick]');
+      if (t) { picked = t.dataset.pick; dlg.close('ok'); }
+    };
+    await p;
+    $('dlg-body').onclick = null;
+    return picked;
+  }
   const shortcuts = () => ask({
     title: 'Shortcuts', ok: 'Close', cancel: null,
     body: '<table>' + [
@@ -677,5 +701,5 @@ export function initUI(app, actions, version) {
 
   // put the cursor in a Properties box, ready to type over what is there
   const focusField = (id) => { const el = $(id); if (el) { el.focus(); if (el.select) el.select(); } };
-  return { refresh, refreshChrome, say, ask, askText, pickProject, carSetup, shortcuts, editColour, focusField, library };
+  return { refresh, refreshChrome, say, ask, askText, pickProject, carSetup, shortcuts, editColour, focusField, library, mergeChoice };
 }
