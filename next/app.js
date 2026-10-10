@@ -7,7 +7,7 @@
 // Finish mode comes later.
 
 import {
-  SIZE, GOOGLE_FONTS, createDoc, renderPaint, renderSpec, templateOverlay,
+  SIZE, GOOGLE_FONTS, createDoc, renderPaint, renderSpec,
   serializeDoc, deserializeDoc, regenerateText, layerCorners, newId,
 } from '../js/engine.js';
 import { canvasToTGA } from '../js/tga.js';
@@ -21,7 +21,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.18 · stage 3';
+export const VERSION = 'v0.68-pieces.19 · stage 3';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -35,7 +35,7 @@ export const app = {
   sel: 'base',                        // a layer id, 'base', or null
   // the template's own linework already draws every piece's border, so the
   // computed piece outlines start off here; they are Map mode's to show
-  show: { layers: true, props: true, colour: true, outlines: false, lines: true },
+  show: { layers: true, props: true, colour: true, outlines: false, lines: true, mesh: true },
   custid: '',
   live: false,
   liveBad: false,                     // the last live save failed
@@ -66,7 +66,41 @@ const luminance = (hex) => {
 // template linework has to read against the base coat it sits on
 // how strongly the template's inner linework shows; this screen sets it, not
 // the doc (the original screen's per-project opacity suited its dark canvas)
-const LINE_ALPHA = 0.8;
+// The template's lines for the screen, as two pictures in a tone that reads
+// against the base coat: the panel lines (strong ink in the template picture,
+// thickened a little) and the mesh (faint ink; see js/template.js). Rebuilt
+// only when the template or the tone changes.
+let lineCache = { img: null, dark: null, borders: null, mesh: null };
+function templateLines(doc) {
+  const img = doc.template.img, dark = luminance(doc.baseColor) > 0.5;
+  if (lineCache.img === img && lineCache.dark === dark) return lineCache;
+  const w = img.width, h = img.height;
+  const read = document.createElement('canvas');
+  read.width = w; read.height = h;
+  const rctx = read.getContext('2d', { willReadFrequently: true });
+  rctx.drawImage(img, 0, 0);
+  const src = rctx.getImageData(0, 0, w, h).data;
+  const B = new ImageData(w, h), M = new ImageData(w, h), tone = dark ? [16, 17, 20] : [255, 255, 255];
+  for (let i = 0; i < src.length; i += 4) {
+    const ink = (255 - Math.min(src[i], src[i + 1], src[i + 2])) * (src[i + 3] / 255); // how far from white
+    const to = ink >= 200 ? B.data : ink >= 40 ? M.data : null;
+    if (to) { to[i] = tone[0]; to[i + 1] = tone[1]; to[i + 2] = tone[2]; to[i + 3] = 255; }
+  }
+  const canvas = (data, bold) => {
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const g = c.getContext('2d');
+    g.putImageData(data, 0, 0);
+    if (!bold) return c;
+    const out = document.createElement('canvas'); // a hairline is too faint at fit-to-screen zoom
+    out.width = w; out.height = h;
+    const og = out.getContext('2d');
+    for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) og.drawImage(c, dx, dy);
+    return out;
+  };
+  lineCache = { img, dark, borders: canvas(B, true), mesh: canvas(M, false) };
+  return lineCache;
+}
 function syncLineColour(doc) {
   doc.templateColor = luminance(doc.baseColor) > 0.5 ? '#101114' : '#ffffff';
   doc.templateBold = true; // hairlines are too faint at fit-to-screen zoom
@@ -142,13 +176,11 @@ function draw() {
   ctx.restore();
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(composite, 0, 0);
-  if (doc.template && app.show.lines) {
-    const ov = templateOverlay(doc);
-    ctx.save();
-    ctx.globalAlpha = LINE_ALPHA;
-    if (ov.multiply) ctx.globalCompositeOperation = 'multiply';
-    ctx.drawImage(ov.img, 0, 0, SIZE, SIZE);
-    ctx.restore();
+  if (doc.template && (app.show.lines || app.show.mesh)) {
+    const L = templateLines(doc);
+    if (app.show.mesh) { ctx.globalAlpha = 0.3; ctx.drawImage(L.mesh, 0, 0, SIZE, SIZE); }
+    if (app.show.lines) { ctx.globalAlpha = 0.85; ctx.drawImage(L.borders, 0, 0, SIZE, SIZE); }
+    ctx.globalAlpha = 1;
   }
   ctx.restore();
 

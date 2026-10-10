@@ -88,7 +88,7 @@ export function initUI(app, actions, version) {
     ],
     View: [
       ['Layers', '', 'show:layers', { tick: app.show.layers }], ['Properties', '', 'show:props', { tick: app.show.props }], ['Colour', '', 'show:colour', { tick: app.show.colour }], 0,
-      ['Piece outlines', '', 'show:outlines', { tick: app.show.outlines }], ['Template lines', '', 'show:lines', { tick: app.show.lines }], 0,
+      ['Piece outlines', '', 'show:outlines', { tick: app.show.outlines }], ['Panel lines', '', 'show:lines', { tick: app.show.lines }], ['Mesh', '', 'show:mesh', { tick: app.show.mesh }], 0,
       ['Light', '', 'theme:light', { tick: app.theme === 'light' }], ['Dark', '', 'theme:dark', { tick: app.theme === 'dark' }], ['Match system', '', 'theme:system', { tick: app.theme === 'system' }], 0,
       ['Fit to screen', 'F', 'fit'],
     ],

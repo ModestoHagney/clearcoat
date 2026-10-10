@@ -56,6 +56,26 @@ function ensurePsdReader() {
   });
 }
 
+// The wireframe as one picture on white, in two strengths: the kit's coloured
+// lines (panel borders and seams; green in iRacing's kits) in black, and its
+// white lines (the car's mesh, which also carries door gaps, handles and any
+// panel edge the kit did not colour) in grey. Read back as "how far from
+// white", that gives strong borders and a fainter mesh from a single picture.
+export const MESH_GREY = 168;
+function linesPicture(wire) {
+  const ctx = wire.getContext('2d', { willReadFrequently: true });
+  const img = ctx.getImageData(0, 0, wire.width, wire.height), px = img.data;
+  for (let i = 0; i < px.length; i += 4) {
+    const v = px[i + 3] < 128 ? 255 : Math.min(px[i], px[i + 1], px[i + 2]) > 200 ? MESH_GREY : 0;
+    px[i] = px[i + 1] = px[i + 2] = v;
+    px[i + 3] = 255;
+  }
+  const c = document.createElement('canvas');
+  c.width = wire.width; c.height = wire.height;
+  c.getContext('2d').putImageData(img, 0, 0);
+  return c.toDataURL('image/png');
+}
+
 const fileToDataURL = (file) => new Promise((resolve, reject) => {
   const r = new FileReader();
   r.onload = () => resolve(r.result);
@@ -79,8 +99,9 @@ export async function loadTemplate(file, map = null) {
     try { decalData = res.decals.getContext('2d').getImageData(0, 0, res.decals.width, res.decals.height); } catch { /* no orientation hints */ }
   }
   const merged = templateRegions(map, { pieces: res.pieces, zones: res.zones, decalData }, carName);
+  const src = res.wire ? linesPicture(res.wire) : res.src;
   return {
-    template: { img: await loadImage(res.src), src: res.src },
+    template: { img: await loadImage(src), src },
     paintMask: res.paintMask || null,
     regionMap: merged.map, pieces: merged.pieces, zones: merged.zones, carName,
   };

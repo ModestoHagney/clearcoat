@@ -63,6 +63,18 @@ function drawLayers(ctx, entries) {
   ctx.globalAlpha = 1;
 }
 
+// Every wireframe layer at full strength on a clear canvas, colours as drawn.
+// `src` above puts the same layers on white, where a kit's white mesh lines
+// vanish; a caller that wants those too reads them from here.
+function wireCanvas(psd, wires) {
+  const c = document.createElement('canvas');
+  c.width = psd.width;
+  c.height = psd.height;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  for (const { layer } of wires) ctx.drawImage(layer.canvas, layer.left || 0, layer.top || 0);
+  return c;
+}
+
 // Outlines of the sheet's pieces, read from the wireframe layers and scaled to
 // 2048-sheet space (see detectPieces). Empty when the wireframe does not split
 // into separate pieces, e.g. linework flattened onto an opaque background.
@@ -256,7 +268,7 @@ export async function psdToTemplate(arrayBuffer) {
 
   if (wires.length) {
     drawLayers(ctx, wires);
-    return { src: out.toDataURL('image/png'), usedWireframe: true, pieces: wirePieces(psd, wires), ...intel };
+    return { src: out.toDataURL('image/png'), usedWireframe: true, pieces: wirePieces(psd, wires), wire: wireCanvas(psd, wires), ...intel };
   }
   // no wireframe-named layers — fall back to the flattened composite
   if (psd.canvas) {
