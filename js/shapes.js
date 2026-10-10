@@ -245,8 +245,8 @@ export function placed(m, x, y, size, turn = 0) {
 // copy takes one by its roll. A plain
 // pattern gives every copy the motif's own size and turn. A random one
 // (m.random) varies each by its own roll: rSize, rPos and rTurn say how much,
-// 0 to 100, and `pick` says which of the pattern's colours it takes (0 = the
-// main one, then m.colors in order). A roll comes from the seed and the
+// 0 to 100. `pick` says which of the pattern's colours it takes (0 = the
+// main one, then m.colors in order): in turn, or by the roll when random. A roll comes from the seed and the
 // copy's place in the grid, so it is the same every time it is painted, on
 // every shape that shares the grid, until the seed is changed.
 export const CELL_LIMIT = 15000; // about a tenth of a second to paint
@@ -260,7 +260,9 @@ function roll(seed, i, j, k) { // 0 ≤ … < 1, steady for the same four number
 export function cells(m, box) {
   const { size, gap = 0, stagger = 0 } = m, turn = m.turn || 0;
   const rnd = !!m.random, rSize = rnd ? (m.rSize || 0) / 100 : 0, rPos = rnd ? (m.rPos || 0) / 100 : 0, rTurn = rnd ? (m.rTurn || 0) / 100 : 0;
-  const colours = rnd ? 1 + (m.colors || []).length : 1, seed = m.seed || 0, shapes = 1 + (m.more || []).length;
+  const colours = 1 + (m.colors || []).length, seed = m.seed || 0, shapes = 1 + (m.more || []).length;
+  // colours take turns as shapes do; stepped differently when there are both, so a shape does not always get the same colour
+  const turnOf = (n, v) => ((v % n) + n) % n, cstep = shapes > 1 ? 2 : 1;
   const step = Math.max(2, size + gap);
   // a turned copy reaches this far from its middle: more if it may grow or drift
   const pad = size * 0.75 * (1 + SIZE_SWING * rSize) + step / 2 * rPos;
@@ -272,7 +274,7 @@ export function cells(m, box) {
   for (let j = Math.ceil(y0 / pitch); j * pitch <= y1; j++) {
     const off = j % 2 ? stagger / 100 * pitch : 0;
     for (let i = Math.ceil((x0 - off) / pitch); i * pitch + off <= x1; i++) {
-      const c = { x: i * pitch + off, y: j * pitch, size, turn, pick: 0, shape: (((i + j) % shapes) + shapes) % shapes, i, j };
+      const c = { x: i * pitch + off, y: j * pitch, size, turn, pick: turnOf(colours, i + cstep * j), shape: turnOf(shapes, i + j), i, j };
       if (rnd) {
         const u = (k) => roll(seed, i, j, k) * 2 - 1; // −1 … 1
         c.x += u(1) * rPos * pitch / 2;

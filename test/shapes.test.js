@@ -182,8 +182,11 @@ test('a random pattern rolls the same every time, and differently for another se
   const a = cells(m, box), again = cells(m, box), other = cells({ ...m, seed: 8 }, box);
   assert.deepEqual(a, again);
   assert.notDeepEqual(a.map(c => c.x), other.map(c => c.x));
-  // off: nothing varies, whatever the amounts say
-  assert.ok(cells({ ...m, random: false }, box).every(c => c.size === 40 && c.turn === 10 && c.pick === 0 && c.x % 50 === 0));
+  // off: no size, place or turn varies, whatever the amounts say
+  assert.ok(cells({ ...m, random: false }, box).every(c => c.size === 40 && c.turn === 10 && c.x % 50 === 0 && c.pick === (((c.i + c.j) % 3) + 3) % 3)); // the colours take turns
+  // with more shapes too, colours step differently: a shape is not tied to one colour
+  const both = cells({ ...m, random: false, colors: ['#111111'], more: [{ kind: 'star' }] }, box);
+  assert.deepEqual([...new Set(both.map(c => c.shape + '/' + c.pick))].sort(), ['0/0', '0/1', '1/0', '1/1']);
   // amounts at nothing: random, but only the colours are mixed
   assert.ok(cells({ ...m, rSize: 0, rPos: 0, rTurn: 0 }, box).every(c => c.size === 40 && c.turn === 10 && c.x % 50 === 0));
   // within what the amounts allow, and every colour gets used

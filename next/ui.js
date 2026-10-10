@@ -198,13 +198,19 @@ export function initUI(app, actions, version) {
     const mo = l.motif, key = mo ? keyOf(mo) : '', more = mo ? mo.more || [] : [];
     const range = (id, min, max, v) => `<input id="${id}" type="range" min="${min}" max="${max}" value="${v}">`;
     const col = mo ? esc(hexOf(mo.color || '') || hexOf(l.color || '') || '#ffffff') : '';
-    // the shape that repeats; + adds another for it to take turns with, each on a row of its own
+    const cols = mo ? mo.colors || [] : [];
+    const minus = (attr, k, what) => `<button type="button" class="icon" ${attr}="${k}" title="Take this ${what} out" aria-label="Take ${what} ${k + 2} out of the pattern">−</button>`;
+    // The shape that repeats is always in view. Everything else about the
+    // pattern folds away: more shapes and colours (+ adds one, each on a row
+    // of its own; the copies take turns with them, or pick between them when
+    // Random is on), then how it is laid out.
     return `<div class="field"><span>Pattern</span><span class="pair"><select id="f-pat">${opt('', 'None', !mo)}${motifOptions(key, mo ? kept(mo) : null)}</select>` +
         (mo && more.length < 3 ? `<button type="button" class="icon" data-act="addMotifShape" title="Add another shape: they take turns, or mix when Random is on" aria-label="Add another shape to the pattern">+</button>` : '') + `</span></div>` +
-      more.map((sh, k) => `<div class="field"><span></span><span class="pair"><select data-patshape="${k}" id="f-pat-s${k}" aria-label="Shape ${k + 2} of the pattern">${motifOptions(keyOf(sh), kept(sh))}</select>` +
-        `<button type="button" class="icon" data-patdrop="${k}" title="Take this shape out" aria-label="Take shape ${k + 2} out of the pattern">−</button></span></div>`).join('') +
-      (!mo ? '' :
-        `<label class="field wide"><span>Pattern colour</span><span class="pair"><input data-pat="pick" id="f-pat-color" type="color" value="${col}" aria-label="Pattern colour"><button type="button" class="icon${app.picking === 'pattern' ? ' on' : ''}" data-act="pickPatternColour" title="Pick the pattern's colour from the sheet" aria-label="Pick the pattern's colour from the sheet">${svg('dropper')}</button></span></label>` +
+      (!mo ? '' : `<details class="more fold" id="f-patfold"${patOpen ? ' open' : ''}><summary>Pattern settings</summary>` +
+        more.map((sh, k) => `<div class="field"><span></span><span class="pair"><select data-patshape="${k}" id="f-pat-s${k}" aria-label="Shape ${k + 2} of the pattern">${motifOptions(keyOf(sh), kept(sh))}</select>${minus('data-patdrop', k, 'shape')}</span></div>`).join('') +
+        `<div class="field wide"><span>Pattern colour</span><span class="pair"><input data-pat="pick" id="f-pat-color" type="color" value="${col}" aria-label="Pattern colour"><button type="button" class="icon${app.picking === 'pattern' ? ' on' : ''}" data-act="pickPatternColour" title="Pick the pattern's colour from the sheet" aria-label="Pick the pattern's colour from the sheet">${svg('dropper')}</button>` +
+          (cols.length < 6 ? `<button type="button" class="icon" data-act="addPatternColour" title="Add another colour: they take turns, or mix when Random is on" aria-label="Add another colour to the pattern">+</button>` : '') + `</span></div>` +
+        cols.map((c, k) => `<div class="field wide"><span style="visibility:hidden" aria-hidden="true">Pattern colour</span><span class="pair"><input data-patc="${k}" id="f-pat-c${k}" type="color" value="${esc(c)}" aria-label="Colour ${k + 2} of the pattern">${minus('data-patcdrop', k, 'colour')}</span></div>`).join('') +
         (TYPED_COLOURS && app.ways.Hex ? field('Hex', `<input data-pat="hex" id="f-pat-hex" class="mono" type="text" maxlength="7" spellcheck="false" value="${col}">`) : '') +
         (TYPED_COLOURS && app.ways.RGB ? field('RGB', `<input data-pat="rgb" id="f-pat-rgb" class="mono" type="text" spellcheck="false" value="${rgbOf(col)}">`) : '') +
         field('Size', range('f-pat-size', 10, 400, Math.round(mo.size))) +
@@ -216,14 +222,10 @@ export function initUI(app, actions, version) {
           field('Size', range('f-pat-rSize', 0, 100, Math.round(mo.rSize || 0))) +
           field('Position', range('f-pat-rPos', 0, 100, Math.round(mo.rPos || 0))) +
           field('Turn', range('f-pat-rTurn', 0, 100, Math.round(mo.rTurn || 0))) +
-          `<div class="field"><span title="Colours mixed in with the pattern's own">Mix in</span><span class="pair wrap">` +
-            (mo.colors || []).map((c, k) => `<input class="mini" data-patc="${k}" id="f-pat-c${k}" type="color" value="${esc(c)}" aria-label="Mixed-in colour ${k + 1}">`).join('') +
-            ((mo.colors || []).length < 6 ? `<button type="button" class="icon" data-act="addPatternColour" title="Mix in another colour" aria-label="Mix in another colour">+</button>` : '') +
-            ((mo.colors || []).length ? `<button type="button" class="icon" data-act="dropPatternColour" title="Take the last one out" aria-label="Take the last colour out">−</button>` : '') +
-          `</span></div>` +
           `<div class="acts"><button class="btn" data-act="reshuffle" title="Roll again">Reshuffle</button></div>` +
         `</div>`) +
-        `<label class="switch" title="Leave out the shape's own paint, so what is underneath shows between the pattern">Pattern only<input id="f-pat-only" type="checkbox"${mo.only ? ' checked' : ''}></label>`);
+        `<label class="switch" title="Leave out the shape's own paint, so what is underneath shows between the pattern">Pattern only<input id="f-pat-only" type="checkbox"${mo.only ? ' checked' : ''}></label>` +
+      `</details>`);
   }
   // what a pattern can repeat or a stamp place: the ready-made shapes, then
   // the library's. `current`: its key; `kept`: a pattern's own shape that has
@@ -289,6 +291,7 @@ export function initUI(app, actions, version) {
     return main + acts + `<details class="more" id="f-more"${moreOpen ? ' open' : ''}><summary>More</summary>${more}</details>`;
   }
   let moreOpen = false; // stays as the user left it while the panel is redrawn
+  let patOpen = true;   // the same for a pattern's settings; they open when a pattern is put on or added to
   const trimCount = (l) => (Array.isArray(l.clip) ? (Array.isArray(l.clip[0]) ? l.clip.length : 1) : 0);
   function trimButtons(l) {
     const n = trimCount(l);
@@ -535,7 +538,7 @@ export function initUI(app, actions, version) {
   };
   panels.colour.addEventListener('contextmenu', editChip);
   panels.colour.addEventListener('dblclick', editChip);
-  panels.props.addEventListener('toggle', (e) => { if (e.target.id === 'f-more') moreOpen = e.target.open; }, true);
+  panels.props.addEventListener('toggle', (e) => { if (e.target.id === 'f-more') moreOpen = e.target.open; if (e.target.id === 'f-patfold') patOpen = e.target.open; }, true);
   panels.props.addEventListener('change', (e) => {
     const id = e.target.id;
     if (id === 'fn-sparkle') return actions.tweakFinish('sparkle', e.target.checked);
@@ -543,7 +546,7 @@ export function initUI(app, actions, version) {
     if (id === 'f-mirrored') return actions.mirror();
     if (id === 'f-font') return actions.setFont(e.target.value);
     if (id === 'f-fade') return actions.setFade('on', e.target.checked);
-    if (id === 'f-pat') return actions.setMotif(e.target.value);
+    if (id === 'f-pat') { if (e.target.value) patOpen = true; return actions.setMotif(e.target.value); }
     if (e.target.dataset.patshape !== undefined) return actions.setMotifShape(+e.target.dataset.patshape, e.target.value);
     if (id === 'f-pat-only') return actions.tweakMotif('only', e.target.checked);
     if (id === 'f-pat-random') return actions.motifRandom(e.target.checked);
@@ -725,6 +728,7 @@ export function initUI(app, actions, version) {
     if (!act) return;
     if (act.startsWith('show:')) { const k = act.slice(5); app.show[k] = !app.show[k]; actions.redraw(); return; } // a view choice: nothing in the livery changes
     if (act.startsWith('theme:')) return actions.setTheme(act.slice(6));
+    if (act === 'addMotifShape') patOpen = true; // its row is among the settings
     if (act === 'shortcuts') return shortcuts();
     if (act === 'about') return about();
     return actions[act]();
@@ -750,6 +754,7 @@ export function initUI(app, actions, version) {
     if (t.dataset.scope) return actions.finishScope(t.dataset.scope);
     if (t.dataset.fade) return actions.setFade('style', t.dataset.fade);
     if (t.dataset.patdrop !== undefined) return actions.dropMotifShape(+t.dataset.patdrop);
+    if (t.dataset.patcdrop !== undefined) return actions.dropPatternColour(+t.dataset.patcdrop);
     if (t.dataset.piece) return actions.pickPiece(t.dataset.piece);
     if (t.dataset.tool === 'image') return actions.openLibrary(); // nothing to arm: it opens the library
     if (t.dataset.tool) return actions.setTool(t.dataset.tool);

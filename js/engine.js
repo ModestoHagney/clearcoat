@@ -590,8 +590,10 @@ export function cleanMotif(m) {
     out.random = !!m.random;
     out.rSize = num(m.rSize, 0, 100, 0); out.rPos = num(m.rPos, 0, 100, 0); out.rTurn = num(m.rTurn, 0, 100, 0);
     out.seed = Number.isFinite(+m.seed) ? +m.seed | 0 : 1;
-    out.colors = (Array.isArray(m.colors) ? m.colors : []).filter(c => /^#[0-9a-f]{6}$/i.test(c || '')).slice(0, 6).map(c => c.toLowerCase());
   }
+  // more colours for the copies to take turns with (or pick between, when random)
+  const colors = (Array.isArray(m.colors) ? m.colors : []).filter(c => /^#[0-9a-f]{6}$/i.test(c || '')).slice(0, 6).map(c => c.toLowerCase());
+  if (colors.length) out.colors = colors;
   return out;
 }
 
