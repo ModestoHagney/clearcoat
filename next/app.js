@@ -21,7 +21,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.14 · stage 3';
+export const VERSION = 'v0.68-pieces.15 · stage 3';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -102,6 +102,9 @@ function setZoom(z, cx = cv.clientWidth / 2, cy = cv.clientHeight / 2) {
 
 // ---------- drawing ----------
 
+// the paint as it goes to the car: soft edges mixed the accurate way
+const paint = () => renderPaint(app.doc, { linearEdges: true });
+let quick = false, quickTimer = null; // an edit is in full flow: draw fast, tidy up when it pauses
 let dirty = true;       // the paint composite needs re-rendering
 let composite = null;
 let drawQueued = false;
@@ -121,7 +124,9 @@ function draw() {
   }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
-  if (dirty || !composite) { composite = renderPaint(doc); dirty = false; }
+  // soft edges are mixed the accurate way except while something is being
+  // dragged: that mix is too slow to redo on every frame of a drag
+  if (dirty || !composite) { composite = renderPaint(doc, { linearEdges: !quick }); dirty = false; }
 
   ctx.save();
   ctx.scale(app.view.zoom, app.view.zoom);
@@ -246,6 +251,9 @@ function resetHistory() {
 // it is its own undo step instead of merging with whatever comes next.
 function change({ panels = true, now = false } = {}) {
   skipCapture = false; // a real edit after an undo is recorded
+  clearTimeout(quickTimer);
+  quick = !panels && !now; // a drag, a slider, a nudge: more of the same is coming
+  if (quick) quickTimer = setTimeout(() => { quick = false; dirty = true; requestDraw(); }, 160);
   dirty = true;
   requestDraw();
   clearTimeout(saveTimer);
@@ -259,7 +267,7 @@ function projectThumb() {
   c.width = c.height = 128;
   const g = c.getContext('2d');
   g.imageSmoothingQuality = 'high';
-  g.drawImage(renderPaint(app.doc), 0, 0, 128, 128);
+  g.drawImage(paint(), 0, 0, 128, 128);
   return c.toDataURL('image/jpeg', 0.6);
 }
 async function runSave() {
@@ -354,7 +362,7 @@ const toolChanged = () => cv.classList.toggle('draw', (app.tool !== 'select' && 
 function sampleColour(p) {
   const x = Math.round(p.x), y = Math.round(p.y);
   if (x < 0 || y < 0 || x >= SIZE || y >= SIZE) return null;
-  const d = renderPaint(app.doc).getContext('2d').getImageData(x, y, 1, 1).data;
+  const d = paint().getContext('2d').getImageData(x, y, 1, 1).data;
   return '#' + [d[0], d[1], d[2]].map(v => v.toString(16).padStart(2, '0')).join('');
 }
 
@@ -479,12 +487,12 @@ const actions = {
 
   exportTga() {
     const [paintName, specName] = paintFilenames(app.doc, validCustid(app.custid) ? app.custid : safeName());
-    download(canvasToTGA(renderPaint(app.doc)), paintName);
+    download(canvasToTGA(paint()), paintName);
     if (specName) download(canvasToTGA(renderSpec(app.doc), { alpha: true }), specName);
     ui.say(specName ? `${paintName} is the paint; ${specName} is the finish map` : `Exported ${paintName}`);
   },
   exportPng() {
-    renderPaint(app.doc).toBlob((b) => { if (b) download(b, safeName() + '.png'); }, 'image/png');
+    paint().toBlob((b) => { if (b) download(b, safeName() + '.png'); }, 'image/png');
   },
 
   setMode(mode) {

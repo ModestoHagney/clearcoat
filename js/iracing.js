@@ -85,7 +85,7 @@ export async function saveToIracing(doc, custid, { quiet = false } = {}) {
     if (!handle) return { ok: false, error: 'No iRacing folder linked, or its permission was lost.' };
     const [paintName, specName] = paintFilenames(doc, custid);
     const backed = await backupOriginals(handle, [paintName, specName]);
-    const paint = exportPaintCanvas(doc, renderPaint(doc));
+    const paint = exportPaintCanvas(doc, renderPaint(doc, { linearEdges: true }));
     assertExportable(paint);
     await persist.writeFileToFolder(handle, paintName, canvasToTGA(paint));
     if (specName) {

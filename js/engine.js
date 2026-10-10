@@ -1162,6 +1162,70 @@ function paintBase(ctx, doc) {
   ctx.fillRect(0, 0, SIZE, SIZE);
 }
 
+// ---------- soft edges mixed in linear light ----------
+// A shape's edge is smoothed by mixing its colour with what is underneath in
+// the pixels the edge cuts through. Mixing the stored (sRGB) numbers, as the
+// canvas does, makes that in-between colour too dark — a grey fringe between
+// opposite colours such as red on cyan. Mixing the light the numbers stand
+// for, then storing the result, gives the in-between colour the eye expects.
+const LIN = new Float32Array(256);
+for (let i = 0; i < 256; i++) { const c = i / 255; LIN[i] = c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; }
+const SRGB = new Uint8Array(4097);
+for (let i = 0; i <= 4096; i++) { const l = i / 4096; SRGB[i] = Math.round(255 * (l <= 0.0031308 ? l * 12.92 : 1.055 * l ** (1 / 2.4) - 0.055)); }
+
+let linearEdges = false; // on for the length of one renderPaint that asked for it
+
+// Only shapes and text at full strength: their see-through pixels are edges.
+// A picture's own transparency, and a layer faded with Opacity, keep the
+// ordinary mix people expect from every other paint program.
+function edgesInLinear(layer, normal) {
+  return normal && (layer.type === 'fill' || layer.type === 'text') && (layer.opacity ?? 1) === 1;
+}
+
+// where a layer can leave pixels, as whole-pixel bounds inside the sheet
+function paintBox(layer) {
+  let x0 = 0, y0 = 0, x1 = SIZE, y1 = SIZE;
+  const fx = layer.fx;
+  const spills = fx && (fx.strokeW > 0 || fx.shadow > 0 || fx.glow > 0 || fx.neon > 0);
+  if (!spills && layer.material !== 'neon') {
+    try {
+      const cs = layerCorners(layer), xs = cs.map(q => q.x), ys = cs.map(q => q.y);
+      x0 = Math.max(0, Math.floor(Math.min(...xs)) - 3); y0 = Math.max(0, Math.floor(Math.min(...ys)) - 3);
+      x1 = Math.min(SIZE, Math.ceil(Math.max(...xs)) + 3); y1 = Math.min(SIZE, Math.ceil(Math.max(...ys)) + 3);
+    } catch { /* no box to be had: the whole sheet */ }
+  }
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+
+// src (the layer, alone on a clear canvas) laid over ctx within box. Solid
+// pixels are copied as they are, so a chosen colour stays exact.
+function mixLinearInto(ctx, src, box) {
+  if (box.w <= 0 || box.h <= 0) return;
+  const s = src.getContext('2d').getImageData(box.x, box.y, box.w, box.h).data;
+  const img = ctx.getImageData(box.x, box.y, box.w, box.h), d = img.data;
+  let touched = false;
+  for (let i = 0; i < s.length; i += 4) {
+    const a = s[i + 3];
+    if (!a) continue;
+    touched = true;
+    if (a === 255) { d[i] = s[i]; d[i + 1] = s[i + 1]; d[i + 2] = s[i + 2]; d[i + 3] = 255; continue; }
+    const da = d[i + 3], t = a / 255;
+    if (da !== 255) {
+      // onto a see-through sheet (Merge): the ordinary mix; there is no solid
+      // colour underneath to mix light with
+      const k = da / 255 * (1 - t), oa = t + k;
+      d[i] = (s[i] * t + d[i] * k) / oa; d[i + 1] = (s[i + 1] * t + d[i + 1] * k) / oa; d[i + 2] = (s[i + 2] * t + d[i + 2] * k) / oa;
+      d[i + 3] = Math.round(oa * 255);
+      continue;
+    }
+    const u = 1 - t;
+    d[i] = SRGB[(LIN[s[i]] * t + LIN[d[i]] * u) * 4096 + 0.5 | 0];
+    d[i + 1] = SRGB[(LIN[s[i + 1]] * t + LIN[d[i + 1]] * u) * 4096 + 0.5 | 0];
+    d[i + 2] = SRGB[(LIN[s[i + 2]] * t + LIN[d[i + 2]] * u) * 4096 + 0.5 | 0];
+  }
+  if (touched) ctx.putImageData(img, box.x, box.y);
+}
+
 // A layer and its Tint wash are painted as one: the layer is drawn off to the
 // side, its colour mixed toward the tint there, and the result composited
 // once. Washing the tint over a layer that was already on the sheet let the
@@ -1171,6 +1235,13 @@ function paintLayerInto(ctx, layer) {
   const p = layer.matParams;
   const amt = (p?.tintAmt || 0) / 100;
   const normal = (BLEND_MODES[layer.blend] || BLEND_MODES.normal).op === 'source-over';
+  if (linearEdges && (!amt || !p.tint) && edgesInLinear(layer, normal)) {
+    const sctx = scratch.getContext('2d');
+    sctx.clearRect(0, 0, SIZE, SIZE);
+    drawLayer(sctx, layer, false);
+    mixLinearInto(ctx, scratch, paintBox(layer));
+    return;
+  }
   if (!amt || !p.tint || !normal) {
     // ponytail: layers with a blend mode keep the two-pass wash, whose look
     // they were tuned against — fold them in here if a rim shows up on one.
@@ -1201,13 +1272,19 @@ export function paintLayers(layers) {
   return c;
 }
 
-export function renderPaint(doc) {
+// linearEdges: mix the soft edges of shapes and text in linear light (see
+// mixLinearInto). Truer, and a good deal slower, so a caller asks for it —
+// for what goes to the car, and for the screen once an edit has settled.
+export function renderPaint(doc, { linearEdges: lin = false } = {}) {
   const ctx = paintCanvas.getContext('2d');
   ctx.clearRect(0, 0, SIZE, SIZE);
   paintBase(ctx, doc);
-  for (const layer of doc.layers) {
-    if (inPaintMap(layer)) paintLayerInto(ctx, layer);
-  }
+  linearEdges = lin;
+  try {
+    for (const layer of doc.layers) {
+      if (inPaintMap(layer)) paintLayerInto(ctx, layer);
+    }
+  } finally { linearEdges = false; }
   return paintCanvas;
 }
 
