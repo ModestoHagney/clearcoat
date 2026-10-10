@@ -105,7 +105,7 @@ export function initUI(app, actions, version) {
   const menuDefs = () => ({
     File: [
       ['New', '', 'newLivery'], ['Open…', '', 'open'], ['Save', 'Ctrl+S', 'save'], 0,
-      ['Load template…', '', 'pickTemplate'], ['Car setup…', '', 'carSetup'], ['Link iRacing folder…', '', 'linkFolder'], ['Save to iRacing', '', 'saveIracing'], 0,
+      ['Load template…', '', 'pickTemplate'], ['Car setup…', '', 'carSetup'], ['Link iRacing paints folder…', '', 'linkFolder'], ['Save to iRacing', '', 'saveIracing'], 0,
       ['Export TGA', '', 'exportTga'], ['Export PNG', '', 'exportPng'], ['Send to Trading Paints', '', 'sendTp'],
     ],
     Edit: [
@@ -169,7 +169,7 @@ export function initUI(app, actions, version) {
     const paused = app.live && app.liveBad;
     live.classList.toggle('bad', paused);
     live.innerHTML = `<i></i>${paused ? 'Live paused' : 'Live'}`;
-    live.title = paused ? 'Click to reconnect to the iRacing folder' : 'Send every change to the car in iRacing';
+    live.title = paused ? 'Click to reconnect to the iRacing paints folder' : 'Send every change to the car in iRacing';
     for (const key of PANELS) panels[key].hidden = !app.show[key] || (key === 'colour' && app.mode !== 'paint');
 
     $('dock').hidden = ![...$('dock').children].some((p) => !p.hidden);
@@ -600,7 +600,7 @@ export function initUI(app, actions, version) {
       `<label><span>Painting a</span><select id="cs-target">${opt('car', 'Car', cur.target === 'car')}${opt('helmet', 'Helmet', cur.target === 'helmet')}${opt('suit', 'Suit', cur.target === 'suit')}</select></label>` +
       `<label class="check"><input id="cs-num" type="checkbox"${cur.customNumber ? ' checked' : ''}><span>Custom number paint</span></label>` +
       (cur.cars.length ? `<label><span>Car folder</span><select id="cs-car">${opt('', '(' + cur.folder + ')', !cur.car)}${cur.cars.map((c) => opt(c, c, c === cur.car)).join('')}</select></label>` : '') +
-      `<div class="note">${cur.folder ? 'Folder linked: ' + esc(cur.folder) : 'No iRacing folder linked yet.'}</div>`;
+      `<div class="note">${cur.folder ? 'Folder linked: ' + esc(cur.folder) : 'No iRacing paints folder linked yet.'}</div>`;
     if (!await ask({ title: 'Car setup', body, ok: 'Save' })) return null;
     return { custid: $('cs-id').value, target: $('cs-target').value, customNumber: $('cs-num').checked, car: $('cs-car') ? $('cs-car').value : null };
   }
