@@ -271,8 +271,8 @@ export function initUI(app, actions, version) {
     return `<details class="more fold" id="f-patfold"${patOpen ? ' open' : ''}><summary>Pattern</summary>` +
         `<div class="field tiles"><span>Shapes</span><span class="pair wrap">${mo ? tile(mo, -1) + more.map(tile).join('') : ''}${more.length < 6 ? add : ''}</span></div>` +
       (!mo ? '' :
-        `<div class="field tiles"><span>Colours</span><span class="pair wrap"><span class="mwrap"><input class="mini" data-pat="pick" id="f-pat-color" type="color" value="${col}" title="The pattern's colour: click to change it" aria-label="Pattern colour">${cols.length ? out('data-patcdrop', -1, 'colour') : ''}</span>` +
-          cols.map((c, k) => `<span class="mwrap"><input class="mini" data-patc="${k}" id="f-pat-c${k}" type="color" value="${esc(c)}" title="Click to change this colour" aria-label="Colour ${k + 2} of the pattern">${out('data-patcdrop', k, 'colour')}</span>`).join('') +
+        `<div class="field tiles"><span>Colours</span><span class="pair wrap"><span class="mwrap"><input class="mini" data-pat="pick" id="f-pat-color" type="color" value="${col}" title="The pattern's colour: click to change it · right-click for this livery's colours" aria-label="Pattern colour">${cols.length ? out('data-patcdrop', -1, 'colour') : ''}</span>` +
+          cols.map((c, k) => `<span class="mwrap"><input class="mini" data-patc="${k}" id="f-pat-c${k}" type="color" value="${esc(c)}" title="Click to change this colour · right-click for this livery's colours" aria-label="Colour ${k + 2} of the pattern">${out('data-patcdrop', k, 'colour')}</span>`).join('') +
           (cols.length < 6 ? `<button type="button" class="icon" data-act="addPatternColour" title="Add another colour: they take turns, or mix when Random is on" aria-label="Add another colour to the pattern">+</button>` : '') +
           `<button type="button" class="icon${app.picking === 'pattern' ? ' on' : ''}" data-act="pickPatternColour" title="Pick the first colour from the sheet" aria-label="Pick the pattern's first colour from the sheet">${svg('dropper')}</button></span></div>` +
         field('Size', range('f-pat-size', 0, 1000, toSlider('size', mo.size))) +
@@ -567,9 +567,9 @@ export function initUI(app, actions, version) {
     standFor = t.id;
     return true;
   }
-  // A pattern's colour box opens a short list first: the colours saved with
-  // the livery and the ones in use in it, then "Other…" for the full pop-up.
-  // (The Colour panel has those same colours beside its own box already.)
+  // A right-click on a pattern's colour box lists the colours saved with the
+  // livery and the ones in use in it. (The Colour panel has those same colours
+  // beside its own box already; a plain click opens the full pop-up.)
   const quick = document.createElement('div');
   quick.className = 'quick'; quick.hidden = true;
   document.body.appendChild(quick);
@@ -578,8 +578,7 @@ export function initUI(app, actions, version) {
   function openQuick(t) {
     const saved = app.doc.palette.map((c) => [hexOf(c.color), c.name]).filter(([c]) => c);
     const used = usedColours().filter((c) => !saved.some(([s]) => s === c)).map((c) => [c, c.toUpperCase()]);
-    quick.innerHTML = `<div class="dots">${[...saved, ...used].map(([c, name]) => `<button type="button" class="dot" data-quick="${c}" style="background:${c}" title="${esc(name)}" aria-label="${esc(name)}"></button>`).join('')}</div>` +
-      '<button type="button" class="btn" data-quick="other">Other…</button>';
+    quick.innerHTML = `<div class="dots">${[...saved, ...used].map(([c, name]) => `<button type="button" class="dot" data-quick="${c}" style="background:${c}" title="${esc(name)}" aria-label="${esc(name)}"></button>`).join('')}</div>`;
     quick.hidden = false; quickFor = t.id;
     const r = t.getBoundingClientRect();
     quick.style.left = Math.max(8, Math.min(r.left, innerWidth - quick.offsetWidth - 8)) + 'px';
@@ -589,7 +588,6 @@ export function initUI(app, actions, version) {
     const b = e.target.closest('[data-quick]'), t = quickFor && $(quickFor);
     if (!b || !t) return;
     closeQuick();
-    if (b.dataset.quick === 'other') { if (!openPicker(t)) t.showPicker?.(); return; }
     t.value = b.dataset.quick;
     t.dispatchEvent(new Event('input', { bubbles: true }));
     t.dispatchEvent(new Event('change', { bubbles: true }));
@@ -600,9 +598,14 @@ export function initUI(app, actions, version) {
     const t = e.target;
     if (!(t instanceof HTMLInputElement) || t.type !== 'color' || t === stand || !t.id) return;
     if (t.closest('dialog')) return; // a dialog sits mid-window, and nothing outside it may be used while it is open
-    if (t.dataset.pat || t.dataset.patc !== undefined) { openQuick(t); e.preventDefault(); return; }
     if (openPicker(t)) e.preventDefault();
   }, true);
+  panels.props.addEventListener('contextmenu', (e) => {
+    const t = e.target;
+    if (!(t instanceof HTMLInputElement) || t.type !== 'color' || !(t.dataset.pat || t.dataset.patc !== undefined)) return;
+    e.preventDefault(); e.stopPropagation();
+    openQuick(t);
+  });
   const handBack = (type) => () => {
     const t = standFor && $(standFor);
     if (!t) return;

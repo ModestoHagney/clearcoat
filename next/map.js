@@ -5,7 +5,7 @@
 // corrected.
 
 import { SIZE, createImageLayer, loadImage } from '../js/engine.js';
-import { regionOutline, regionById, centerLine, snapToOutline, labelPoint, linkPoints, linkLength, matchPoint } from '../js/regions.js';
+import { regionOutline, regionById, centerLine, snapToOutline, labelPoint, linkPoints, linkLength, linkDir, matchPoint } from '../js/regions.js';
 import { pieceAt } from '../js/mirror.js';
 
 export const GUIDE = 'Panel guide'; // the layer that puts the panel colours on the car
@@ -107,30 +107,52 @@ export function initMap(app, env) {
   // the other, in the same order. Links live in the map (see regions.js).
   let ends = [];        // the ends clicked so far for the link being made: { region, x, y }
   let seam = null;      // near a linked edge: that spot and the one it meets, { at, partner }
+  let slide = null;     // a link's end being slid along its edge: { region, ends, start, moved }
 
   const map = () => app.doc.regionMap;
   const sel = () => (map() && app.piece ? regionById(map(), app.piece) : null);
 
   // the nearest spot on a panel's edge, corners preferred
-  function edgeSnap(p, only) {
+  function edgeSnap(p, only, reach = 14 / app.view.zoom) {
     let best = null;
     for (const r of pieces(map())) {
       if (only && r.id !== only) continue;
       const q = snapToOutline(regionOutline(r), p.x, p.y, 10 / app.view.zoom);
-      if (q.d <= 14 / app.view.zoom && (!best || q.d < best.d)) best = { region: r.id, x: q.x, y: q.y, d: q.d };
+      if (q.d <= reach && (!best || q.d < best.d)) best = { region: r.id, x: q.x, y: q.y, d: q.d };
     }
     return best;
   }
   const centreTarget = () => (pending ? pending.region : app.centreFor);
   // the second end of a stretch stays on the first end's panel; an end of a link already on that edge is landed on exactly
-  function linkSnap(p) {
-    const hit = edgeSnap(p, ends.length % 2 ? ends[ends.length - 1].region : null);
+  // (skip: ends not to land on, the ones being slid)
+  function linkSnap(p, only = ends.length % 2 ? ends[ends.length - 1].region : null, reach, skip = []) {
+    const hit = edgeSnap(p, only, reach);
     if (!hit) return null;
     for (const l of map().links || []) for (const sd of [l.a, l.b]) {
       if (sd.region !== hit.region) continue;
-      for (const end of [sd.from, sd.to]) if (Math.hypot(end.x - hit.x, end.y - hit.y) <= 10 / app.view.zoom) return { region: hit.region, x: end.x, y: end.y };
+      for (const end of [sd.from, sd.to]) if (!skip.includes(end) && Math.hypot(end.x - hit.x, end.y - hit.y) <= 10 / app.view.zoom) return { region: hit.region, x: end.x, y: end.y };
     }
     return hit;
+  }
+  // The link end under the pointer, with every other end at that same spot on
+  // the same panel: where two links butt up on one edge they move together.
+  function linkEndAt(s) {
+    const m = map(), links = m.links || [];
+    for (const l of links) for (const sd of [l.a, l.b]) for (const end of [sd.from, sd.to]) {
+      const q = docToScreen(end.x, end.y);
+      if (Math.hypot(q.x - s.x, q.y - s.y) > 9) continue;
+      const mates = [];
+      for (const l2 of links) for (const side of ['a', 'b']) {
+        const s2 = l2[side];
+        if (s2.region !== sd.region) continue;
+        const hit = [s2.from, s2.to].filter(e => Math.hypot(e.x - end.x, e.y - end.y) < 0.6);
+        // which way round the stretch runs is pinned, or it would flip to the
+        // short way the moment it is slid past half the outline
+        if (hit.length) { s2.dir = linkDir(m, l2, side); mates.push(...hit); }
+      }
+      return { region: sd.region, ends: mates };
+    }
+    return null;
   }
   const nameOf = (id) => (regionById(map(), id) || { name: id }).name;
   function linkClick(p, remove) {
@@ -157,7 +179,13 @@ export function initMap(app, env) {
   function down(e, s) {
     if (!map()) return;
     const p = screenToDoc(s.x, s.y);
-    if (app.tool === 'mlink') { linkClick(p, e.altKey); return; }
+    if (app.tool === 'mlink') {
+      // a press on a link's end: a drag slides it along the edge, a plain click still counts as a click there
+      const grab = !e.altKey && !ends.length ? linkEndAt(s) : null;
+      if (grab) slide = { ...grab, start: s, moved: false };
+      else linkClick(p, e.altKey);
+      return;
+    }
     if (app.tool === 'mcentre') {
       const hit = edgeSnap(p, centreTarget());
       if (!hit) { env.say(pending ? 'Click the matching corner on the same panel' : 'Click closer to the panel\'s edge'); return; }
@@ -180,6 +208,18 @@ export function initMap(app, env) {
     if (!map()) return;
     if (app.tool === 'mlink') {
       const p = screenToDoc(s.x, s.y);
+      if (slide) {
+        if (!slide.moved && Math.hypot(s.x - slide.start.x, s.y - slide.start.y) < 4) return;
+        slide.moved = true;
+        const to = linkSnap(p, slide.region, Infinity, slide.ends);
+        // an end may not land on the other end of its own stretch
+        const clash = to && map().links.some(l => [l.a, l.b].some(sd =>
+          (slide.ends.includes(sd.from) ? [sd.to] : slide.ends.includes(sd.to) ? [sd.from] : []).some(o => Math.hypot(o.x - to.x, o.y - to.y) < 2)));
+        if (to && !clash) for (const end of slide.ends) { end.x = Math.round(to.x * 10) / 10; end.y = Math.round(to.y * 10) / 10; }
+        snap = seam = null;
+        requestDraw();
+        return;
+      }
       snap = linkSnap(p);
       const m = matchPoint(map(), p.x, p.y, 10 / app.view.zoom); // where this spot lands on the other panel
       seam = m ? { at: m.at, partner: m.partner } : null;
@@ -189,6 +229,14 @@ export function initMap(app, env) {
     if (app.tool !== 'mcentre') return;
     const hit = edgeSnap(screenToDoc(s.x, s.y), centreTarget());
     if ((hit && hit.x) !== (snap && snap.x) || (hit && hit.y) !== (snap && snap.y)) { snap = hit; requestDraw(); }
+  }
+
+  function up() {
+    if (!slide) return;
+    const d = slide;
+    slide = null;
+    if (d.moved) env.mapChanged();
+    else linkClick(screenToDoc(d.start.x, d.start.y), false);
   }
 
   function key(e) {
@@ -204,13 +252,13 @@ export function initMap(app, env) {
     else env.pickPiece(null);
     return true;
   }
-  function cancel() { pending = snap = seam = null; ends = []; }
+  function cancel() { pending = snap = seam = slide = null; ends = []; }
 
   const hint = () => {
     if (app.tool === 'hand') return 'Drag to move the sheet · wheel zooms · H or Esc puts it down';
     if (!map()) return 'Load a template to get a map';
     if (app.tool === 'mcentre') return pending ? 'Click the matching corner on the other side' : 'Click a corner, then its match on the other side';
-    if (app.tool === 'mlink') return ['Click one end of an edge that meets another panel · Alt+click removes a link', 'Click the other end, on the same panel', 'Now the spot on the other panel that meets end 1', 'And the spot that meets end 2'][ends.length] + (ends.length ? ' · Backspace takes one back' : '');
+    if (app.tool === 'mlink') return ['Click one end of an edge that meets another panel · drag a link\'s end to move it · Alt+click removes a link', 'Click the other end, on the same panel', 'Now the spot on the other panel that meets end 1', 'And the spot that meets end 2'][ends.length] + (ends.length ? ' · Backspace takes one back' : '');
     return sel() ? 'Name it, pair it or set its centreline on the right' : 'Click a panel';
   };
 
@@ -303,5 +351,5 @@ export function initMap(app, env) {
     }
   }
 
-  return { down, move, key, cancel, hint, drawOverlay };
+  return { down, move, up, key, cancel, hint, drawOverlay };
 }

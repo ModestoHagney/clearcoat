@@ -26,7 +26,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { regionOutline, parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.76';
+export const VERSION = 'v0.68-pieces.77';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -1691,7 +1691,7 @@ cv.addEventListener('pointermove', (e) => {
   pan = { x: e.clientX, y: e.clientY };
   requestDraw();
 });
-const endPan = (e) => { if (!pan && app.mode !== 'map') tools.up(e, local(e)); pan = null; cv.classList.remove('panning'); };
+const endPan = (e) => { if (!pan) onSheet().up(e, local(e)); pan = null; cv.classList.remove('panning'); };
 cv.addEventListener('pointerup', endPan);
 cv.addEventListener('pointercancel', endPan);
 // right-click on a shape's point removes it; anywhere else the stage's menu opens
