@@ -923,6 +923,7 @@ export function serializeDoc(doc) {
       motifFrame: l.type === 'fill' && l.motif && l.motifFrame ? l.motifFrame : undefined,
       linearMix: l.linearMix ? true : undefined, // a merged picture whose soft pixels mix as its parts' did
       pts: Array.isArray(l.pts) ? l.pts.map((q) => { const o = { x: q.x, y: q.y }; if (q.c) o.c = { x: q.c.x, y: q.c.y }; if (q.m) o.m = true; return o; }) : undefined,
+      turn: l.type === 'fill' && l.turn ? l.turn : undefined, // the angle a shape's frame stands at, in degrees
       fadeFrom: l.fadeFrom ? { x: l.fadeFrom.x, y: l.fadeFrom.y } : undefined,
       fadeTo: l.fadeTo ? { x: l.fadeTo.x, y: l.fadeTo.y } : undefined,
       fadeStyle: l.fadeStyle === 'radial' || l.fadeStyle === 'linear' ? l.fadeStyle : undefined,
@@ -1058,6 +1059,7 @@ export async function deserializeDoc(data) {
           specOnly: !!l.specOnly,
           shape: l.shape || 'rect',
           pts: shapePts(l.pts),
+          turn: Number.isFinite(l.turn) ? l.turn : 0,
           colorRef: typeof l.colorRef === 'string' ? l.colorRef : null,
           fillType: l.fillType || 'solid',
           color2: l.color2 || '#101114',

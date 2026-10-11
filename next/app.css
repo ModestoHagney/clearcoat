@@ -148,7 +148,8 @@ input[type="color"].mini { width: 24px; height: 24px; }
 .pair.wrap .icon { width: 22px; height: 24px; font-size: 17px; line-height: 1; }
 .pair { display: flex; gap: 6px; align-items: center; min-width: 0; }
 .pair .num { font: 12px var(--mono); min-width: 30px; text-align: right; }
-.field input[type="text"], .field select, dialog input[type="text"], dialog select { width: 100%; min-width: 0; padding: 4px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--bar); }
+.field textarea { resize: vertical; font: inherit; line-height: 1.35; }
+.field input[type="text"], .field textarea, .field select, dialog input[type="text"], dialog select { width: 100%; min-width: 0; padding: 4px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--bar); }
 .field input[type="range"] { width: 100%; min-width: 0; accent-color: var(--accent); }
 input[type="color"] { width: 38px; height: 26px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: none; flex: none; cursor: pointer; }
 .sub { padding: 8px 6px 2px; font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
@@ -196,6 +197,10 @@ input[type="color"] { width: 38px; height: 26px; padding: 0; border: 1px solid v
 .btn.main:hover:not(:disabled) { background: var(--accent); filter: brightness(1.08); }
 
 .ctx { position: absolute; z-index: 40; top: 0; left: 0; }
+.quick { position: fixed; z-index: 45; display: flex; flex-direction: column; gap: 8px; padding: 8px; max-width: 196px; background: var(--panel); border: 1px solid var(--line); border-radius: 9px; box-shadow: 0 10px 30px var(--shade); }
+.quick[hidden] { display: none; }
+.quick .dots { display: flex; flex-wrap: wrap; gap: 6px; padding: 0; }
+.quick .dot:hover { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 dialog { border: 1px solid var(--line); border-radius: 12px; padding: 0; background: var(--panel); color: var(--fg); box-shadow: 0 24px 60px var(--shade); width: min(440px, calc(100% - 32px)); }
 dialog::backdrop { background: rgba(10, 14, 22, .45); }

@@ -154,7 +154,7 @@ export function initUI(app, actions, version) {
     ],
     View: [
       ['Layers', '', 'show:layers', { tick: app.show.layers }], ['Properties', '', 'show:props', { tick: app.show.props }], ['Colour', '', 'show:colour', { tick: app.show.colour }], 0,
-      ['Panel outlines', '', 'show:outlines', { tick: app.show.outlines }], ['Template lines', '', 'show:lines', { tick: app.show.lines }], ['Mesh', '', 'show:mesh', { tick: app.show.mesh }], 0,
+      ['Panel colours on car', 'C', 'toggleGuide', { tick: actions.guideOn() }], ['Panel outlines', '', 'show:outlines', { tick: app.show.outlines }], ['Template lines', '', 'show:lines', { tick: app.show.lines }], ['Mesh', '', 'show:mesh', { tick: app.show.mesh }], 0,
       ['Light', '', 'theme:light', { tick: app.theme === 'light' }], ['Dark', '', 'theme:dark', { tick: app.theme === 'dark' }], ['Match system', '', 'theme:system', { tick: app.theme === 'system' }], 0,
       ['Fit to screen', 'F', 'fit'],
     ],
@@ -328,7 +328,7 @@ export function initUI(app, actions, version) {
     const pattern = l.type !== 'fill' || l.specOnly ? '' : patternHtml(l);
     const fade = l.type !== 'fill' ? '' : fadeHtml(l);
     const main = !isText ? colour + fade + pattern :
-      field('Text', `<input id="f-text" type="text" value="${esc(l.text)}">`) +
+      field('Text', `<textarea id="f-text" rows="2" spellcheck="false" title="Enter starts a new line">${esc(l.text)}</textarea>`) +
       field('Font', `<select id="f-font">${fonts.map((f) => opt(f, f, f === l.font)).join('')}${opt('__google', 'Google font by name…', false)}${opt('__upload', 'Upload a font file…', false)}</select>`) +
       colour +
       field('Size', range('f-fontSize', 40, 400, l.fontSize || 160));
@@ -553,17 +553,52 @@ export function initUI(app, actions, version) {
   document.body.appendChild(stand);
   const POPUP = { w: 260, h: 370 }; // the room Chrome's pop-up takes, with some to spare
   let standFor = null; // id of the box it stands in for (found again each time: panels are redrawn)
-  document.addEventListener('click', (e) => {
-    const t = e.target;
-    if (!(t instanceof HTMLInputElement) || t.type !== 'color' || t === stand || !t.id || !stand.showPicker) return;
-    if (t.closest('dialog')) return; // a dialog sits mid-window, and nothing outside it may be used while it is open
+  // → false when the stand-in cannot be opened here: the box opens its own pop-up, as before
+  function openPicker(t) {
+    if (!stand.showPicker) return false;
     const r = t.getBoundingClientRect();
     stand.style.left = Math.max(8, Math.min(r.left, innerWidth - POPUP.w)) + 'px';
     stand.style.top = Math.max(8, Math.min(r.bottom + 4, innerHeight - POPUP.h)) + 'px';
     stand.value = t.value;
-    try { stand.showPicker(); } catch { return; } // not allowed here: the box opens its own, as before
+    try { stand.showPicker(); } catch { return false; }
     standFor = t.id;
-    e.preventDefault();
+    return true;
+  }
+  // A pattern's colour box opens a short list first: the colours saved with
+  // the livery and the ones in use in it, then "Other…" for the full pop-up.
+  // (The Colour panel has those same colours beside its own box already.)
+  const quick = document.createElement('div');
+  quick.className = 'quick'; quick.hidden = true;
+  document.body.appendChild(quick);
+  let quickFor = null;
+  const closeQuick = () => { quick.hidden = true; quickFor = null; };
+  function openQuick(t) {
+    const saved = app.doc.palette.map((c) => [hexOf(c.color), c.name]).filter(([c]) => c);
+    const used = usedColours().filter((c) => !saved.some(([s]) => s === c)).map((c) => [c, c.toUpperCase()]);
+    quick.innerHTML = `<div class="dots">${[...saved, ...used].map(([c, name]) => `<button type="button" class="dot" data-quick="${c}" style="background:${c}" title="${esc(name)}" aria-label="${esc(name)}"></button>`).join('')}</div>` +
+      '<button type="button" class="btn" data-quick="other">Other…</button>';
+    quick.hidden = false; quickFor = t.id;
+    const r = t.getBoundingClientRect();
+    quick.style.left = Math.max(8, Math.min(r.left, innerWidth - quick.offsetWidth - 8)) + 'px';
+    quick.style.top = Math.max(8, Math.min(r.bottom + 4, innerHeight - quick.offsetHeight - 8)) + 'px';
+  }
+  quick.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-quick]'), t = quickFor && $(quickFor);
+    if (!b || !t) return;
+    closeQuick();
+    if (b.dataset.quick === 'other') { if (!openPicker(t)) t.showPicker?.(); return; }
+    t.value = b.dataset.quick;
+    t.dispatchEvent(new Event('input', { bubbles: true }));
+    t.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  document.addEventListener('pointerdown', (e) => { if (!quick.hidden && !quick.contains(e.target)) closeQuick(); }, true);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !quick.hidden) { closeQuick(); e.stopPropagation(); } }, true);
+  document.addEventListener('click', (e) => {
+    const t = e.target;
+    if (!(t instanceof HTMLInputElement) || t.type !== 'color' || t === stand || !t.id) return;
+    if (t.closest('dialog')) return; // a dialog sits mid-window, and nothing outside it may be used while it is open
+    if (t.dataset.pat || t.dataset.patc !== undefined) { openQuick(t); e.preventDefault(); return; }
+    if (openPicker(t)) e.preventDefault();
   }, true);
   const handBack = (type) => () => {
     const t = standFor && $(standFor);
@@ -788,6 +823,7 @@ export function initUI(app, actions, version) {
     ]],
     ['View', [
       ['Pan', ['Space', 'Drag'], ['Middle-drag']], ['Zoom', ['Scroll']], ['Zoom in', ['+']], ['Zoom out', ['−']], ['Fit to screen', ['F']],
+      ['Panel colours on car', ['C']],
     ]],
     ['Selection', [
       ['Select all', ['Ctrl', 'A']], ['Deselect', ['Esc']], ['Add to selection', ['Shift', 'Click']], ['Marquee select', ['Drag']],

@@ -26,7 +26,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { regionOutline, parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.74';
+export const VERSION = 'v0.68-pieces.75';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -987,6 +987,7 @@ const actions = {
   },
   toggleMapColours() { app.mapShow.colours = !app.mapShow.colours; requestDraw(); ui.refresh(); },
   async toggleGuide() {
+    if (!app.doc.regionMap) { ui.say('Load a template first', true); return; }
     await syncGuide(app.doc, !guideLayer(app.doc));
     change({ now: true });
     ui.say(guideLayer(app.doc) ? 'Panel colours are on the car. Switch this off before your real save.' : 'Panel colours are off the car');
@@ -1624,6 +1625,11 @@ const actions = {
   pickColour() { app.picking = !app.picking; toolChanged(); ui.refresh(); },
   pickPatternColour() { app.picking = app.picking === 'pattern' ? false : 'pattern'; toolChanged(); ui.refresh(); },
 
+  // the top bar's button: the other one of light and dark from what is showing now
+  flipTheme() {
+    const dark = app.theme === 'system' ? matchMedia('(prefers-color-scheme: dark)').matches : app.theme === 'dark';
+    actions.setTheme(dark ? 'light' : 'dark');
+  },
   setTheme(theme) {
     app.theme = theme;
     if (theme === 'system') delete document.documentElement.dataset.theme;
@@ -1711,6 +1717,7 @@ window.addEventListener('keydown', (e) => {
   if (mod && k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
   if (mod && k === 'y') { e.preventDefault(); redo(); return; }
   if (mod && k === 's') { e.preventDefault(); app.workshop ? endShape(true) : actions.save(); return; }
+  if (!mod && k === 'c' && !app.workshop) { actions.toggleGuide(); return; } // in every mode: which panel is which, on the sheet and on the car
   if (app.workshop && !mod && (k === 'f' || k === '+' || k === '=' || k === '-' || k === 'g' || k === 't' || k === 'h')) return; // its view is held still, and it has no panels or text
   if (app.mode === 'map') { // the layer keys below belong to Paint
     if (mod) return;
@@ -1787,6 +1794,7 @@ $('file-map').addEventListener('change', (e) => {
 $('btn-empty-template').addEventListener('click', actions.pickTemplate);
 $('btn-undo').addEventListener('click', undo);
 $('btn-redo').addEventListener('click', redo);
+$('btn-theme').addEventListener('click', () => actions.flipTheme());
 $('btn-live').addEventListener('click', actions.toggleLive);
 $('btn-zoom-in').addEventListener('click', () => actions.zoomBy(1.25));
 $('btn-zoom-out').addEventListener('click', () => actions.zoomBy(0.8));

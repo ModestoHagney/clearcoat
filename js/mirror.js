@@ -120,6 +120,7 @@ export function mirrorLayer(map, sel) {
     // the bend handle belongs to the line *leaving* a point; a reflection
     // keeps that pairing, so the list order can stay as it is
     copy.flipH = !!sel.flipH; copy.flipV = !!sel.flipV; copy.rotation = sel.rotation || 0;
+    copy.turn = mid ? 2 * mid.angle - (sel.turn || 0) : reflect ? -(sel.turn || 0) : sel.turn || 0; // its frame, mirrored too
     const xs = copy.pts.flatMap(q => (q.c ? [q.x, q.c.x] : [q.x])), ys = copy.pts.flatMap(q => (q.c ? [q.y, q.c.y] : [q.y]));
     copy.rx = Math.min(...xs); copy.ry = Math.min(...ys);
     copy.rw = Math.max(1, Math.max(...xs) - copy.rx); copy.rh = Math.max(1, Math.max(...ys) - copy.ry);
