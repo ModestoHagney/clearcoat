@@ -815,7 +815,7 @@ export function initUI(app, actions, version) {
       ['View'],
       ['Move the sheet', 'H then drag, Space-drag, middle-drag'], ['Zoom', 'Wheel, + and −'], ['Fit to screen', 'F'],
       ['Tools'],
-      ['Select, Pen, Shape, Band', 'V, P, U, B'], ['Stamp, Fill a panel, Text', 'S, G, T'], ['Pick a colour from the sheet', 'I'], ['Put a tool down', 'Esc'],
+      ['Select, Pen, Shape, Band', 'V, P, U, B'], ['Stamp, Fill a panel, Text', 'S, G, T'], ['Pick a colour from the sheet', 'I'], ['Hand, up and down again', 'H'], ['Put a tool down', 'Esc'],
       ['Drawing'],
       ['Finish a pen shape', 'Enter'], ['Take back the last pen point', 'Backspace'], ['Hold a line to 45° steps', 'Shift'],
       ['Keep a shape even', 'Shift'], ['Turn in 15° steps', 'Shift'],
