@@ -588,7 +588,7 @@ function motifPath(layer, rx, ry, rw, rh) {
     const at = placing(outs[c.shape], c.x, c.y, size, c.turn), [a, b, cc, d, e, ff] = f ? framed(f, at) : at;
     all.addPath(ones[c.shape], { a, b, c: cc, d, e, f: ff });
   }
-  if (motifPaths.size > 40) motifPaths.delete(motifPaths.keys().next().value);
+  if (motifPaths.size > 400) motifPaths.delete(motifPaths.keys().next().value); // a patterned panel is one path for each of its colours
   motifPaths.set(key, all);
   return all;
 }
@@ -713,6 +713,13 @@ const scratch = document.createElement('canvas');
 scratch.width = scratch.height = SIZE;
 // dedicated fx scratch canvases — drawLayer is itself called with `scratch`
 // as the target (applyTint, renderSpec), so effects need their own buffers
+// The paint sheet and the scratch are read back many times for one picture
+// (the linear-light mix reads both for every layer). Told so up front, the
+// browser keeps them where reading is cheap, instead of fetching each read
+// from the graphics card. The first getContext call settles it for good.
+paintCanvas.getContext('2d', { willReadFrequently: true });
+scratch.getContext('2d', { willReadFrequently: true });
+specCanvas.getContext('2d', { willReadFrequently: true });
 const fxScratch = document.createElement('canvas');
 fxScratch.width = fxScratch.height = SIZE;
 const fxTint = document.createElement('canvas');
@@ -1452,6 +1459,8 @@ const dragBelow = document.createElement('canvas');
 dragBelow.width = dragBelow.height = SIZE;
 const dragAbove = document.createElement('canvas');
 dragAbove.width = dragAbove.height = SIZE;
+dragBelow.getContext('2d', { willReadFrequently: true }); // (they are mixed into by the same reads)
+dragAbove.getContext('2d', { willReadFrequently: true });
 
 export function buildDragCache(doc, movingIds) {
   const idxs = [];
@@ -1504,18 +1513,34 @@ export function renderSpec(doc) {
     ctx.fillRect(0, 0, SIZE, SIZE);
   }
 
+  // Layers are stamped in runs: neighbours in the stack that carry the very
+  // same finish go down as one silhouette, filled once. A livery of many
+  // shapes (every panel filled, each with a pattern) is mostly one finish, so
+  // it is a few stamps instead of one for each layer. Stamping the same
+  // finish twice where shapes overlap gives the same result as stamping their
+  // joined silhouette once, so nothing changes in what is made. Each stamp
+  // touches only the box its layers lie in.
   const sctx = scratch.getContext('2d');
-  for (const layer of doc.layers) {
-    if (!layer.visible) continue;
-    // paint-only layers tint the color map but never stamp the spec — the
-    // finish of whatever sits beneath them survives untouched
-    if (layer.paintOnly) continue;
+  sctx.clearRect(0, 0, SIZE, SIZE);
+  const stamped = doc.layers.filter(l => l.visible && !l.paintOnly); // paint-only layers never stamp the spec: what is beneath keeps its finish
+  const finishKey = (l) => (l.lumSpec && l.lumSpec.amt > 0) || (l.specBlend && l.specBlend !== 'replace') ? null // weathered, or stacked on what is beneath: on its own
+    : (l.material || 'gloss') + '|' + JSON.stringify(l.matParams || null);
+  for (let i = 0; i < stamped.length;) {
+    const layer = stamped[i], key = finishKey(layer);
+    let j = i + 1;
+    if (key !== null) while (j < stamped.length && finishKey(stamped[j]) === key) j++;
+    const run = stamped.slice(i, j);
+    i = j;
     const mat = MATERIALS[layer.material] || MATERIALS.gloss;
     const p = resolveParams(layer.material, layer.matParams);
-    // paint the layer's silhouette, then fill it with the material —
+    // the box round the run
+    let x0 = SIZE, y0 = SIZE, x1 = 0, y1 = 0;
+    for (const l of run) { const bx = paintBox(l); x0 = Math.min(x0, bx.x); y0 = Math.min(y0, bx.y); x1 = Math.max(x1, bx.x + bx.w); y1 = Math.max(y1, bx.y + bx.h); }
+    const w = x1 - x0, h = y1 - y0;
+    if (w <= 0 || h <= 0) continue;
+    // paint the silhouettes, then fill them with the material —
     // flat channel values, or a procedural micro-texture for tex materials
-    sctx.clearRect(0, 0, SIZE, SIZE);
-    drawLayer(sctx, layer, true); // silhouette pass — stroke fx included, shadow/glow not
+    for (const l of run) drawLayer(sctx, l, true); // silhouette pass — stroke fx included, shadow/glow not
     if (layer.lumSpec && layer.lumSpec.amt > 0) {
       // weathered: spec follows the paint's lights and darks — mask from the
       // silhouette pass so shadow/glow fx still never stamp the spec
@@ -1526,22 +1551,24 @@ export function renderSpec(doc) {
       const img = sctx.getImageData(0, 0, SIZE, SIZE);
       const d = img.data;
       const { amt, invert } = layer.lumSpec;
-      for (let i = 0; i < d.length; i += 4) {
-        const a = mask[i + 3];
-        if (!a) { d[i + 3] = 0; continue; }
-        const lum = (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255;
+      for (let k = 0; k < d.length; k += 4) {
+        const al = mask[k + 3];
+        if (!al) { d[k + 3] = 0; continue; }
+        const lum = (0.2126 * d[k] + 0.7152 * d[k + 1] + 0.0722 * d[k + 2]) / 255;
         const c = lumSpecChannels(lum, p, !!invert, amt);
-        d[i] = c.met; d[i + 1] = c.rough; d[i + 2] = c.clear; d[i + 3] = a;
+        d[k] = c.met; d[k + 1] = c.rough; d[k + 2] = c.clear; d[k + 3] = al;
       }
       sctx.putImageData(img, 0, 0);
     } else {
       sctx.save();
       sctx.globalCompositeOperation = 'source-in';
+      // only inside the box: outside it there is nothing of this run to fill
+      sctx.beginPath(); sctx.rect(x0, y0, w, h); sctx.clip();
       if (mat.tex) {
         sctx.drawImage(specTexture(mat.tex, p), 0, 0);
       } else {
         sctx.fillStyle = `rgb(${p.met},${p.rough},${p.clear})`;
-        sctx.fillRect(0, 0, SIZE, SIZE);
+        sctx.fillRect(x0, y0, w, h);
       }
       sctx.restore();
     }
@@ -1551,8 +1578,9 @@ export function renderSpec(doc) {
     ctx.globalCompositeOperation =
       layer.specBlend === 'add' ? 'lighter' :
       layer.specBlend === 'multiply' ? 'multiply' : 'source-over';
-    ctx.drawImage(scratch, 0, 0);
+    ctx.drawImage(scratch, x0, y0, w, h, x0, y0, w, h);
     ctx.restore();
+    sctx.clearRect(x0, y0, w, h); // left clean for the next run
   }
   return specCanvas;
 }
@@ -1570,7 +1598,7 @@ export function templateOverlay(doc) {
   if (doc.templateColor === 'original') {
     return { img: doc.template.img, multiply: true };
   }
-  if (tplCache.tpl === doc.template && tplCache.color === doc.templateColor
+  if (tplCache.tpl === doc.template.img && tplCache.color === doc.templateColor
       && tplCache.bold === doc.templateBold) {
     return { img: tplCache.canvas, multiply: false };
   }
@@ -1604,7 +1632,7 @@ export function templateOverlay(doc) {
     : [[0, 0]];
   for (const [dx, dy] of offsets) octx.drawImage(work, dx, dy);
 
-  tplCache = { tpl: doc.template, color: doc.templateColor, bold: doc.templateBold, canvas: out };
+  tplCache = { tpl: doc.template.img, color: doc.templateColor, bold: doc.templateBold, canvas: out }; // kept by the picture, which a reloaded livery shares
   return { img: out, multiply: false };
 }
 
@@ -1818,7 +1846,21 @@ function shapePts(pts) {
   return out.length >= 3 ? out : null;
 }
 
+// A picture already loaded is handed back, not decoded again: every undo and
+// redo reloads the whole livery, and its template alone is 16 MB decoded, with
+// more made from it (the line overlays are kept by which picture they came
+// from). The last 60 different pictures are kept.
+const imageCache = new Map(); // src → promise of its image, oldest first
 export function loadImage(src) {
+  const had = imageCache.get(src);
+  if (had) { imageCache.delete(src); imageCache.set(src, had); return had; } // used again: it moves to the newest end
+  const made = decodeImage(src);
+  imageCache.set(src, made);
+  made.catch(() => imageCache.delete(src));
+  if (imageCache.size > 60) imageCache.delete(imageCache.keys().next().value);
+  return made;
+}
+function decodeImage(src) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     // Remote artwork must be fetched with CORS or the paint canvas becomes

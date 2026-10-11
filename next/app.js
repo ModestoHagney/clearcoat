@@ -8,7 +8,7 @@
 // finishes by colour, by layer, or by a drawn area.
 
 import {
-  SIZE, GOOGLE_FONTS, createDoc, renderPaint, renderSpec,
+  SIZE, GOOGLE_FONTS, createDoc, renderPaint, renderSpec, buildDragCache, renderPaintWithDrag,
   serializeDoc, deserializeDoc, regenerateText, layerCorners, newId,
   createTextLayer, createImageLayer, loadImage, registerCustomFont,
 } from '../js/engine.js';
@@ -31,7 +31,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.58';
+export const VERSION = 'v0.68-pieces.59';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -195,6 +195,54 @@ function requestDraw() {
   requestAnimationFrame(() => { drawQueued = false; draw(); });
 }
 
+// ---------- the sheet's picture ----------
+// Soft edges are mixed the accurate way except while something is being
+// dragged or a slider pulled: that mix is too slow for every frame of a drag.
+//
+// A quick picture is quicker still when only one thing is changing, which is
+// nearly always: everything behind it and everything in front of it is
+// painted once and kept (the engine's drag cache), and each frame repaints
+// only what moved. What is "moving" is found, not told: each layer is summed
+// up as a string, and the layers whose string changed since the last picture
+// are the moving ones. The kept parts are used only while every other
+// layer's string is still what it was, so a kept picture can never be stale.
+const imgIds = new WeakMap();
+let imgCount = 0;
+const imgId = (img) => { if (!imgIds.has(img)) imgIds.set(img, ++imgCount); return imgIds.get(img); };
+// all of a layer that its paint depends on (its picture by which picture it is, not by its bytes)
+const layerSig = (l) => JSON.stringify(l, (k, v) => (k === 'src' ? undefined : k === 'img' ? (v ? imgId(v) : 0) : v));
+const baseSig = (doc) => `${doc.baseColor}|${doc.baseMaterial || ''}|${JSON.stringify(doc.baseMatParams || null)}`;
+let seen = null; // { sigs, base } of the last picture made in full
+let kept = null; // { cache, sigs, base }: the parts kept round what is moving
+let accurate = false; // whether `composite` was made the accurate way
+function picture(wantAccurate) {
+  const doc = shown();
+  dirty = false;
+  accurate = wantAccurate;
+  if (wantAccurate) {
+    kept = null;
+    seen = { sigs: doc.layers.map(layerSig), base: baseSig(doc) };
+    composite = renderPaint(doc, { linearEdges: true });
+    return;
+  }
+  const sigs = doc.layers.map(layerSig), base = baseSig(doc);
+  const still = (was) => was && was.base === base && was.sigs.length === sigs.length;
+  if (still(kept) && !sigs.some((sig, i) => sig !== kept.sigs[i] && !kept.cache.movingIds.has(doc.layers[i].id))) {
+    composite = renderPaintWithDrag(doc, kept.cache); // only what is moving has changed
+    return;
+  }
+  const moving = new Set();
+  if (still(seen)) sigs.forEach((sig, i) => { if (sig !== seen.sigs[i]) moving.add(doc.layers[i].id); });
+  const cache = moving.size ? buildDragCache(doc, moving) : null; // null: they are not next to each other in the stack, or something blends over them
+  kept = cache ? { cache, sigs, base } : null;
+  seen = { sigs, base };
+  composite = cache ? renderPaintWithDrag(doc, cache) : renderPaint(doc, { linearEdges: false });
+}
+
+// for the checks: the sheet as last painted, and how (kept parts round what is moving, everything quickly, or everything accurately)
+export const sheetNow = () => composite;
+export const sheetHow = () => (accurate ? 'accurately, in full' : kept ? `with kept parts round ${kept.cache.movingIds.size} moving layers` : 'quickly, in full');
+
 function draw() {
   if (!app.doc) return; // a resize can land before the first doc exists
   const doc = app.doc, dpr = window.devicePixelRatio || 1;
@@ -205,9 +253,7 @@ function draw() {
   }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
-  // soft edges are mixed the accurate way except while something is being
-  // dragged: that mix is too slow to redo on every frame of a drag
-  if (dirty || !composite) { composite = renderPaint(shown(), { linearEdges: !quick }); dirty = false; }
+  if (dirty || !composite) picture(!quick);
 
   ctx.save();
   ctx.scale(app.view.zoom, app.view.zoom);
@@ -279,6 +325,8 @@ const pack = (data) => JSON.stringify(data, (k, v) => {
   if (n === undefined) { n = internedBack.push(v) - 1; interned.set(v, n); }
   return '\u0001' + n;
 });
+// how much the undo history is holding, for the memory checks: characters in the snapshots, and in the long strings they share
+export const memInfo = () => ({ snaps: undoStack.length + redoStack.length, snapChars: [...undoStack, ...redoStack].reduce((n, x) => n + x.length, 0), kept: internedBack.length, keptChars: internedBack.reduce((n, x) => n + (x ? x.length : 0), 0) });
 const unpack = (snap) => JSON.parse(snap, (k, v) => (typeof v === 'string' && v[0] === '\u0001' ? internedBack[+v.slice(1)] : v));
 
 const undoStack = [], redoStack = [];
@@ -290,7 +338,22 @@ function capture(data) {
   undoStack.push(snap);
   if (undoStack.length > 40) undoStack.shift();
   redoStack.length = 0;
+  if (internedBack.length > 120) dropUnused();
   syncUndo();
+}
+// The long strings shared between undo steps (pictures, mostly: a text is a
+// new picture every time it changes) are kept only while a step still uses
+// them. Without this they piled up for as long as the page stayed open.
+const MARK = new RegExp(JSON.stringify('\u0001').slice(0, -1).replace(/\\/g, '\\\\') + '(\\d+)"', 'g'); // a shared string's stand-in as it reads in a snapshot's JSON
+function dropUnused() {
+  const used = new Set();
+  for (const snap of [...undoStack, ...redoStack]) for (const m of snap.matchAll(MARK)) used.add(+m[1]);
+  if (used.size === internedBack.length) return;
+  const was = internedBack.slice(), to = new Map();
+  interned.clear(); internedBack.length = 0;
+  for (const n of [...used].sort((a, b) => a - b)) { to.set(n, internedBack.push(was[n]) - 1); interned.set(was[n], to.get(n)); }
+  const renumber = (snap) => snap.replace(MARK, (_, n) => JSON.stringify('\u0001' + to.get(+n)));
+  for (const stack of [undoStack, redoStack]) stack.forEach((snap, i) => { stack[i] = renumber(snap); });
 }
 function syncUndo() {
   app.canUndo = undoStack.length > 1;
@@ -328,11 +391,23 @@ function resetHistory() {
 // panel that must not be rebuilt under the user's hand (a colour box, a slider).
 // now: true for a finished, one-off action (paste, delete, a drag let go), so
 // it is its own undo step instead of merging with whatever comes next.
+// While a pointer is held down (a drag on the sheet, a slider being pulled)
+// more of the same edit is coming. The accurate redraw, the save and Live all
+// wait for it to be let go: on a livery of many layers each of those takes
+// long enough that doing them between two moves of the pointer made the drag
+// itself crawl.
+let held = false;
+window.addEventListener('pointerdown', () => { held = true; }, true);
+for (const type of ['pointerup', 'pointercancel', 'blur']) window.addEventListener(type, () => { held = false; }, true);
+function settle() {
+  if (held) { quickTimer = setTimeout(settle, 160); return; }
+  quick = false; dirty = true; requestDraw();
+}
 function change({ panels = true, now = false } = {}) {
   skipCapture = false; // a real edit after an undo is recorded
   clearTimeout(quickTimer);
   quick = !panels && !now; // a drag, a slider, a nudge: more of the same is coming
-  if (quick) quickTimer = setTimeout(() => { quick = false; dirty = true; requestDraw(); }, 160);
+  if (quick) quickTimer = setTimeout(settle, 160);
   dirty = true;
   requestDraw();
   clearTimeout(saveTimer);
@@ -352,6 +427,7 @@ function projectThumb() {
 async function runSave() {
   clearTimeout(saveTimer);
   saveTimer = null;
+  if (held && quick) { saveTimer = setTimeout(runSave, 300); return; } // mid-drag: once it is let go
   const data = serializeDoc(app.doc);
   if (app.workshop) { capture(data); return; } // a shape being drawn: it has undo steps, but it is never saved as the livery nor sent to the car
   const json = JSON.stringify(data); // stringify before capture, which is free to intern
@@ -379,7 +455,9 @@ async function liveTick(attempt = 0) {
   if (!app.live || app.workshop) return; // a shape being drawn is not the livery
   if (liveBusy) { liveAgain = true; return; }
   liveBusy = true;
-  const res = await saveToIracing(shown(), app.custid, { quiet: true });
+  // the car gets the accurate picture; if the screen's is that already, it is not made a second time
+  if (dirty || !accurate || !composite) { picture(true); requestDraw(); }
+  const res = await saveToIracing(shown(), app.custid, { quiet: true, paint: () => (!dirty && accurate ? composite : null) }); // asked for when it is needed: the sheet may have been redrawn while the folder was being reached
   liveBusy = false;
   if (liveAgain) { liveAgain = false; liveTick(); return; } // a newer change is waiting: send that
   if (!res.ok && attempt < LIVE_RETRIES) { liveRetry = setTimeout(() => liveTick(attempt + 1), 400); return; }

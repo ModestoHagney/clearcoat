@@ -77,7 +77,10 @@ function assertExportable(canvas) {
 // Writes the paint (and, for a car, the spec map) into the linked folder.
 // quiet = a live save: never prompts for permission.
 // → { ok, paintName, specName, backed, error }
-export async function saveToIracing(doc, custid, { quiet = false } = {}) {
+// paint: a function that hands over the paint already made for this doc
+// (accurate edges) if the caller still has it, else null: making it again is
+// the slow part on a livery of many layers.
+export async function saveToIracing(doc, custid, { quiet = false, paint: made = null } = {}) {
   custid = String(custid || '').trim();
   if (!validCustid(custid)) return { ok: false, error: 'Enter your iRacing customer number first.' };
   try {
@@ -85,7 +88,7 @@ export async function saveToIracing(doc, custid, { quiet = false } = {}) {
     if (!handle) return { ok: false, error: 'No iRacing folder linked, or its permission was lost.' };
     const [paintName, specName] = paintFilenames(doc, custid);
     const backed = await backupOriginals(handle, [paintName, specName]);
-    const paint = exportPaintCanvas(doc, renderPaint(doc, { linearEdges: true }));
+    const paint = exportPaintCanvas(doc, (made && made()) || renderPaint(doc, { linearEdges: true }));
     assertExportable(paint);
     await persist.writeFileToFolder(handle, paintName, canvasToTGA(paint));
     if (specName) {
