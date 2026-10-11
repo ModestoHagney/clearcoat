@@ -31,7 +31,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.64';
+export const VERSION = 'v0.68-pieces.65';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -1683,7 +1683,7 @@ window.addEventListener('keydown', (e) => {
   const mod = e.ctrlKey || e.metaKey, k = (e.key || '').toLowerCase();
   // in a box you type in, only the keys that have nothing to do with typing work
   if ($('dlg').open || (typing() && !(mod && (k === 's' || k === 'm')))) return;
-  if (e.code === 'Space') { spaceHeld = true; cv.classList.add('pan'); e.preventDefault(); return; }
+  if (e.code === 'Space') { spaceHeld = true; if (!app.workshop) cv.classList.add('pan'); e.preventDefault(); return; } // (no hand in the draw-a-shape window: its view is held still)
   if (!mod && onSheet().key(e)) { e.preventDefault(); return; }
   if (mod && k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
   if (mod && k === 'y') { e.preventDefault(); redo(); return; }
