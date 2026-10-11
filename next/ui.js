@@ -38,6 +38,8 @@ const I = { // 20x20 line icons
   fold: '<path d="m5 8 5 5 5-5"/>',
   close: '<path d="m5 5 10 10M15 5 5 15"/>',
   reset: '<path d="M4.5 10a5.5 5.5 0 1 0 1.8-4.1"/><path d="M4 3.5v3.4h3.4"/>',
+  // an open hand
+  hand: '<path d="M7.2 10.5V5.2a1.15 1.15 0 0 1 2.3 0V9.4m0-.4V3.9a1.15 1.15 0 0 1 2.3 0V9m0 .2V4.9a1.15 1.15 0 0 1 2.3 0v5m0-1.6a1.15 1.15 0 0 1 2.3 0v3.9c0 3-1.9 4.8-4.8 4.8h-.9c-1.9 0-3-.8-4.1-2.5l-2.2-3.4a1.15 1.15 0 0 1 1.9-1.3l.9 1.2"/>',
   dropper: '<path d="M4 16v-2.5l6.5-6.5 2.5 2.5L6.5 16z"/><path d="m9.5 6 4.5 4.5"/><path d="m12 7.5 2.2-2.2a1.6 1.6 0 0 1 2.3 2.3l-2.2 2.2"/>',
 };
 I.mpick = I.select;
@@ -77,6 +79,7 @@ const shapeSvg = (it) => {
 // is the final one; tools from later stages are dimmed.
 const TOOLS = [
   ['select', 'Select (V)', true],
+  ['hand', 'Hand (H): drag to move the sheet', true],
   ['pen', 'Pen (P)', true],
   ['shape', 'Shape (U)', true],
   ['band', 'Straight band (B)', true],
@@ -88,12 +91,14 @@ const TOOLS = [
 // Finish mode: the same drawing tools, but what they draw is an area
 const FINISH_TOOLS = [
   ['select', 'Pick what to finish (V)', true],
+  ['hand', 'Hand (H): drag to move the sheet', true],
   ['pen', 'Draw an area (P)', true],
   ['shape', 'Area from a shape (U)', true],
   ['piece', 'A whole panel (G)', true],
 ];
 const MAP_TOOLS = [
   ['mpick', 'Select a panel', true],
+  ['hand', 'Hand (H): drag to move the sheet', true],
   ['mcentre', 'Centreline', true],
 ];
 const LATER = 'later stage';
@@ -189,7 +194,7 @@ export function initUI(app, actions, version) {
     $('modes').innerHTML = [['map', 'Map'], ['paint', 'Paint'], ['finish', 'Finish']].map(([id, name]) =>
       `<button data-mode="${id}" aria-pressed="${app.mode === id}">${name}</button>`).join('');
     // drawing a shape: text is a picture and there are no panels to fill, so those two tools are put away
-    const strip = app.workshop ? TOOLS.filter(([id]) => id !== 'text' && id !== 'piece') : app.mode === 'map' ? MAP_TOOLS : app.mode === 'finish' ? FINISH_TOOLS : TOOLS;
+    const strip = app.workshop ? TOOLS.filter(([id]) => id !== 'text' && id !== 'piece' && id !== 'hand') : app.mode === 'map' ? MAP_TOOLS : app.mode === 'finish' ? FINISH_TOOLS : TOOLS;
     $('tools').innerHTML = strip.map(([id, name, ready]) =>
       `<button class="tool" data-tool="${id}" data-tip="${ready ? name : `${name} · ${LATER}`}" aria-label="${name}" aria-pressed="${app.tool === id}"${ready ? '' : ' disabled'}>${svg(id === 'shape' ? app.shapeKind : id)}</button>`).join('');
     // the armed tool's own choices sit right beside the strip
@@ -808,7 +813,7 @@ export function initUI(app, actions, version) {
     title: 'Shortcuts', ok: 'Close', cancel: null,
     body: '<table class="keys">' + [
       ['View'],
-      ['Pan', 'Space-drag, middle-drag'], ['Zoom', 'Wheel, + and −'], ['Fit to screen', 'F'],
+      ['Move the sheet', 'H then drag, Space-drag, middle-drag'], ['Zoom', 'Wheel, + and −'], ['Fit to screen', 'F'],
       ['Tools'],
       ['Select, Pen, Shape, Band', 'V, P, U, B'], ['Stamp, Fill a panel, Text', 'S, G, T'], ['Pick a colour from the sheet', 'I'], ['Put a tool down', 'Esc'],
       ['Drawing'],

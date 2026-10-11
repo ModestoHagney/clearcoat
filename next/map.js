@@ -132,6 +132,7 @@ export function initMap(app, env) {
   function cancel() { pending = snap = null; }
 
   const hint = () => {
+    if (app.tool === 'hand') return 'Drag to move the sheet · wheel zooms · Esc puts it down';
     if (!map()) return 'Load a template to get a map';
     if (app.tool === 'mcentre') return pending ? 'Click the matching corner on the other side' : 'Click a corner, then its match on the other side';
     return sel() ? 'Name it, pair it or set its centreline on the right' : 'Click a panel';

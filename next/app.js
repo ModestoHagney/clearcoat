@@ -31,7 +31,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.65';
+export const VERSION = 'v0.68-pieces.66';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -557,7 +557,13 @@ function keepFadeOut(l) {
 }
 // in Finish mode the paint is not to be disturbed: only an area may be changed
 const canChange = () => app.mode !== 'finish' || isArea(actions.selected());
-const toolChanged = () => cv.classList.toggle('draw', (app.tool !== 'select' && app.tool !== 'mpick') || app.picking || app.trimming);
+let spaceHeld = false; // Space is down: a drag moves the sheet
+const toolChanged = () => {
+  cv.classList.toggle('draw', (app.tool !== 'select' && app.tool !== 'mpick' && app.tool !== 'hand') || app.picking || app.trimming);
+  handCursor();
+};
+// the open hand: Space is held, or the Hand tool is armed (never in the draw-a-shape window, whose view is held still)
+const handCursor = () => cv.classList.toggle('pan', (spaceHeld || app.tool === 'hand') && !app.workshop);
 // the exact paint colour at a point on the sheet
 function sampleColour(p) {
   const x = Math.round(p.x), y = Math.round(p.y);
@@ -1635,7 +1641,7 @@ const actions = {
 
 // ---------- pointer and keys ----------
 
-let spaceHeld = false, pan = null;
+let pan = null;
 cv.addEventListener('wheel', (e) => {
   e.preventDefault();
   if (app.workshop) return; // the shape's window holds its view still
@@ -1646,7 +1652,9 @@ const local = (e) => { const r = cv.getBoundingClientRect(); return { x: e.clien
 cv.addEventListener('pointerdown', (e) => {
   if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur(); // keys go to the sheet now
   if (app.workshop && (e.button === 1 || spaceHeld)) { e.preventDefault(); return; } // no panning there either
-  if (e.button === 1 || (e.button === 0 && spaceHeld)) {
+  // moving the sheet: the middle button, Space held, or the Hand tool (which needs nothing held:
+  // a laptop touchpad freezes the pointer while a key is down, so Space-drag cannot work on one)
+  if (e.button === 1 || (e.button === 0 && (spaceHeld || app.tool === 'hand'))) {
     e.preventDefault();
     pan = { x: e.clientX, y: e.clientY };
     cv.setPointerCapture(e.pointerId);
@@ -1683,15 +1691,17 @@ window.addEventListener('keydown', (e) => {
   const mod = e.ctrlKey || e.metaKey, k = (e.key || '').toLowerCase();
   // in a box you type in, only the keys that have nothing to do with typing work
   if ($('dlg').open || (typing() && !(mod && (k === 's' || k === 'm')))) return;
-  if (e.code === 'Space') { spaceHeld = true; if (!app.workshop) cv.classList.add('pan'); e.preventDefault(); return; } // (no hand in the draw-a-shape window: its view is held still)
+  if (e.code === 'Space') { spaceHeld = true; handCursor(); e.preventDefault(); return; }
+  if (app.tool === 'hand' && k === 'escape') { actions.setTool(app.mode === 'map' ? 'mpick' : 'select'); return; }
   if (!mod && onSheet().key(e)) { e.preventDefault(); return; }
   if (mod && k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
   if (mod && k === 'y') { e.preventDefault(); redo(); return; }
   if (mod && k === 's') { e.preventDefault(); app.workshop ? endShape(true) : actions.save(); return; }
-  if (app.workshop && !mod && (k === 'f' || k === '+' || k === '=' || k === '-' || k === 'g' || k === 't')) return; // its view is held still, and it has no panels or text
+  if (app.workshop && !mod && (k === 'f' || k === '+' || k === '=' || k === '-' || k === 'g' || k === 't' || k === 'h')) return; // its view is held still, and it has no panels or text
   if (app.mode === 'map') { // the layer keys below belong to Paint
     if (mod) return;
     if (k === 'f') fit();
+    else if (k === 'h') actions.setTool('hand');
     else if (k === '+' || k === '=') actions.zoomBy(1.25);
     else if (k === '-') actions.zoomBy(0.8);
     else if (k === 'f1') { e.preventDefault(); ui.shortcuts(); }
@@ -1718,6 +1728,7 @@ window.addEventListener('keydown', (e) => {
   if (k === 'delete' || k === 'backspace') { actions.remove(); return; }
   if (k === 'escape') { actions.select(null); return; }
   if (k === 'v') actions.setTool('select');
+  else if (k === 'h') actions.setTool('hand');
   else if (k === 'p') actions.setTool('pen');
   else if (k === 'u') actions.setTool('shape');
   else if (k === 's' && app.mode === 'paint') actions.setTool('stamp'); // S and U as Photoshop has them
@@ -1730,8 +1741,8 @@ window.addEventListener('keydown', (e) => {
   else if (k === '-') actions.zoomBy(0.8);
   else if (k === 'f1') { e.preventDefault(); ui.shortcuts(); } // not '?': on some keyboards that shares a key with an arrow
 });
-window.addEventListener('keyup', (e) => { if (e.code === 'Space') { spaceHeld = false; cv.classList.remove('pan'); } });
-window.addEventListener('blur', () => { spaceHeld = false; cv.classList.remove('pan'); });
+window.addEventListener('keyup', (e) => { if (e.code === 'Space') { spaceHeld = false; handCursor(); } });
+window.addEventListener('blur', () => { spaceHeld = false; handCursor(); });
 // a file dropped anywhere on the sheet is taken as a template
 $('stage').addEventListener('dragover', (e) => e.preventDefault());
 $('stage').addEventListener('drop', (e) => {
