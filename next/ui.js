@@ -80,9 +80,9 @@ const TOOLS = [
   ['pen', 'Pen (P)', true],
   ['shape', 'Shape (S)', true],
   ['band', 'Straight band (B)', true],
-  ['stamp', 'Stamp', true],
+  ['stamp', 'Stamp: click to place copies of a shape', true],
   ['text', 'Text (T)', true],
-  ['image', 'Picture or logo', true],
+  ['image', 'Library: pictures, shapes, icons', true],
   ['piece', 'Fill a panel (G)', true],
 ];
 // Finish mode: the same drawing tools, but what they draw is an area
@@ -159,8 +159,6 @@ export function initUI(app, actions, version) {
       ['Undo', 'Ctrl+Z', 'undo', { off: !app.canUndo }], ['Redo', 'Ctrl+Y', 'redo', { off: !app.canRedo }], 0,
       ...layerItems(), 0,
       ['Select all', 'Ctrl+A', 'selectAll'], 0,
-      ['Merge layers', 'Ctrl+E', 'merge', { off: actions.selectedLayers().length < 2 }],
-      ['Split', '', 'split', { off: !((actions.selected() || {}).pts || []).some((q) => q.m) }],
       ['Group', 'Ctrl+G', 'group', { off: actions.selectedLayers().length < 2 }],
       ['Ungroup', 'Ctrl+Shift+G', 'ungroup', { off: !actions.selectedLayers().some((l) => l.groupId) }],
     ],
@@ -276,12 +274,12 @@ export function initUI(app, actions, version) {
     // its colours are a row each: the copies take turns with them, or pick
     // between them when Random is on. The first shape added turns the pattern
     // on, and taking the last one out turns it off.
-    const add = `<span class="plusbox" title="Add a shape"><span class="icon" aria-hidden="true">+</span><select id="f-pat-add" aria-label="Add a shape to the pattern">${opt('', 'Add a shape…', true)}${motifOptions('', null)}</select></span>`;
+    const add = `<span class="plusbox" title="Add a shape to repeat. The first one turns the pattern on."><span class="icon" aria-hidden="true">+</span><select id="f-pat-add" aria-label="Add a shape to the pattern">${opt('', 'Add a shape…', true)}${motifOptions('', null)}</select></span>`;
     return `<details class="more fold" id="f-patfold"${patOpen ? ' open' : ''}><summary>Pattern</summary>` +
         `<div class="field tiles"><span>Shapes</span><span class="pair wrap">${mo ? tile(mo, -1) + more.map(tile).join('') : ''}${more.length < 6 ? add : ''}</span></div>` +
       (!mo ? '' :
-        `<div class="field tiles"><span>Colours</span><span class="pair wrap"><span class="mwrap"><input class="mini" data-pat="pick" id="f-pat-color" type="color" value="${col}" aria-label="Pattern colour">${cols.length ? out('data-patcdrop', -1, 'colour') : ''}</span>` +
-          cols.map((c, k) => `<span class="mwrap"><input class="mini" data-patc="${k}" id="f-pat-c${k}" type="color" value="${esc(c)}" aria-label="Colour ${k + 2} of the pattern">${out('data-patcdrop', k, 'colour')}</span>`).join('') +
+        `<div class="field tiles"><span>Colours</span><span class="pair wrap"><span class="mwrap"><input class="mini" data-pat="pick" id="f-pat-color" type="color" value="${col}" title="The pattern's colour: click to change it" aria-label="Pattern colour">${cols.length ? out('data-patcdrop', -1, 'colour') : ''}</span>` +
+          cols.map((c, k) => `<span class="mwrap"><input class="mini" data-patc="${k}" id="f-pat-c${k}" type="color" value="${esc(c)}" title="Click to change this colour" aria-label="Colour ${k + 2} of the pattern">${out('data-patcdrop', k, 'colour')}</span>`).join('') +
           (cols.length < 6 ? `<button type="button" class="icon" data-act="addPatternColour" title="Add another colour: they take turns, or mix when Random is on" aria-label="Add another colour to the pattern">+</button>` : '') +
           `<button type="button" class="icon${app.picking === 'pattern' ? ' on' : ''}" data-act="pickPatternColour" title="Pick the first colour from the sheet" aria-label="Pick the pattern's first colour from the sheet">${svg('dropper')}</button></span></div>` +
         (TYPED_COLOURS && app.ways.Hex ? field('Hex', `<input data-pat="hex" id="f-pat-hex" class="mono" type="text" maxlength="7" spellcheck="false" value="${col}">`) : '') +
@@ -326,7 +324,7 @@ export function initUI(app, actions, version) {
       return `<div class="note">${many.length} layers selected</div>` + colourNote() +
         (fills.length ? fadeHtml(fills.find((x) => x.fillType === 'linear' || x.fillType === 'radial') || fills[0]) + patternHtml(fills.find((x) => x.motif) || fills[0]) : '') +
         `<label class="switch" title="Paint them on the twin panel too, or across the centreline (Ctrl+M)">Mirrored<input id="f-mirrored" type="checkbox"${many.some((x) => x.mirrored) ? ' checked' : ''}></label>` +
-        `<div class="acts"><button class="btn" data-act="merge" title="Make them one picture (Ctrl+E)">Merge</button>` +
+        `<div class="acts"><button class="btn" data-act="merge" title="Join them into one. It asks first if they differ in colour or kind. (Ctrl+E)">Merge</button>` +
         (shapeCan().wrap ? '<button class="btn" data-act="wrap" title="One shape pulled tight round them, like a rubber band: two circles become a slot">Wrap</button>' : '') +
         `<button class="btn" data-act="${grouped ? 'ungroup' : 'group'}" title="${grouped ? 'They stop being picked up together (Ctrl+Shift+G)' : 'Pick them up together from now on (Ctrl+G)'}">${grouped ? 'Ungroup' : 'Group'}</button></div>`;
     }
@@ -464,7 +462,7 @@ export function initUI(app, actions, version) {
     const used = usedColours();
     return `<div class="sub">Saved with this livery</div><div class="chips">${saved}<button class="chip add" data-act="saveColour" title="Save the current colour">+ Save</button></div>` +
       (used.length ? `<div class="sub">In this livery</div><div class="dots">${used.map((c) => `<button class="dot" data-col="${c}" style="background:${c}" title="${c.toUpperCase()}" aria-label="${c}"></button>`).join('')}</div>` : '') +
-      `<div class="cur"><input data-colour="pick" id="c-pick" type="color" value="${esc(cur)}" aria-label="Colour"><button class="icon${app.picking === true ? ' on' : ''}" data-act="pickColour" title="Pick a colour from the sheet (I)" aria-label="Pick a colour from the sheet">${svg('dropper')}</button>${TYPED_COLOURS ? `<span class="ways">${Object.keys(app.ways).map((w) => `<button data-way="${w}" aria-pressed="${app.ways[w]}">${w}</button>`).join('')}</span>` : ''}</div>` +
+      `<div class="cur"><input data-colour="pick" id="c-pick" type="color" value="${esc(cur)}" title="Choose a colour" aria-label="Colour"><button class="icon${app.picking === true ? ' on' : ''}" data-act="pickColour" title="Pick a colour from the sheet (I)" aria-label="Pick a colour from the sheet">${svg('dropper')}</button>${TYPED_COLOURS ? `<span class="ways">${Object.keys(app.ways).map((w) => `<button data-way="${w}" aria-pressed="${app.ways[w]}">${w}</button>`).join('')}</span>` : ''}</div>` +
       (TYPED_COLOURS && app.ways.Hex ? field('Hex', `<input data-colour="hex" id="c-hex" class="mono" type="text" maxlength="7" spellcheck="false" value="${esc(cur)}">`) : '') +
       (TYPED_COLOURS && app.ways.RGB ? field('RGB', `<input data-colour="rgb" id="c-rgb" class="mono" type="text" spellcheck="false" value="${rgbOf(cur)}">`) : '');
   }
@@ -793,7 +791,7 @@ export function initUI(app, actions, version) {
       : `<button type="button" class="btn" data-pick="shape">One shape, like ${esc(top)}</button>`;
     const p = ask({
       title: 'Merge', ok: null,
-      body: `<div class="note">${why}</div>${oneShape}<div class="acts"><button type="button" class="btn" data-pick="group" title="They stay separate, but are picked up together">Group them instead</button><button type="button" class="btn" data-pick="picture" title="One flat picture: it cannot be recoloured or reshaped afterwards">Merge into a picture</button></div>`,
+      body: `<div class="note">${why}</div>${oneShape}<div class="acts"><button type="button" class="btn" data-pick="group" title="They stay separate, but are picked up together">Group them instead</button><button type="button" class="btn" data-pick="picture" title="One flat picture: it can be given one colour, but not reshaped">Merge into a picture</button></div>`,
     });
     $('dlg-body').onclick = (e) => {
       const t = e.target.closest('[data-pick]');
@@ -803,15 +801,29 @@ export function initUI(app, actions, version) {
     $('dlg-body').onclick = null;
     return picked;
   }
+  // Every key the app answers to (see the keydown handler in app.js and key()
+  // in tools.js), and what the mouse does that no button says. A row with one
+  // entry is a heading.
   const shortcuts = () => ask({
     title: 'Shortcuts', ok: 'Close', cancel: null,
-    body: '<table>' + [
+    body: '<table class="keys">' + [
+      ['View'],
       ['Pan', 'Space-drag, middle-drag'], ['Zoom', 'Wheel, + and −'], ['Fit to screen', 'F'],
-      ['Select, Pen, Shape, Band, Fill a panel, Text', 'V, P, S, B, G, T'], ['Mirrored on or off', 'Ctrl+M'], ['Pick a colour from the sheet', 'I'], ['Finish a pen shape', 'Enter'], ['Undo the last point', 'Backspace'], ['Hold 45°', 'Shift'],
-      ['Copy, paste, duplicate', 'Ctrl+C, V, D'], ['Nudge 1 px, 10 px', 'Arrows, Shift+Arrows'], ['Select several', 'Ctrl+click, or drag a box'], ['Select all', 'Ctrl+A'], ['Merge', 'Ctrl+E'], ['Group, ungroup', 'Ctrl+G, Ctrl+Shift+G'],
-      ['Forward, backward', 'Ctrl+], Ctrl+['], ['To the front, to the back', 'Ctrl+Shift+], Ctrl+Shift+['], ['Delete', 'Del'],
+      ['Tools'],
+      ['Select, Pen, Shape, Band', 'V, P, S, B'], ['Fill a panel, Text', 'G, T'], ['Pick a colour from the sheet', 'I'], ['Put a tool down', 'Esc'],
+      ['Drawing'],
+      ['Finish a pen shape', 'Enter'], ['Take back the last pen point', 'Backspace'], ['Hold a line to 45° steps', 'Shift'],
+      ['Keep a shape even', 'Shift'], ['Turn in 15° steps', 'Shift'],
+      ['Add a point', 'Click the line'], ['Remove a point', 'Right-click it'],
+      ['Layers'],
+      ['Select several', 'Ctrl+click, or drag a box'], ['Select all, select nothing', 'Ctrl+A, Esc'],
+      ['Copy, paste, duplicate', 'Ctrl+C, Ctrl+V, Ctrl+D'], ['Nudge 1 px, 10 px', 'Arrows, Shift+Arrows'], ['Delete', 'Del or Backspace'],
+      ['Mirrored on or off', 'Ctrl+M'], ['Merge', 'Ctrl+E'], ['Group, ungroup', 'Ctrl+G, Ctrl+Shift+G'],
+      ['Forward, backward', 'Ctrl+], Ctrl+['], ['To the front, to the back', 'Ctrl+Shift+], Ctrl+Shift+['],
+      ['A layer\'s menu', 'Right-click it'],
+      ['File'],
       ['Undo, redo', 'Ctrl+Z, Ctrl+Y'], ['Save', 'Ctrl+S'], ['This list', 'F1'],
-    ].map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join('') + '</table>',
+    ].map(([a, b]) => (b === undefined ? `<tr><th colspan="2">${a}</th></tr>` : `<tr><td>${a}</td><td>${b}</td></tr>`)).join('') + '</table>',
   });
   // who drew the icons used in the open livery: the open sets ask to be named
   const credits = () => {

@@ -210,6 +210,9 @@ dialog .dbody label.check input { accent-color: var(--accent); width: 16px; heig
 dialog table { width: 100%; border-collapse: collapse; }
 dialog td { padding: 4px 0; }
 dialog td:last-child { text-align: right; font: 12px var(--mono); color: var(--muted); }
+dialog table.keys th { text-align: left; padding: 12px 0 3px; font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--line); }
+dialog table.keys tr:first-child th { padding-top: 2px; }
+dialog .dbody:focus-visible { outline: none; } /* a long list scrolls, and the browser would ring the scrolling box */
 dialog footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px 16px; }
 dialog.wide { width: min(720px, calc(100% - 32px)); }
 dialog.lib .dbody { height: 60vh; } /* the same size whichever tab is open */
