@@ -26,7 +26,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { regionOutline, parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.72';
+export const VERSION = 'v0.68-pieces.73';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -750,7 +750,10 @@ const actions = {
   },
 
   async carSetup() {
-    const root = await persist.getPaintsFolder().catch(() => null);
+    // After a reload the browser still holds the folder but wants to be asked
+    // again before it can be read (the same thing that pauses Live). Asked
+    // here, from this click: without it there are no car folders to list.
+    const root = await persist.getPaintsFolder({ requestIfNeeded: true }).catch(() => null) || await persist.getPaintsFolder().catch(() => null);
     const cars = root ? (await persist.listSubdirs(root).catch(() => [])).filter(n => n !== 'clearcoat-backup') : [];
     const car = await persist.loadSetting('paintsCar').catch(() => null);
     const res = await ui.carSetup({ custid: app.custid, target: app.doc.target, customNumber: app.doc.customNumber, folder: root ? root.name : null, cars, car });
