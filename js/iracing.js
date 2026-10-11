@@ -1,9 +1,8 @@
 // Saving a livery into the iRacing paints folder, with no page elements in
 // here so any screen can use it.
 //
-// ponytail: this is a copy of main.js's "File System Access: save into
-// iRacing" block, not a refactor of it, so the original screen cannot be
-// broken by changes here. Fold the two together if that screen is retired.
+// (It began as a copy of that part of the original screen's main.js, which
+// this fork no longer carries.)
 
 import { renderPaint, renderSpec } from './engine.js';
 import { canvasToTGA } from './tga.js';

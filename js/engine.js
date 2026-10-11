@@ -269,7 +269,7 @@ export function layerMatrix(l) {
 
 export const TEXT_FONTS = ['Arial Black', 'Impact', 'Georgia', 'Courier New', 'Verdana', 'Trebuchet MS'];
 
-// curated livery-friendly Google Fonts — loaded on demand (see main.js)
+// curated livery-friendly Google Fonts — loaded on demand
 export const GOOGLE_FONTS = [
   'Anton', 'Archivo Black', 'Bebas Neue', 'Black Ops One', 'Bungee', 'Faster One',
   'Monoton', 'Orbitron', 'Oswald', 'Permanent Marker', 'Racing Sans One', 'Russo One',

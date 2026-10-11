@@ -1,66 +1,19 @@
-// Clearcoat service worker — offline app shell + versioned cache.
+// Clearcoat service worker: versioned cache, so the app opens offline.
 //
-// DEPLOY RITUAL: bump VERSION below together with #app-version in index.html
-// on every deploy. The new VERSION names a new cache, the install step
-// re-precaches the shell, and the in-app "New version ready" toast offers
-// the reload that activates it. If VERSION doesn't change, returning users
-// keep being served the old cached shell.
+// DEPLOY RITUAL: bump VERSION below together with VERSION in next/app.js on
+// every deploy. The new VERSION names a new cache; the app (next/) sees the
+// new worker, saves, and reloads itself once to take it.
 
-const VERSION = 'v0.68-pieces.62';
+const VERSION = 'v0.68-pieces.63';
 const CACHE = 'clearcoat-' + VERSION;
 
-// app shell — every path here must exist in the repo
+// The front page and the icons. Every path here must exist in the repo, or
+// the worker fails to install. The app itself (next/ and what it loads) is
+// not listed: it is fetched fresh and kept as it goes, see below.
 const PRECACHE = [
   './',
   './index.html',
   './manifest.webmanifest',
-  './css/app.css',
-  './js/advisor.js',
-  './js/engine.js',
-  './js/library.js',
-  './js/lightsweep.js',
-  './js/main.js',
-  './js/persist.js',
-  './js/psd.js',
-  './js/regions.js',
-  './js/separate.js',
-  './js/shaderball.js',
-  './js/showroom.js',
-  './js/studio.js',
-  './js/tga.js',
-  './js/textures.js',
-  './js/wand.js',
-  './js/lasso.js',
-  './js/warp.js',
-  './js/variants.js',
-  './js/layout.js',
-  './js/zones.js',
-  './js/patterns.js',
-  './js/brief.js',
-  './samples/opmo-sample.brief.json',
-  './js/vendor/ag-psd.min.js',
-  // driver-facing livery brief form (standalone page)
-  './brief.html',
-  './css/brief.css',
-  './js/brief-form.js',
-  './js/brief-shared.js',
-  // texture-library picker thumbnails (full-res PNGs runtime-cache on first use)
-  './textures/thumb/carbon-twill.jpg',
-  './textures/thumb/forged-carbon.jpg',
-  './textures/thumb/woodland-camo.jpg',
-  './textures/thumb/desert-camo.jpg',
-  './textures/thumb/digital-camo.jpg',
-  './textures/thumb/urban-camo.jpg',
-  './textures/thumb/brushed-alu.jpg',
-  './textures/thumb/diamond-plate.jpg',
-  './textures/thumb/hammered-ti.jpg',
-  './textures/thumb/hydro-dip.jpg',
-  './textures/thumb/liquid-marble.jpg',
-  './textures/thumb/galaxy.jpg',
-  './textures/thumb/geo-facets.jpg',
-  './textures/thumb/snakeskin.jpg',
-  './textures/thumb/cracked-lava.jpg',
-  './textures/thumb/circuit.jpg',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-192-maskable.png',
@@ -68,8 +21,8 @@ const PRECACHE = [
 ];
 
 self.addEventListener('install', (event) => {
-  // no skipWaiting here — the page shows an update toast and the user
-  // opts in via the SKIP_WAITING message below
+  // no skipWaiting here: the page asks for it (the SKIP_WAITING message
+  // below) once it has saved
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(PRECACHE)));
 });
 
@@ -98,16 +51,16 @@ self.addEventListener('fetch', (event) => {
   if (url.origin === self.location.origin) {
     // same-origin: cache-first, network fallback (caching what it fetches)
     event.respondWith((async () => {
-      // The new screen (next/) is still being built stage by stage, so it and
-      // everything it loads come fresh from the network, cache only offline.
-      // ponytail: drop this once next/ is the app and joins PRECACHE.
+      // The app (next/) and everything it loads come fresh from the network,
+      // so a deploy shows up on the next reload; each file is kept as it is
+      // fetched, and the kept copy is used when there is no network.
+      // ponytail: network first costs a round trip per file on every load;
+      // precache the app and serve it cache-first if load time ever matters.
       const client = event.clientId ? await self.clients.get(event.clientId) : null;
       if (url.pathname.includes('/next/') || (client && new URL(client.url).pathname.includes('/next/'))) {
         try {
           const res = await fetch(req, { cache: 'no-cache' });
-          // only next/'s own files are stored: a shared module refreshed here
-          // must not end up beside an older main.js in the main app's shell
-          if (res && res.ok && url.pathname.includes('/next/')) (await caches.open(CACHE)).put(req, res.clone());
+          if (res && res.ok) (await caches.open(CACHE)).put(req, res.clone());
           return res;
         } catch (err) {
           const cached = await caches.match(req);

@@ -2,8 +2,7 @@
 // picture, the paint mask, and a region map of the sheet's pieces and the
 // kit's number / sponsor zones. No page elements in here.
 //
-// ponytail: the page-free half of main.js's template handler and
-// applyTemplateIntel, copied rather than refactored out of that file.
+// (It began as the page-free half of the original screen's template handler.)
 
 import { loadImage } from './engine.js';
 import { psdToTemplate } from './psd.js';

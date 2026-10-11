@@ -2,8 +2,8 @@
 // here: onto the twin panel its panel is paired with, or across its panel's
 // centreline.
 //
-// ponytail: copied out of main.js's mirrorLayerCopy (which stays as it is for
-// the original screen), plus free shapes, which mirror point by point.
+// (It began as the original screen's mirrorLayerCopy, with free shapes added,
+// which mirror point by point.)
 
 import { isRegionLayer, clipPolys, newId } from './engine.js';
 import { frameFrom, framed, contains } from './shapes.js';
