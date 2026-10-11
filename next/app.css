@@ -128,9 +128,6 @@ button:disabled { cursor: default; opacity: .38; }
 .nest { margin: 0 0 4px 8px; border-left: 2px solid var(--line); } /* what belongs to the switch above it */
 .pair.wrap { flex-wrap: wrap; }
 input[type="color"].mini { width: 24px; height: 24px; }
-input[type="color"].aimed { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
-.note.aimed { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 4px 6px 2px; padding: 5px 6px 5px 9px; border: 1px solid var(--accent); border-radius: 7px; background: var(--accent-soft); color: var(--fg); }
-.note.aimed .btn { padding: 2px 9px; }
 .pair.wrap { gap: 4px; }
 .pair select { flex: 1; min-width: 0; }
 /* a pattern's shapes and colours: small tiles in a row, each with a x that shows when pointed at */
@@ -200,10 +197,25 @@ input[type="color"] { width: 38px; height: 26px; padding: 0; border: 1px solid v
 .btn.main:hover:not(:disabled) { background: var(--accent); filter: brightness(1.08); }
 
 .ctx { position: absolute; z-index: 40; top: 0; left: 0; }
-.quick { position: fixed; z-index: 45; display: flex; flex-direction: column; gap: 8px; padding: 8px; max-width: 196px; background: var(--panel); border: 1px solid var(--line); border-radius: 9px; box-shadow: 0 10px 30px var(--shade); }
-.quick[hidden] { display: none; }
-.quick .dots { display: flex; flex-wrap: wrap; gap: 6px; padding: 0; }
-.quick .dot:hover { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* the colour pop-up (picker.js) */
+.cpick { position: fixed; z-index: 45; width: 232px; display: flex; flex-direction: column; gap: 9px; padding: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 12px 34px var(--shade); }
+.cpick[hidden], .cpick [hidden] { display: none; }
+.cp-dots { display: flex; flex-wrap: wrap; gap: 6px; }
+.cp-dots .dot:hover, .cp-dots .dot.on { outline: 2px solid var(--accent); outline-offset: 1px; }
+.cp-sv { position: relative; height: 150px; border-radius: 6px; border: 1px solid var(--line); cursor: crosshair; touch-action: none;
+  background: linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, hsl(var(--hue, 0) 100% 50%)); }
+.cp-sv i { position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, .55); pointer-events: none; }
+.cp-hue { appearance: none; width: 100%; height: 12px; margin: 0; border-radius: 6px; border: 1px solid var(--line); background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00); }
+.cp-hue::-webkit-slider-thumb { appearance: none; width: 12px; height: 16px; border-radius: 4px; background: #fff; border: 1px solid rgba(0, 0, 0, .55); }
+.cp-hue::-moz-range-thumb { width: 10px; height: 14px; border-radius: 4px; background: #fff; border: 1px solid rgba(0, 0, 0, .55); }
+.cp-row { display: flex; align-items: center; gap: 6px; }
+.cp-now { width: 24px; height: 24px; flex: none; border-radius: 6px; border: 1px solid var(--line); }
+.cp-val { display: flex; gap: 4px; flex: 1; min-width: 0; }
+.cp-val input { width: 100%; min-width: 0; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--bar); color: var(--fg); font: 12px var(--mono); }
+.cp-val input[type="number"] { appearance: textfield; padding-inline: 4px; text-align: center; }
+.cp-val input::-webkit-inner-spin-button { appearance: none; }
+.cp-mode { flex: none; padding: 4px 7px; border: 1px solid var(--line); border-radius: 6px; font: 11px var(--mono); color: var(--muted); }
+.cp-mode:hover { background: var(--hover); color: var(--fg); }
 
 dialog { border: 1px solid var(--line); border-radius: 12px; padding: 0; background: var(--panel); color: var(--fg); box-shadow: 0 24px 60px var(--shade); width: min(440px, calc(100% - 32px)); }
 dialog::backdrop { background: rgba(10, 14, 22, .45); }

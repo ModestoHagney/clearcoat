@@ -7,6 +7,7 @@ import { SHAPES, PLAIN_SHAPES, roundedOf, plainOf, softened, boxOutline, aspect,
 import { TEXT_FONTS, GOOGLE_FONTS, fadeStyleOf } from '../js/engine.js';
 import { FINISHES, finishName, finishLabel, finishList, layerColour, isArea, readFinish, presetOf, withPatterns } from '../js/finish.js';
 import { renderTile } from './preview.js';
+import { initPicker } from './picker.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -271,8 +272,8 @@ export function initUI(app, actions, version) {
     return `<details class="more fold" id="f-patfold"${patOpen ? ' open' : ''}><summary>Pattern</summary>` +
         `<div class="field tiles"><span>Shapes</span><span class="pair wrap">${mo ? tile(mo, -1) + more.map(tile).join('') : ''}${more.length < 6 ? add : ''}</span></div>` +
       (!mo ? '' :
-        `<div class="field tiles"><span>Colours</span><span class="pair wrap"><span class="mwrap"><input class="mini${app.target === -1 ? ' aimed' : ''}" data-pat="pick" id="f-pat-color" type="color" value="${col}" title="The pattern's colour: click to change it · right-click for this livery's colours" aria-label="Pattern colour">${cols.length ? out('data-patcdrop', -1, 'colour') : ''}</span>` +
-          cols.map((c, k) => `<span class="mwrap"><input class="mini${app.target === k ? ' aimed' : ''}" data-patc="${k}" id="f-pat-c${k}" type="color" value="${esc(c)}" title="Click to change this colour · right-click for this livery's colours" aria-label="Colour ${k + 2} of the pattern">${out('data-patcdrop', k, 'colour')}</span>`).join('') +
+        `<div class="field tiles"><span>Colours</span><span class="pair wrap"><span class="mwrap"><input class="mini" data-pat="pick" id="f-pat-color" type="color" value="${col}" title="The pattern's colour: click to change it" aria-label="Pattern colour">${cols.length ? out('data-patcdrop', -1, 'colour') : ''}</span>` +
+          cols.map((c, k) => `<span class="mwrap"><input class="mini" data-patc="${k}" id="f-pat-c${k}" type="color" value="${esc(c)}" title="Click to change this colour" aria-label="Colour ${k + 2} of the pattern">${out('data-patcdrop', k, 'colour')}</span>`).join('') +
           (cols.length < 6 ? `<button type="button" class="icon" data-act="addPatternColour" title="Add another colour: they take turns, or mix when Random is on" aria-label="Add another colour to the pattern">+</button>` : '') +
           `<button type="button" class="icon${app.picking === 'pattern' ? ' on' : ''}" data-act="pickPatternColour" title="Pick the first colour from the sheet" aria-label="Pick the pattern's first colour from the sheet">${svg('dropper')}</button></span></div>` +
         field('Size', range('f-pat-size', 0, 1000, toSlider('size', mo.size))) +
@@ -448,11 +449,10 @@ export function initUI(app, actions, version) {
   }
   function colourHtml() {
     const d = app.doc, cur = actions.currentColour(), sel = actions.selected();
-    const aimed = app.target === null ? '' : '<div class="note aimed"><span>Next colour goes to the pattern</span><button type="button" class="btn" data-act="targetOff">Cancel</button></div>';
     const linked = app.sel === 'base' ? d.baseRef : sel ? sel.colorRef : null;
     const saved = d.palette.map((c) => `<span class="chipwrap"><button class="chip${c.id === linked ? ' on' : ''}" data-pal="${esc(c.id)}"><i style="background:${esc(c.color)}"></i>${esc(c.name)}</button><button class="chipedit" data-edit="${esc(c.id)}" title="Rename or change" aria-label="Edit ${esc(c.name)}">${svg('edit')}</button></span>`).join('');
     const used = usedColours();
-    return aimed + `<div class="sub">Saved with this livery</div><div class="chips">${saved}<button class="chip add" data-act="saveColour" title="Save the current colour">+ Save</button></div>` +
+    return `<div class="sub">Saved with this livery</div><div class="chips">${saved}<button class="chip add" data-act="saveColour" title="Save the current colour">+ Save</button></div>` +
       (used.length ? `<div class="sub">In this livery</div><div class="dots">${used.map((c) => `<button class="dot" data-col="${c}" style="background:${c}" title="${c.toUpperCase()}" aria-label="${c}"></button>`).join('')}</div>` : '') +
       `<div class="cur"><input data-colour="pick" id="c-pick" type="color" value="${esc(cur)}" title="Choose a colour" aria-label="Colour"><button class="icon${app.picking === true ? ' on' : ''}" data-act="pickColour" title="Pick a colour from the sheet (I)" aria-label="Pick a colour from the sheet">${svg('dropper')}</button></div>`;
   }
@@ -470,13 +470,6 @@ export function initUI(app, actions, version) {
   }
   const refreshChrome = () => drawChrome();
   const refresh = () => { drawChrome(); drawPanels(); };
-  // which pattern colour a swatch in Properties is: -1 the first, 0… the rest; null: not one
-  const swatchNo = (el) => (el && el.dataset ? (el.dataset.pat ? -1 : el.dataset.patc !== undefined ? +el.dataset.patc : null) : null);
-  // the pattern colour the Colour panel is feeding gets an outline, and the panel says so (Properties is not rebuilt: a colour box in it is in use)
-  function refreshTarget() {
-    for (const el of panels.props.querySelectorAll('[data-pat], [data-patc]')) el.classList.toggle('aimed', swatchNo(el) === app.target);
-    panels.colour.querySelector('.body').innerHTML = colourHtml();
-  }
 
   // controls inside Properties: these must not rebuild the panel they sit in
   // the Colour panel's colour box
@@ -484,12 +477,6 @@ export function initUI(app, actions, version) {
     const t = e.target;
     if (!t.dataset || !t.dataset.colour) return;
     const v = t.value;
-    if (app.target !== null) { // it is a pattern colour that is being chosen
-      const el = panels.props.querySelector('input.aimed');
-      if (el) el.value = v;
-      actions.setColour(v);
-      return;
-    }
     const sw = panels.layers.querySelector(`[data-layer="${CSS.escape(String(app.sel))}"] .sw`);
     if (sw && (app.sel === 'base' || (actions.selected() || {}).type === 'fill')) sw.style.background = v;
     actions.setColour(v);
@@ -560,79 +547,17 @@ export function initUI(app, actions, version) {
   });
   panels.layers.addEventListener('dragend', () => { dragId = null; dropMark(null); });
 
-  // Chrome opens its colour pop-up from the box that was clicked, and lets it
-  // run off the window when that box is near the edge (the panels are). So a
-  // click opens it from a stand-in instead: an unseen colour box put where
-  // the whole pop-up fits, which hands every change back to the real one.
-  const stand = document.createElement('input');
-  stand.type = 'color'; stand.tabIndex = -1; stand.setAttribute('aria-hidden', 'true');
-  stand.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;border:0;padding:0';
-  document.body.appendChild(stand);
-  const POPUP = { w: 260, h: 370 }; // the room Chrome's pop-up takes, with some to spare
-  let standFor = null; // id of the box it stands in for (found again each time: panels are redrawn)
-  // → false when the stand-in cannot be opened here: the box opens its own pop-up, as before
-  function openPicker(t) {
-    if (!stand.showPicker) return false;
-    const r = t.getBoundingClientRect();
-    stand.style.left = Math.max(8, Math.min(r.left, innerWidth - POPUP.w)) + 'px';
-    stand.style.top = Math.max(8, Math.min(r.bottom + 4, innerHeight - POPUP.h)) + 'px';
-    stand.value = t.value;
-    try { stand.showPicker(); } catch { return false; }
-    standFor = t.id;
-    return true;
-  }
-  // A right-click on a pattern's colour box lists the colours saved with the
-  // livery and the ones in use in it. (The Colour panel has those same colours
-  // beside its own box already; a plain click opens the full pop-up.)
-  const quick = document.createElement('div');
-  quick.className = 'quick'; quick.hidden = true;
-  document.body.appendChild(quick);
-  let quickFor = null;
-  const closeQuick = () => { quick.hidden = true; quickFor = null; };
-  function openQuick(t) {
-    const saved = app.doc.palette.map((c) => [hexOf(c.color), c.name]).filter(([c]) => c);
-    const used = usedColours().filter((c) => !saved.some(([s]) => s === c)).map((c) => [c, c.toUpperCase()]);
-    quick.innerHTML = `<div class="dots">${[...saved, ...used].map(([c, name]) => `<button type="button" class="dot" data-quick="${c}" style="background:${c}" title="${esc(name)}" aria-label="${esc(name)}"></button>`).join('')}</div>`;
-    quick.hidden = false; quickFor = t.id;
-    const r = t.getBoundingClientRect();
-    quick.style.left = Math.max(8, Math.min(r.left, innerWidth - quick.offsetWidth - 8)) + 'px';
-    quick.style.top = Math.max(8, Math.min(r.bottom + 4, innerHeight - quick.offsetHeight - 8)) + 'px';
-  }
-  quick.addEventListener('click', (e) => {
-    const b = e.target.closest('[data-quick]'), t = quickFor && $(quickFor);
-    if (!b || !t) return;
-    closeQuick();
-    t.value = b.dataset.quick;
-    t.dispatchEvent(new Event('input', { bubbles: true }));
-    t.dispatchEvent(new Event('change', { bubbles: true }));
+  // Every colour box opens the app's own colour pop-up (see picker.js), which
+  // has the livery's colours in it; the browser's own is never shown.
+  const picker = initPicker({
+    colours: () => ({ saved: app.doc.palette.map((c) => ({ name: c.name, color: hexOf(c.color) })).filter((c) => c.color), used: usedColours() }),
   });
-  document.addEventListener('pointerdown', (e) => {
-    if (!quick.hidden && !quick.contains(e.target)) closeQuick();
-    // a press anywhere but the Colour panel or a pattern colour: the Colour panel goes back to the paint
-    if (app.target !== null && !panels.colour.contains(e.target) && swatchNo(e.target) === null && !quick.contains(e.target)) actions.setTarget(null);
-  }, true);
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !quick.hidden) { closeQuick(); e.stopPropagation(); } }, true);
   document.addEventListener('click', (e) => {
     const t = e.target;
-    if (!(t instanceof HTMLInputElement) || t.type !== 'color' || t === stand || !t.id) return;
-    if (t.closest('dialog')) return; // a dialog sits mid-window, and nothing outside it may be used while it is open
-    if (swatchNo(t) !== null) actions.setTarget(swatchNo(t));
-    if (openPicker(t)) e.preventDefault();
+    if (!(t instanceof HTMLInputElement) || t.type !== 'color' || !t.id) return;
+    e.preventDefault();
+    picker.open(t);
   }, true);
-  panels.props.addEventListener('contextmenu', (e) => {
-    const t = e.target;
-    if (!(t instanceof HTMLInputElement) || t.type !== 'color' || !(t.dataset.pat || t.dataset.patc !== undefined)) return;
-    e.preventDefault(); e.stopPropagation();
-    openQuick(t);
-  });
-  const handBack = (type) => () => {
-    const t = standFor && $(standFor);
-    if (!t) return;
-    t.value = stand.value;
-    t.dispatchEvent(new Event(type, { bubbles: true }));
-  };
-  stand.addEventListener('input', handBack('input'));
-  stand.addEventListener('change', handBack('change'));
 
   // a saved colour is renamed, changed or deleted from its chip
   const editChip = (e) => {
@@ -998,5 +923,5 @@ export function initUI(app, actions, version) {
 
   // put the cursor in a Properties box, ready to type over what is there
   const focusField = (id) => { const el = $(id); if (el) { el.focus(); if (el.select) el.select(); } };
-  return { refresh, refreshChrome, refreshTarget, say, ask, askText, pickProject, carSetup, shortcuts, editColour, focusField, library, mergeChoice };
+  return { refresh, refreshChrome, say, ask, askText, pickProject, carSetup, shortcuts, editColour, focusField, library, mergeChoice };
 }
