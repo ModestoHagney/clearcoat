@@ -2,6 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<!-- The new screen (next/) is the app now: this page hands straight over to it.
+     The original screen is still here for anyone who needs it: add ?classic to the address. -->
+<script>if (!/[?&]classic\b/.test(location.search)) location.replace('next/');</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Clearcoat — iRacing Livery Workbench</title>
 <meta name="description" content="Photoshop-free iRacing livery editing with live preview on the real car. Layer editor, automatic spec maps, direct save into your iRacing paints folder.">
@@ -23,7 +26,7 @@
       <path d="M16 22 L24 8 H26 L18 22 Z" fill="#e8e6e1"/>
     </svg>
     <span class="brand-name">CLEARCOAT</span>
-    <span class="brand-sub">livery workbench <span id="app-version">v0.68-pieces.59</span></span>
+    <span class="brand-sub">livery workbench <span id="app-version">v0.68-pieces.60</span></span>
   </div>
 
   <input id="project-name" class="project-name" type="text" value="untitled livery" spellcheck="false" aria-label="Project name">
