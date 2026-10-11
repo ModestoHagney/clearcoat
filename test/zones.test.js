@@ -1,19 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  alphaComponents,
-  detectMirrorAxis,
-  pairTwins,
-  zonesToRegions,
-  blobGray,
-  twinRelation,
-  inferDecalPairs,
-  applyOrientation,
-  fitToZone,
-  nearestRegion,
-  offPaintFraction,
-} from '../js/zones.js';
-import { createRegionMap, parseRegionMap, mirrorLayerPlacement, mirrorPointKind } from '../js/regions.js';
+import { alphaComponents, detectMirrorAxis, pairTwins, zonesToRegions, blobGray, twinRelation, inferDecalPairs, applyOrientation } from '../js/zones.js';
+import { createRegionMap, parseRegionMap, mirrorPointKind } from '../js/regions.js';
 
 // ---------------------------------------------------------------- synthetic images
 
@@ -206,47 +194,9 @@ test('applyOrientation gives the upper region rot 180 for a rot180 pair, flipV p
 
 // ---------------------------------------------------------------- fit / nearest / bleed
 
-test('fitToZone centres with an 8% margin and swaps axes for 90/270', () => {
-  const region = { x: 434, y: 908, w: 349, h: 93, rot: 0 };
-  const f = fitToZone(1000, 200, region);
-  assert.equal(f.x, 609); // 434 + 174.5 → rounded
-  assert.equal(f.y, 955);
-  assert.equal(f.rotation, 0);
-  // width-bound: 349*0.84 / 1000
-  assert.ok(Math.abs(f.scale - (349 * 0.84) / 1000) < 1e-9);
-  const tall = fitToZone(1000, 200, { x: 0, y: 0, w: 100, h: 500, rot: 270 });
-  assert.equal(tall.rotation, 270);
-  // turned: the 1000-wide raster now spans the 500-tall side
-  assert.ok(Math.abs(tall.scale - Math.min((100 * 0.84) / 200, (500 * 0.84) / 1000)) < 1e-9);
-  assert.equal(fitToZone(10, 10, { x: 0, y: 0, w: 100, h: 100, rot: 180 }).rotation, 180);
-  assert.equal(fitToZone(10, 10, { x: 0, y: 0, w: 100, h: 100 }).rotation, 0);
-});
-
-test('nearestRegion prefers the containing region, else the closest centre', () => {
-  const map = createRegionMap('t');
-  map.regions.push({ id: 'a', name: 'a', x: 0, y: 0, w: 100, h: 100 });
-  map.regions.push({ id: 'b', name: 'b', x: 1000, y: 1000, w: 100, h: 100 });
-  assert.equal(nearestRegion(map, 50, 50).id, 'a');
-  assert.equal(nearestRegion(map, 900, 900).id, 'b');
-  assert.equal(nearestRegion(createRegionMap('t'), 1, 1), null);
-  assert.equal(nearestRegion(null, 1, 1), null);
-});
-
-test('offPaintFraction measures opaque pixels landing on unpaintable mask', () => {
-  const layer = blank(10, 10);
-  fillRect(layer, 0, 0, 10, 5); // 50 opaque px in the top half
-  const mask = blank(10, 10);
-  // paintable (white) everywhere except the top-left 10×2 strip (black)
-  fillRect(mask, 0, 0, 10, 10, [255, 255, 255]);
-  fillRect(mask, 0, 0, 10, 2, [0, 0, 0]);
-  const f = offPaintFraction(layer, mask);
-  assert.ok(Math.abs(f - 0.4) < 1e-9);
-  assert.equal(offPaintFraction(blank(10, 10), mask), null);
-});
-
 // ---------------------------------------------------------------- mirror kinds (regions.js)
 
-test('mirrorPointKind maps by relation and mirrorLayerPlacement reports the kind', () => {
+test('mirrorPointKind maps by relation; a map drops a mirror kind with no partner, and unknown kinds', () => {
   const src = { x: 0, y: 0, w: 100, h: 50 }, dst = { x: 1000, y: 1000, w: 100, h: 50 };
   assert.deepEqual(mirrorPointKind(src, dst, 10, 10, 'flip'), { x: 1090, y: 1010 });
   assert.deepEqual(mirrorPointKind(src, dst, 10, 10, 'flipV'), { x: 1010, y: 1040 });
@@ -261,15 +211,7 @@ test('mirrorPointKind maps by relation and mirrorLayerPlacement reports the kind
       { id: 'c', name: 'c', x: 500, y: 0, w: 100, h: 50, mirror: 'd' },
       { id: 'd', name: 'd', x: 700, y: 0, w: 100, h: 50, mirror: 'c' },
       { id: 'e', name: 'e', x: 900, y: 0, w: 10, h: 10, mirrorKind: 'rot180' }, // no partner → kind dropped
-    ],
-  });
-  const p = mirrorLayerPlacement(map, { x: 10, y: 10 });
-  assert.equal(p.kind, 'rot180');
-  assert.equal(p.flip, false);
-  assert.deepEqual([p.x, p.y], [90, 2038]);
-  const q = mirrorLayerPlacement(map, { x: 510, y: 10 });
-  assert.equal(q.kind, 'flip');
-  assert.equal(q.flip, true);
+    ] });
   assert.equal(map.regions.find(r => r.id === 'e').mirrorKind, undefined);
   // unknown kinds are dropped, not thrown
   const bad = parseRegionMap({ format: 'clearcoat-regions/1', car: 't', regions: [

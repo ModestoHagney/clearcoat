@@ -142,11 +142,6 @@ export function guessMirrorKind(src, dst, kinds = MIRROR_KINDS) {
   return best;
 }
 
-// the relation between a region and its mirror partner ('flip' when unset)
-export function mirrorKindOf(src) {
-  return MIRROR_KINDS.includes(src && src.mirrorKind) ? src.mirrorKind : 'flip';
-}
-
 // mirrorPoint generalized over the pair's relation
 export function mirrorPointKind(src, dst, x, y, kind) {
   const u = src.w ? (x - src.x) / src.w : 0;
@@ -154,26 +149,6 @@ export function mirrorPointKind(src, dst, x, y, kind) {
   const fu = kind === 'flip' || kind === 'rot180' ? 1 - u : u;
   const fv = kind === 'flipV' || kind === 'rot180' ? 1 - v : v;
   return { x: dst.x + fu * dst.w, y: dst.y + fv * dst.h };
-}
-
-// the { src, dst } mirror pair containing a point, or null
-export function mirrorPairAt(map, x, y) {
-  const src = regionAt(map, x, y);
-  if (!src || !src.mirror) return null;
-  const dst = regionById(map, src.mirror);
-  return dst ? { src, dst } : null;
-}
-
-// given a layer whose center (x, y) lies in a region with a mirror partner,
-// the mirrored placement. `kind` says how the copy must be transformed:
-// 'flip' toggles flipH (flip: true kept for older callers), 'flipV' toggles
-// flipV, 'rot180' adds 180° of rotation, 'same' copies as-is.
-export function mirrorLayerPlacement(map, layer) {
-  const pair = mirrorPairAt(map, layer.x, layer.y);
-  if (!pair) return null;
-  const kind = mirrorKindOf(pair.src);
-  const p = mirrorPointKind(pair.src, pair.dst, layer.x, layer.y, kind);
-  return { x: Math.round(p.x), y: Math.round(p.y), flip: kind === 'flip', kind };
 }
 
 // ---------- centerline ----------

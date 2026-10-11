@@ -239,10 +239,6 @@ function picture(wantAccurate) {
   composite = cache ? renderPaintWithDrag(doc, cache) : renderPaint(doc, { linearEdges: false });
 }
 
-// for the checks: the sheet as last painted, and how (kept parts round what is moving, everything quickly, or everything accurately)
-export const sheetNow = () => composite;
-export const sheetHow = () => (accurate ? 'accurately, in full' : kept ? `with kept parts round ${kept.cache.movingIds.size} moving layers` : 'quickly, in full');
-
 function draw() {
   if (!app.doc) return; // a resize can land before the first doc exists
   const doc = app.doc, dpr = window.devicePixelRatio || 1;
@@ -325,8 +321,6 @@ const pack = (data) => JSON.stringify(data, (k, v) => {
   if (n === undefined) { n = internedBack.push(v) - 1; interned.set(v, n); }
   return '\u0001' + n;
 });
-// how much the undo history is holding, for the memory checks: characters in the snapshots, and in the long strings they share
-export const memInfo = () => ({ snaps: undoStack.length + redoStack.length, snapChars: [...undoStack, ...redoStack].reduce((n, x) => n + x.length, 0), kept: internedBack.length, keptChars: internedBack.reduce((n, x) => n + (x ? x.length : 0), 0) });
 const unpack = (snap) => JSON.parse(snap, (k, v) => (typeof v === 'string' && v[0] === '\u0001' ? internedBack[+v.slice(1)] : v));
 
 const undoStack = [], redoStack = [];
@@ -1646,7 +1640,6 @@ const actions = {
     requestDraw();
     ui.refresh();
   },
-  setBase: (hex) => actions.applyColour(hex, { typed: true }),
 };
 
 // ---------- pointer and keys ----------

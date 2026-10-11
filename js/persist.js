@@ -45,10 +45,6 @@ async function kvDelete(key) {
 
 // ---------- autosave ----------
 
-export const saveAutosave = (data) => kvSet('autosave', data);
-export const loadAutosave = () => kvGet('autosave');
-export const clearAutosave = () => kvDelete('autosave');
-
 export const saveSetting = (key, value) => kvSet('setting:' + key, value);
 export const loadSetting = (key) => kvGet('setting:' + key);
 
@@ -79,32 +75,6 @@ export async function saveProject(id, meta, data) {
 }
 
 export const loadProject = (id) => kvGet('project:' + id);
-
-export async function deleteProject(id) {
-  await kvDelete('project:' + id);
-  await kvSet(PROJECTS_INDEX, (await listProjects()).filter(p => p.id !== id));
-}
-
-export async function renameProject(id, name) {
-  const index = await listProjects();
-  const entry = index.find(p => p.id === id);
-  if (!entry) return;
-  entry.name = name;
-  await kvSet(PROJECTS_INDEX, index);
-  // stored doc name stays in agreement — docs are stored as JSON strings
-  // (v0.31+) or plain objects (older saves)
-  const data = await kvGet('project:' + id);
-  if (typeof data === 'string') {
-    try {
-      const parsed = JSON.parse(data);
-      parsed.name = name;
-      await kvSet('project:' + id, JSON.stringify(parsed));
-    } catch { /* corrupt — leave it */ }
-  } else if (data) {
-    data.name = name;
-    await kvSet('project:' + id, data);
-  }
-}
 
 // ---------- File System Access ----------
 
@@ -151,21 +121,6 @@ export async function getBackupDir(dirHandle, create = false) {
   } catch {
     return null;
   }
-}
-
-export async function deleteFromFolder(dirHandle, filename) {
-  try { await dirHandle.removeEntry(filename); } catch { /* already gone */ }
-}
-
-// All file names in the folder (non-recursive).
-export async function listFolder(dirHandle) {
-  const names = [];
-  try {
-    for await (const entry of dirHandle.values()) {
-      if (entry.kind === 'file') names.push(entry.name);
-    }
-  } catch { /* permission revoked mid-iteration */ }
-  return names;
 }
 
 // All subdirectory names (non-recursive) — used to offer car-folder selection
