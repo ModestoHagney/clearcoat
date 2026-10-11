@@ -1,4 +1,4 @@
-// Clearcoat, new screen: the state, the canvas, and what the menus do.
+// Overspray: the state, the canvas, and what the menus do.
 // The refresh, built in stages on the existing plumbing (../js). Stage 1: load
 // a template, show the pieces, an exact base colour, open projects from the
 // original screen, save to iRacing. Stage 2: shapes you draw and keep editing
@@ -26,7 +26,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { regionOutline, parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.81';
+export const VERSION = 'v0.68-pieces.82';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');

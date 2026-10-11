@@ -1,4 +1,4 @@
-// Clearcoat, new screen: the finish preview — a gently domed, rounded
+// Overspray: the finish preview — a gently domed, rounded
 // rectangle of the target's colour, lit so that gloss, matte, metallic and
 // chrome read differently, with any sparkle shown at its real grain.
 //

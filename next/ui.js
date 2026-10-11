@@ -1,4 +1,4 @@
-// Clearcoat, new screen: everything around the canvas — menus, tool strip,
+// Overspray: everything around the canvas — menus, tool strip,
 // the panel cards, dialogs, the right-click menu and the toast. It reads the
 // app state and calls back into `actions`; it holds no livery state itself.
 
@@ -811,7 +811,7 @@ export function initUI(app, actions, version) {
     return !list.length ? '' : '<div class="sub">Icons in this livery</div>' + list.map((c) =>
       `<div class="note">${esc(c.name)}: ${c.url ? `<a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.set)}</a>` : esc(c.set)}${c.author ? ' by ' + esc(c.author) : ''}${c.licence ? ', ' + esc(c.licence) : ''}</div>`).join('');
   };
-  const about = () => ask({ title: 'Clearcoat', ok: 'Close', cancel: null, body: `<div class="note">${esc(version)}</div><div class="note">Built on <a href="https://github.com/OblivionsPeak/clearcoat" target="_blank" rel="noopener">Clearcoat by OblivionsPeak</a></div>` + credits() });
+  const about = () => ask({ title: 'About', ok: 'Close', cancel: null, body: `<div class="brandname">Overspray</div><div class="note">${esc(version)}</div><div class="note">Built on <a href="https://github.com/OblivionsPeak/clearcoat" target="_blank" rel="noopener">Clearcoat by OblivionsPeak</a></div>` + credits() });
 
   // ---------- clicks ----------
   const run = (act) => {

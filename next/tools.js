@@ -1,4 +1,4 @@
-// Clearcoat, new screen: what the pointer does on the sheet.
+// Overspray: what the pointer does on the sheet.
 //
 // Pen tool: click points to draw a closed outline; it becomes a fill layer
 // with shape 'path' (see ../js/shapes.js and the engine's fillShapePath).

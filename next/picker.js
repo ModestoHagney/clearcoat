@@ -1,4 +1,4 @@
-// Clearcoat, new screen: the colour pop-up. It is the app's own, opened from
+// Overspray: the colour pop-up. It is the app's own, opened from
 // any colour box, because it has to hold what the browser's cannot: the
 // colours already in the livery and the ones saved with it.
 //

@@ -1,7 +1,7 @@
 {
-  "name": "Clearcoat — iRacing Livery Workbench",
-  "short_name": "Clearcoat",
-  "description": "Photoshop-free iRacing livery editing with live preview on the real car.",
+  "name": "Overspray",
+  "short_name": "Overspray",
+  "description": "Paint iRacing liveries in the browser, panel by panel, and see every change on the car.",
   "start_url": ".",
   "scope": ".",
   "display": "standalone",

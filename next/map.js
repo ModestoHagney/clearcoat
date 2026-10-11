@@ -1,4 +1,4 @@
-// Clearcoat, new screen: Map mode. The map is what the app knows about the
+// Overspray: Map mode. The map is what the app knows about the
 // sheet beyond pixels: which outline is which panel, which panel is the twin
 // of which, and where a panel's centreline runs. Painting tools (fill a
 // panel, trim, mirror) work from it; this mode is where it is looked at and

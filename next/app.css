@@ -1,4 +1,4 @@
-/* Clearcoat, new screen. The sheet takes the screen; one menu bar, one slim
+/* Overspray. The sheet takes the screen; one menu bar, one slim
    tool strip, panels that are cards over the canvas and fold away. */
 :root {
   --bar: #ffffff; --panel: #ffffff; --stage: #e4e7ec; --line: #d5d9e0;
@@ -39,7 +39,11 @@ button:disabled { cursor: default; opacity: .38; }
 
 /* top bar */
 .bar { grid-area: bar; display: flex; align-items: center; gap: 4px 14px; flex-wrap: wrap; padding: 6px 14px; background: var(--bar); border-bottom: 1px solid var(--line); }
-.brand { font-weight: 600; letter-spacing: .01em; }
+/* the name, in the one place a display font is used: Rubik Spray Paint (and the same in Help › About) */
+.brand, .brandname { font-family: "Rubik Spray Paint", var(--ui); font-weight: 400; letter-spacing: .01em; }
+.brand { display: inline-flex; align-items: center; gap: 6px; font-size: 18px; line-height: 1; }
+.brand .mark { width: 20px; height: 20px; fill: var(--accent); flex: none; }
+.brandname { font-size: 34px; line-height: 1.1; }
 .menus { display: flex; gap: 2px; }
 .menu { position: relative; }
 .menu > button { padding: 5px 9px; }
@@ -306,7 +310,7 @@ dialog .dbody .sub, dialog .dbody .note, dialog .dbody .dots { padding-inline: 0
 body.workshop .dock, body.workshop .panel, body.workshop #menus, body.workshop #modes, body.workshop #btn-live, body.workshop .zoom, body.workshop #empty { display: none !important; }
 body.workshop .stage { background: color-mix(in srgb, var(--stage) 55%, #0b1220); }
 body.workshop .bar { background: color-mix(in srgb, var(--bar) 80%, #0b1220); }
-body.workshop .bar .brand::after { content: " · drawing a shape"; font-weight: 400; color: var(--muted); }
+body.workshop .bar .brand::after { content: " · drawing a shape"; font: 400 14px var(--ui); color: var(--muted); }
 .shapebox { position: absolute; left: calc(var(--sx) - 14px); top: calc(var(--sy) - 54px); width: calc(var(--ss) + 28px); height: calc(var(--ss) + 68px);
   border: 14px solid var(--panel); border-top-width: 54px; border-radius: 14px; box-shadow: 0 24px 60px rgba(8, 12, 22, .45); pointer-events: none; z-index: 2; }
 .shapebox > header { position: absolute; left: 0; right: 0; top: -44px; height: 34px; display: flex; align-items: center; gap: 10px; padding: 0 2px; pointer-events: auto; }

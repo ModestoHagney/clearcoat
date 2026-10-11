@@ -1,4 +1,4 @@
-// Clearcoat, new screen: shapes from outside. An SVG (a file, or an icon from
+// Overspray: shapes from outside. An SVG (a file, or an icon from
 // the open icon sets searched through the Iconify service) is read into one of
 // this app's own outlines, so it is a shape like any other: it takes a colour,
 // repeats as a pattern, stamps, mirrors and can be reshaped.
