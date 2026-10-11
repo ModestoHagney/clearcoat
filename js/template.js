@@ -1,5 +1,5 @@
 // Reading an iRacing template into what a livery doc needs: the linework
-// picture, the paint mask, and a region map of the sheet's pieces and the
+// picture and a region map of the sheet's pieces and the
 // kit's number / sponsor zones. No page elements in here.
 //
 // (It began as the page-free half of the original screen's template handler.)
@@ -82,14 +82,14 @@ const fileToDataURL = (file) => new Promise((resolve, reject) => {
   r.readAsDataURL(file);
 });
 
-// file: a template PSD (pieces, zones and mask are read from it) or a plain
+// file: a template PSD (pieces and zones are read from it) or a plain
 // picture (linework only). map: the doc's current region map, or null.
-// → { template: { img, src }, paintMask, regionMap, pieces, zones, carName }
+// → { template: { img, src }, regionMap, pieces, zones, carName }
 export async function loadTemplate(file, map = null) {
   const carName = file.name.replace(/\.[^.]+$/, '');
   if (!/\.psd$/i.test(file.name)) {
     const src = await fileToDataURL(file);
-    return { template: { img: await loadImage(src), src }, paintMask: null, regionMap: map, pieces: 0, zones: 0, carName };
+    return { template: { img: await loadImage(src), src }, regionMap: map, pieces: 0, zones: 0, carName };
   }
   await ensurePsdReader();
   const res = await psdToTemplate(await file.arrayBuffer());
@@ -101,7 +101,6 @@ export async function loadTemplate(file, map = null) {
   const src = res.wire ? linesPicture(res.wire) : res.src;
   return {
     template: { img: await loadImage(src), src },
-    paintMask: res.paintMask || null,
     regionMap: merged.map, pieces: merged.pieces, zones: merged.zones, carName,
   };
 }

@@ -129,12 +129,11 @@ test('sparkle sits on top of any finish: specks at size 1, chips above', () => {
   assert.equal(cleanFinishRules([{ color: '#ff0000', material: 'flake', params: { ...fine.params } }])[0].params.bright, 50);
 });
 
-test('labels: a preset, a preset with sparkle, tweaked numbers, an old finish', () => {
+test('labels: a preset, a preset with sparkle, tweaked numbers', () => {
   assert.equal(finishLabel('matte', null), 'Matte');
   const s = writeFinish({ ...readFinish('pearl', null), sparkle: { ...SPARKLE } });
   assert.equal(finishLabel(s.material, s.params), 'Pearl + sparkle');
   assert.equal(finishLabel('matte', { met: 10, rough: 200, clear: 60 }), 'Custom');
-  assert.equal(finishLabel('carbon', null), 'Carbon');
 });
 
 test('a colour rule carries tweaked numbers and sparkle to its layers and the base coat', async () => {

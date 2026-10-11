@@ -8,33 +8,19 @@ export const SIZE = 2048;
 // iRacing PBR spec map convention (per official template PSDs):
 // R = metallic, G = roughness, B = clearcoat strength.
 // `tex` materials bake a procedural per-pixel micro-texture into the spec
-// channels instead of flat values. `ghost` layers are skipped in the paint
-// map entirely — the design exists only in reflections.
+// channels instead of flat values.
 // Per iRacing's docs the blue (clearcoat) channel should stay white unless
 // deliberately reduced. Every material is a *starting recipe* — per-layer
 // matParams (met/rough/clear + texture knobs) override these defaults.
 export const MATERIALS = {
   gloss:    { label: 'Gloss',    met: 0,   rough: 40,  clear: 255 },
   matte:    { label: 'Matte',    met: 0,   rough: 230, clear: 60  },
-  // light-trap black: max roughness + zero clearcoat kills specular and
-  // reflections entirely; applying it also forces the paint to #000000
-  vanta:    { label: 'Vanta',    met: 0,   rough: 255, clear: 0   },
   satin:    { label: 'Satin',    met: 0,   rough: 120, clear: 150 },
   metallic: { label: 'Metallic', met: 180, rough: 70,  clear: 255 },
   chrome:   { label: 'Chrome',   met: 255, rough: 10,  clear: 255 },
-  candy:    { label: 'Candy',    met: 220, rough: 25,  clear: 255 },
   pearl:    { label: 'Pearl',    met: 190, rough: 60,  clear: 255 },
-  // pearl over existing artwork without muting it — values validated in-sim
-  glaze:    { label: 'Glaze',    met: 75,  rough: 55,  clear: 255 },
-  // emissive-look paint: iRacing has no emissive channel, so neon = zero-metal
-  // hot gloss (keeps color pure and bright) + a self-colored halo baked into
-  // the PAINT map automatically (bloom = halo radius, tunable per layer)
-  neon:     { label: 'Neon',     met: 0,   rough: 15,  clear: 255, bloom: 26 },
   flake:    { label: 'Flake',    tex: 'flake',   met: 160, rough: 45,  clear: 255, density: 18, contrast: 100 },
   glitter:  { label: 'Glitter',  tex: 'glitter', met: 170, rough: 60,  clear: 255, density: 30, scale: 4, contrast: 100 },
-  brushed:  { label: 'Brushed',  tex: 'brushed', met: 205, rough: 110, clear: 130, scale: 2,  contrast: 100 },
-  carbon:   { label: 'Carbon',   tex: 'carbon',  met: 40,  rough: 85,  clear: 210, scale: 16, contrast: 100 },
-  ghost:    { label: 'Ghost',    met: 255, rough: 10, clear: 255, ghost: true },
 };
 
 // fresh copy of a material's editable parameters
@@ -44,28 +30,11 @@ export function defaultParams(key) {
   if (m.density !== undefined) p.density = m.density;
   if (m.scale !== undefined) p.scale = m.scale;
   if (m.contrast !== undefined) p.contrast = m.contrast;
-  if (m.bloom !== undefined) p.bloom = m.bloom;
   return p;
 }
 
 export function resolveParams(materialKey, matParams) {
   return { ...defaultParams(materialKey), ...(matParams || {}) };
-}
-
-// ---------- luminance-driven spec (weathering) ----------
-// Per-pixel finish derived from the layer's PAINT luminance, so a weathering
-// pattern (verdigris, rust, salt patina) bakes rough oxide where it's dark
-// and the layer's own material where bright metal shows through. amt 0-100
-// blends from flat material (0) to the full oxide swing (100); invert makes
-// the BRIGHT end weather instead.
-const LUM_OXIDE = { met: 0, rough: 235, clear: 30 };
-export function lumSpecChannels(lum, p, invert, amt) {
-  const w = (invert ? lum : 1 - lum) * (amt / 100);
-  return {
-    met: Math.round(p.met + (LUM_OXIDE.met - p.met) * w),
-    rough: Math.round(p.rough + (LUM_OXIDE.rough - p.rough) * w),
-    clear: Math.round(p.clear + (LUM_OXIDE.clear - p.clear) * w),
-  };
 }
 
 // ---------- procedural spec micro-textures ----------
@@ -142,35 +111,6 @@ export function specTexture(key, p) {
     }
     texCache.set(cacheKey, c);
     return c; // drawn with fillRect — skip the ImageData path below
-  } else if (key === 'brushed') {
-    // grain bands of `scale` px plus per-pixel jitter in the roughness channel
-    const band = Math.max(1, Math.round(p.scale ?? 2));
-    let row = 0;
-    for (let y = 0; y < SIZE; y++) {
-      if (y % band === 0) row = (rand() - 0.5) * 140 * k;
-      for (let x = 0; x < SIZE; x++) {
-        const i = (y * SIZE + x) * 4;
-        d[i]     = p.met;
-        d[i + 1] = clamp255(p.rough + row + (rand() - 0.5) * 40 * k);
-        d[i + 2] = p.clear;
-        d[i + 3] = 255;
-      }
-    }
-  } else if (key === 'carbon') {
-    // 2x2 twill: alternating cells with opposing roughness gradients
-    const cell = Math.max(2, Math.round(p.scale ?? 16));
-    for (let y = 0; y < SIZE; y++) {
-      for (let x = 0; x < SIZE; x++) {
-        const i = (y * SIZE + x) * 4;
-        const weave = ((Math.floor(x / cell) + Math.floor(y / cell)) % 2) === 0;
-        const fx = (x % cell) / cell;
-        const swing = weave ? (-35 + fx * 70) : (35 - fx * 70);
-        d[i]     = p.met;
-        d[i + 1] = clamp255(p.rough + swing * k);
-        d[i + 2] = p.clear;
-        d[i + 3] = 255;
-      }
-    }
   }
   ctx.putImageData(id, 0, 0);
   texCache.set(cacheKey, c);
@@ -188,42 +128,16 @@ export function createDoc() {
     baseColor: '#1a6cff',
     baseMaterial: 'gloss',
     baseMatParams: null,
-    layers: [],          // bottom → top; image layers only
+    layers: [],          // bottom → top: shapes (fills), text and pictures
     groups: [],          // flat layer groups: { id, name, collapsed }; members carry layer.groupId
     template: null,      // { img, src } — viewport reference only
-    templateOpacity: 0.75,
-    templateColor: '#ffffff',   // recolor linework for contrast; 'original' = multiply as-is
-    templateBold: true,         // thicken 1px linework
     customFonts: [],            // { name, data (base64) } — uploaded fonts travel with the project
     googleFonts: [],            // names of Google fonts added by name, beyond the built-in list
     finishRules: [],            // { color, material, params? }: every shape or text of that colour gets that finish (see finish.js)
     regionMap: null,            // parsed clearcoat-regions/1 map (see regions.js)
-    drivers: [],                // driver variants { id, name, number, custid, enabled } (see variants.js)
-    paintMask: null,            // greyscale canvas from the template's Mask layer: paintable = white (zones.js)
-    showUnpaintable: false,     // tint unpaintable template area red in the viewport
-    patternCar: null,           // car slug whose pattern catalogue (IndexedDB, patterns.js) this doc draws on
     palette: [],                // the livery's saved colours { id, name, color }; a layer's colorRef (or baseRef) points at one
     baseRef: null,              // palette id the base coat follows, if any
   };
-}
-
-// the paint mask travels as a PNG dataURL (greyscale, compresses to a few
-// KB). The canvas never changes after it's made, so the encode is memoized
-// on it — serializeDoc runs on every autosave and history snapshot.
-export function paintMaskToDataURL(mask) {
-  if (typeof mask === 'string') return mask;
-  if (mask._dataURL) return mask._dataURL;
-  try { mask._dataURL = mask.toDataURL('image/png'); } catch { return null; }
-  return mask._dataURL;
-}
-
-// ...and comes back as a canvas so getImageData stays cheap at any size
-export async function paintMaskFromDataURL(src) {
-  const img = await loadImage(src);
-  const c = document.createElement('canvas');
-  c.width = img.width; c.height = img.height;
-  c.getContext('2d').drawImage(img, 0, 0);
-  return c;
 }
 
 export function createImageLayer(img, src, name) {
@@ -236,34 +150,24 @@ export function createImageLayer(img, src, name) {
     visible: true,
     opacity: 1,
     material: 'gloss',
-    fx: null,          // optional layer effects (stroke/shadow/glow)
+    fx: null,          // a shadow, when it has one: { shadow, shadowDX, shadowDY, shadowColor }
     img, src,
     x: SIZE / 2,
     y: SIZE / 2,
     scale: fit,
     scaleY: null,  // non-uniform Y scale; null = follow scale (uniform)
     rotation: 0,   // degrees
-    skewX: 0,      // degrees
-    skewY: 0,
     flipH: false,
     flipV: false,
   };
 }
 
-// full local→doc transform for an image layer (skew sits between rotation
-// and scale so its angles act on the unscaled axes); scaleY = null means
-// "follow scale" so old projects and uniform layers behave identically
-// corner-pin warp lives in its own module; see warp.js for why affine is not
-// enough (parallel sides cannot taper).
-import { drawWarped, cornersFromMatrix } from './warp.js';
-export { cornersFromMatrix };
-
+// full local→doc transform for a picture or text layer; scaleY = null means
+// "follow scale"
 export function layerMatrix(l) {
   return new DOMMatrix()
     .translate(l.x, l.y)
     .rotate(l.rotation)
-    .skewX(l.skewX || 0)
-    .skewY(l.skewY || 0)
     .scale(l.scale * (l.flipH ? -1 : 1), (l.scaleY ?? l.scale) * (l.flipV ? -1 : 1));
 }
 
@@ -306,15 +210,12 @@ export function createTextLayer() {
     italic: false,
     letterSpacing: 0,
     curve: 0,          // arc bend in degrees; 0 = straight, + arches up, − arches down
-    variable: null,    // driver variable: null | 'number' | 'name' | 'custom:<key>' (see variants.js)
-    fx: null,          // optional layer effects (stroke/shadow/glow)
+    fx: null,          // a shadow, when it has one: { shadow, shadowDX, shadowDY, shadowColor }
     x: SIZE / 2,
     y: SIZE / 2,
     scale: 1,
     scaleY: null,
     rotation: 0,
-    skewX: 0,
-    skewY: 0,
     flipH: false,
     flipV: false,
   };
@@ -427,7 +328,7 @@ export function createFillLayer(color = '#e8e6e1') {
     opacity: 1,
     material: 'gloss',
     color,
-    shape: 'rect',         // rect | ellipse | triangle | diamond | stripe | path
+    shape: 'rect',         // rect | ellipse | triangle | path
     pts: null,             // shape 'path': the outline, [{ x, y, c? }] in doc space (see shapes.js)
     fillType: 'solid',     // solid | linear | radial
     color2: '#101114',     // gradient end color
@@ -597,73 +498,7 @@ export function cleanMotif(m) {
   return out;
 }
 
-// ---------- car pattern layer ----------
-// A full-sheet layer drawn from one of the kit's own colour-keyed designs
-// (see patterns.js). `img` is the KEYED pattern (red/green/blue slots);
-// what gets painted is the recoloured canvas, cached on the layer and
-// rebuilt only when the colours change.
-import { normalizeColors as normalizePatternColors, recolorPattern, DEFAULT_COLORS as PATTERN_DEFAULT_COLORS } from './patterns.js';
-
-export function createCarPatternLayer(patternId, img, colors, src) {
-  return {
-    id: newId(),
-    type: 'carpattern',
-    name: 'car pattern',
-    visible: true,
-    opacity: 1,
-    material: 'gloss',
-    fx: null,
-    patternId: patternId || null,
-    colors: normalizePatternColors(colors),
-    img,
-    // the keyed pattern travels inside the project JSON so it stays self-contained
-    src: src || (img && typeof img.src === 'string' && img.src.startsWith('data:') ? img.src : keyedPatternDataURL(img)),
-    x: SIZE / 2, y: SIZE / 2, scale: 1, rotation: 0, flipH: false, flipV: false,
-    rx: 0, ry: 0, rw: SIZE, rh: SIZE, // crop window — full sheet by default
-    _recolor: null,
-  };
-}
-
-function keyedPatternDataURL(img) {
-  if (!img) return null;
-  try {
-    const c = document.createElement('canvas');
-    c.width = img.naturalWidth || img.width; c.height = img.naturalHeight || img.height;
-    c.getContext('2d').drawImage(img, 0, 0);
-    return c.toDataURL('image/png');
-  } catch { return null; }
-}
-
-export function setCarPatternColors(layer, colors) {
-  layer.colors = normalizePatternColors(colors); // a fresh array — duplicates never share one
-  layer._recolor = null;
-  delete layer._albedo;
-  return layer.colors;
-}
-
-// the recoloured sheet, rebuilt when the colours or the keyed image change
-export function carPatternCanvas(layer) {
-  const colors = normalizePatternColors(layer.colors);
-  const key = colors.join(',');
-  const c = layer._recolor;
-  if (c && c.key === key && c.img === layer.img) return c.canvas;
-  const canvas = recolorPattern(layer.img, colors);
-  layer._recolor = { key, img: layer.img, canvas };
-  return canvas;
-}
-
-export const isRegionLayer = (l) => l.type === 'pattern' || l.type === 'fill' || l.type === 'carpattern';
-
-// Paint blend modes — separable modes only: on a transparent backdrop they
-// degrade to plain source-over, so the spec-map silhouette pass (which draws
-// each layer onto an empty scratch canvas) is unaffected by a layer's blend.
-export const BLEND_MODES = {
-  normal: { label: 'Normal', op: 'source-over' },
-  multiply: { label: 'Multiply', op: 'multiply' },
-  screen: { label: 'Screen', op: 'screen' },
-  overlay: { label: 'Overlay', op: 'overlay' },
-  'soft-light': { label: 'Soft light', op: 'soft-light' },
-};
+export const isRegionLayer = (l) => l.type === 'fill';
 
 // ---------- compositing ----------
 
@@ -673,8 +508,6 @@ const specCanvas = document.createElement('canvas');
 specCanvas.width = specCanvas.height = SIZE;
 const scratch = document.createElement('canvas');
 scratch.width = scratch.height = SIZE;
-// dedicated fx scratch canvases — drawLayer is itself called with `scratch`
-// as the target (applyTint, renderSpec), so effects need their own buffers
 // The paint sheet and the scratch are read back many times for one picture
 // (the linear-light mix reads both for every layer). Told so up front, the
 // browser keeps them where reading is cheap, instead of fetching each read
@@ -682,12 +515,11 @@ scratch.width = scratch.height = SIZE;
 paintCanvas.getContext('2d', { willReadFrequently: true });
 scratch.getContext('2d', { willReadFrequently: true });
 specCanvas.getContext('2d', { willReadFrequently: true });
+// the shadow's own buffer: drawLayer is itself called with `scratch` as the target
 const fxScratch = document.createElement('canvas');
 fxScratch.width = fxScratch.height = SIZE;
-const fxTint = document.createElement('canvas');
-fxTint.width = fxTint.height = SIZE;
 
-// the layer's own pixels, without opacity/blend/effects
+// the layer's own pixels, without opacity, trim or shadow
 function drawLayerContent(ctx, layer) {
   if (layer.type === 'fill') {
     const rx = layer.rx ?? 0, ry = layer.ry ?? 0, rw = layer.rw ?? SIZE, rh = layer.rh ?? SIZE;
@@ -716,31 +548,6 @@ function drawLayerContent(ctx, layer) {
       ctx.fill(outline);
     }
     ctx.restore();
-  } else if (layer.type === 'carpattern') {
-    // the kit's own design, recoloured — full sheet, clipped to the crop window
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(layer.rx ?? 0, layer.ry ?? 0, layer.rw ?? SIZE, layer.rh ?? SIZE);
-    ctx.clip();
-    ctx.drawImage(carPatternCanvas(layer), 0, 0, SIZE, SIZE);
-    ctx.restore();
-  } else if (layer.type === 'pattern') {
-    // tiling fill across a region (seamless textures, e.g. SimTex Pro)
-    const pat = ctx.createPattern(layer.img, 'repeat');
-    pat.setTransform(new DOMMatrix()
-      .translate(layer.x, layer.y)
-      .rotate(layer.rotation)
-      .scale(layer.scale * (layer.flipH ? -1 : 1), layer.scale * (layer.flipV ? -1 : 1)));
-    ctx.fillStyle = pat;
-    ctx.fillRect(layer.rx ?? 0, layer.ry ?? 0, layer.rw ?? SIZE, layer.rh ?? SIZE);
-  } else if (layer.corners && layer.corners.length === 4) {
-    // Corner pin: the four points fully describe placement, so the affine
-    // matrix is bypassed entirely rather than composed with it.
-    ctx.save();
-    drawWarped(ctx, layer.img, layer.corners, layer.cornerFit || 'stretch',
-               layer.cornerPan || { x: 0, y: 0 }, layer.cornerZoom || 1,
-               !!layer.flipH, !!layer.flipV);
-    ctx.restore();
   } else {
     ctx.save();
     const m = layerMatrix(layer);
@@ -748,336 +555,6 @@ function drawLayerContent(ctx, layer) {
     ctx.drawImage(layer.img, -layer.img.width / 2, -layer.img.height / 2);
     ctx.restore();
   }
-}
-
-// ---------- halftone fade ----------
-// A layer dissolves into a screen of dots (or bars) along one direction —
-// the classic livery "speed fade". Geometry is worked out from the layer's
-// doc-space corners projected onto the fade axis, so rotation/skew/corner
-// pins all fade along the same world direction the user picked.
-//
-// Returns the band in axis coordinates: u runs along the fade direction,
-// v across it. Solid up to uStart, dots shrinking to nothing at u1.
-export function fadeBand(corners, angleDeg, fadePct) {
-  const a = (angleDeg * Math.PI) / 180;
-  const dx = Math.cos(a), dy = Math.sin(a);
-  let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
-  for (const c of corners) {
-    const u = c.x * dx + c.y * dy;
-    const v = -c.x * dy + c.y * dx;
-    if (u < u0) u0 = u; if (u > u1) u1 = u;
-    if (v < v0) v0 = v; if (v > v1) v1 = v;
-  }
-  const f = Math.max(0, Math.min(100, fadePct)) / 100;
-  const uStart = u1 - (u1 - u0) * f;
-  return { u0, u1, v0, v1, uStart, dx, dy };
-}
-
-// dot radius (as a fraction of half a cell) at position u inside the band:
-// full at uStart so the screen meets the solid region seamlessly, zero at u1.
-// sqrt keeps the *area* ramp linear, which is what reads as an even fade.
-export function fadeDotFrac(u, band) {
-  const span = band.u1 - band.uStart;
-  if (span <= 0) return u < band.u1 ? 1 : 0;
-  const t = (band.u1 - u) / span;
-  return t <= 0 ? 0 : t >= 1 ? 1 : Math.sqrt(t);
-}
-
-// ---- seeded randomness for the rip / glitch styles ----
-// Both styles are "random" but must render identically on every frame, in
-// the paint AND spec passes, and after a reload — so everything derives from
-// one integer seed (fx.fadeSeed, else a hash of the layer id).
-export const FADE_STYLES = ['dots', 'lines', 'rip', 'scan', 'glitch'];
-
-export function hashSeed(str) { // FNV-1a, 32-bit
-  let h = 0x811c9dc5;
-  const s = String(str);
-  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }
-  return h >>> 0;
-}
-
-export function fadeSeedOf(layer, fx) {
-  return Number.isFinite(fx && fx.fadeSeed) ? (fx.fadeSeed >>> 0) : hashSeed(layer.id || 'layer');
-}
-
-// integer lattice hash → [0, 1). (seed, i, k) must be stable, so no PRNG
-// state — any point can be evaluated on its own.
-function latticeHash(seed, i, k) {
-  let h = (seed ^ Math.imul(i | 0, 0x9E3779B1) ^ Math.imul((k | 0) + 1, 0x85EBCA77)) >>> 0;
-  h = Math.imul(h ^ (h >>> 15), 0x2C1B3C6D);
-  h = Math.imul(h ^ (h >>> 12), 0x297A2D39);
-  h ^= h >>> 15;
-  return (h >>> 0) / 4294967296;
-}
-
-// mulberry32 — a tiny seeded PRNG for the sequential plans (shreds, slices)
-function seededRng(seed) {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6D2B79F5) >>> 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-// 1-D value noise in [-1, 1]: `octaves` layers of smoothstep-interpolated
-// lattice values, each twice the frequency and half the amplitude of the
-// last. t is in "coarse wavelengths" — integer t hits a lattice point.
-export function ripNoise(seed, t, octaves = 3, persistence = 0.5) {
-  let sum = 0, norm = 0, amp = 1, f = 1;
-  for (let k = 0; k < octaves; k++) {
-    const x = t * f, i = Math.floor(x), fr = x - i;
-    // linear interpolation keeps the creases sharp (smoothstep reads as a
-    // wobble, not a tear)
-    const a = latticeHash(seed, i, k) * 2 - 1;
-    const b = latticeHash(seed, i + 1, k) * 2 - 1;
-    sum += (a + (b - a) * fr) * amp;
-    norm += amp; amp *= persistence; f *= 2;
-  }
-  return sum / norm;
-}
-
-// torn edge: the solid region ends at uStart; past it the paper tears along
-// a noise profile that wanders up to RIP_DEPTH of the band length. Returns
-// the edge sampled along v: [{ v, u }], every `step` px, covering the band
-// (plus padding) — u is always within [uStart, uStart + RIP_DEPTH * L].
-// Four octaves: a slow wander (8 cells) down to fibre-scale nicks (1 cell).
-export const RIP_DEPTH = 0.7;
-export function ripProfile(seed, band, cell) {
-  const L = Math.max(0, band.u1 - band.uStart);
-  const pad = cell;
-  const step = Math.max(1.5, cell / 5);
-  const wave = cell * 8; // coarse wavelength along the edge
-  const pts = [];
-  for (let v = band.v0 - pad; v <= band.v1 + pad + step; v += step) {
-    const n = ripNoise(seed, v / wave, 4, 0.55); // [-1, 1]
-    pts.push({ v, u: band.uStart + L * RIP_DEPTH * 0.5 * (1 + n) });
-  }
-  return pts;
-}
-
-// detached slivers past the tear — [{ u, v, w, h, rot }], w along u, h along
-// v. Each is placed past the local edge, a distance t into the remaining
-// gap; density falls off toward u1 (acceptance ∝ (1 - t)²).
-export function ripShreds(seed, band, cell) {
-  const L = Math.max(0, band.u1 - band.uStart);
-  const span = band.v1 - band.v0 + cell * 2;
-  if (L <= 0 || span <= 0) return [];
-  const rng = seededRng(seed ^ 0x5bd1e995);
-  const wave = cell * 8;
-  const candidates = Math.min(6000, Math.round((L * span) / (cell * cell) * 0.25));
-  const out = [];
-  for (let i = 0; i < candidates; i++) {
-    const t = rng();                       // distance past the local edge → u1
-    const keep = rng();
-    const v = band.v0 - cell + rng() * span;
-    const w = cell * (0.25 + rng() * 1.3);
-    const h = cell * (0.08 + rng() * 0.4);
-    const rot = (rng() - 0.5) * 0.9;
-    // irregular corners so the slivers read as torn bits, not confetti
-    const skew = [rng(), rng(), rng(), rng()].map(x => (x - 0.5) * 0.8);
-    if (keep > (1 - t) * (1 - t)) continue;
-    const edge = band.uStart + L * RIP_DEPTH * 0.5 * (1 + ripNoise(seed, v / wave, 4, 0.55));
-    const u = edge + w * 0.6 + t * Math.max(0, band.u1 - edge - w * 0.6);
-    out.push({ u, v, w, h, rot, skew });
-  }
-  return out;
-}
-
-// glitch plan: strips across the fade axis (random heights 0.5–3 cells),
-// each cut along u into segments that shift along the fade axis by an offset
-// growing toward u1 and drop out with probability rising to 1 at u1.
-// Returns [{ v, h, segs: [{ u, w, shift, keep }] }]; strips tile
-// [v0 - cell, v1 + cell] with no gaps, segments tile [uStart, u1].
-export function glitchSlices(seed, band, cell) {
-  const L = Math.max(0, band.u1 - band.uStart);
-  const vA = Math.floor(band.v0 - cell), vB = band.v1 + cell;
-  const rng = seededRng(seed ^ 0x27d4eb2f);
-  const maxShift = Math.max(cell, Math.min(L * 0.35, cell * 8));
-  const strips = [];
-  if (L <= 0) return strips;
-  for (let v = vA; v < vB;) {
-    // mostly thin strips with the odd tall one, like dropped scanlines
-    // whole-pixel heights/widths/shifts: fractional blits resample into
-    // semi-transparent hairlines, which the spec map must not pick up
-    const r = rng();
-    const h = Math.round(cell * (0.5 + 2.5 * r * r));
-    // ~30% of strips stay put so the glitch reads as broken rows, not a smear
-    const dir = rng() < 0.3 ? 0 : rng() < 0.5 ? -1 : 1;
-    const amt = 0.2 + rng() * 0.8;
-    const segs = [];
-    for (let u = Math.floor(band.uStart); u < band.u1;) {
-      // long runs along the fade axis so the rows read as rows, not tiles
-      const w = Math.min(band.u1 - u, Math.round(cell * (6 + rng() * 14)));
-      const t = (u + w / 2 - band.uStart) / L;    // 0 at the solid edge → 1 at u1
-      const keep = rng() < 1 - t;
-      const shift = Math.round(dir * amt * t * maxShift);
-      segs.push({ u, w, shift, keep });
-      u += w;
-    }
-    strips.push({ v, h: Math.min(h, vB - v), segs });
-    v += h;
-  }
-  return strips;
-}
-
-// paint the fade mask (white where the layer survives) into ctx (doc space)
-function paintFadeMask(ctx, layer, fx) {
-  const band = fadeBand(layerCorners(layer), fx.fadeAngle || 0, fx.fade);
-  const cell = Math.max(4, Math.min(64, fx.fadeCell || 14));
-  ctx.save();
-  ctx.clearRect(0, 0, SIZE, SIZE);
-  // rotate into band space: x → u, y → v
-  ctx.setTransform(band.dx, band.dy, -band.dy, band.dx, 0, 0);
-  ctx.fillStyle = '#fff';
-  const pad = cell; // spill past the bbox so nothing clips at the edges
-  ctx.fillRect(band.u0 - pad, band.v0 - pad, band.uStart - band.u0 + pad, band.v1 - band.v0 + pad * 2);
-  const path = new Path2D();
-  const half = cell / 2;
-  const span = band.v1 - band.v0 + pad * 2;
-  if (fx.fadeStyle === 'rip') {
-    // torn paper: one polygon from the solid edge out along the noise
-    // profile, then detached slivers. Hard edges only — no soft alpha — so
-    // the spec map tears in exactly the same place.
-    const seed = fadeSeedOf(layer, fx);
-    const prof = ripProfile(seed, band, cell);
-    path.moveTo(band.uStart - 1, prof[0].v);
-    for (const p of prof) path.lineTo(p.u, p.v);
-    path.lineTo(band.uStart - 1, prof[prof.length - 1].v);
-    path.closePath();
-    for (const s of ripShreds(seed, band, cell)) {
-      const c = Math.cos(s.rot), sn = Math.sin(s.rot);
-      const hw = s.w / 2, hh = s.h / 2, k = s.skew;
-      // quad in local (a along w, b along h) → rotated into band space
-      const corners = [[-hw, -hh * (1 + k[0])], [hw * (1 + k[1]), -hh], [hw, hh * (1 + k[2])], [-hw * (1 + k[3]), hh]];
-      corners.forEach(([a, b], i) => {
-        const x = s.u + a * c - b * sn, y = s.v + a * sn + b * c;
-        if (i === 0) path.moveTo(x, y); else path.lineTo(x, y);
-      });
-      path.closePath();
-    }
-  } else if (fx.fadeStyle === 'scan') {
-    // scanlines: rows ALONG the fade axis at the cell pitch, each tapering
-    // from a full cell (rows touch → flush with the solid region) to nothing
-    // at u1. Each row is one tapered polygon sampled every cell along u.
-    const L = band.u1 - band.uStart;
-    const steps = Math.max(2, Math.ceil(L / Math.max(2, cell / 2)));
-    const thick = u => {
-      const t = L > 0 ? Math.max(0, Math.min(1, (band.u1 - u) / L)) : 0;
-      return t > 0 ? cell * t + 0.6 : 0; // +0.6px: kill hairline seams between touching rows
-    };
-    for (let v = band.v0 - pad + half; v < band.v1 + pad; v += cell) {
-      path.moveTo(band.uStart - 1, v - thick(band.uStart) / 2);
-      for (let i = 0; i <= steps; i++) {
-        const u = band.uStart + (L * i) / steps;
-        path.lineTo(u, v - thick(u) / 2);
-      }
-      for (let i = steps; i >= 0; i--) {
-        const u = band.uStart + (L * i) / steps;
-        path.lineTo(u, v + thick(u) / 2);
-      }
-      path.lineTo(band.uStart - 1, v + thick(band.uStart) / 2);
-      path.closePath();
-    }
-  } else if (fx.fadeStyle === 'lines') {
-    // bars across the fade direction, thinning toward the end
-    for (let u = band.uStart; u < band.u1 + cell; u += cell) {
-      const t = fadeDotFrac(u + half, band);
-      if (t <= 0) continue;
-      const w = cell * t * t; // linear in coverage
-      path.rect(u + half - w / 2, band.v0 - pad, w, band.v1 - band.v0 + pad * 2);
-    }
-  } else {
-    // staggered dot screen — offset every other row so the fade reads
-    // as a screen instead of a grid
-    let row = 0;
-    for (let v = band.v0 - pad; v < band.v1 + pad; v += cell, row++) {
-      const off = row % 2 ? half : 0;
-      for (let u = band.uStart + off; u < band.u1 + cell; u += cell) {
-        const t = fadeDotFrac(u, band);
-        if (t <= 0) continue;
-        // oversized at the band start so neighbouring dots overlap and the
-        // screen meets the solid region with no visible seam; they separate
-        // into a true dot screen about a third of the way in
-        const r = half * 1.5 * t;
-        path.moveTo(u + r, v);
-        path.arc(u, v, r, 0, Math.PI * 2);
-      }
-    }
-  }
-  ctx.fill(path);
-  ctx.restore();
-}
-
-// band-space scratch canvases for the glitch pass (sized on demand to the
-// band's bbox: A = the layer rotated into band space, B/C = RGB-split work)
-const glitchBufs = [0, 1, 2].map(() => document.createElement('canvas'));
-function sizeGlitchBufs(w, h, count) {
-  for (let i = 0; i < count; i++) {
-    const c = glitchBufs[i];
-    if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
-  }
-}
-
-// Glitch is a displacement, not a mask: the band is cut into strips and the
-// surviving segments are redrawn shifted along the fade axis. Works on the
-// doc-space layer buffer in place. Paint-only extra: an RGB split that draws
-// the R and B channels offset in opposite directions (channel isolation via
-// multiply-fill + destination-in, recombined additively).
-function glitchPass(rctx, layer, fx, forSpec) {
-  const band = fadeBand(layerCorners(layer), fx.fadeAngle || 0, fx.fade);
-  const cell = Math.max(4, Math.min(64, fx.fadeCell || 14));
-  const L = band.u1 - band.uStart;
-  if (L <= 0) return;
-  const split = forSpec ? 0 : Math.max(0, Math.min(12, fx.glitchSplit ?? 4));
-  const pad = cell, margin = 16;
-  // band-space buffer covers u ∈ [uStart - margin, u1 + pad], v ∈ [v0 - pad, v1 + pad]
-  // whole-pixel origin so strip blits land on the pixel grid (see glitchSlices)
-  const bu0 = Math.floor(band.uStart - margin), bv0 = Math.floor(band.v0 - pad);
-  const W = Math.min(4096, Math.ceil(band.u1 + pad - bu0));
-  const H = Math.min(4096, Math.ceil(band.v1 + pad - bv0));
-  sizeGlitchBufs(W, H, split > 0 ? 3 : 1);
-  const [bufA, bufB, bufC] = glitchBufs;
-  const actx = bufA.getContext('2d');
-  actx.save();
-  actx.clearRect(0, 0, W, H);
-  // doc → band: u = dx·x + dy·y - bu0, v = -dy·x + dx·y - bv0
-  actx.setTransform(band.dx, -band.dy, band.dy, band.dx, -bu0, -bv0);
-  actx.drawImage(fxScratch, 0, 0);
-  actx.restore();
-  let src = bufA;
-  if (split > 0) {
-    const bctx = bufB.getContext('2d'), cctx = bufC.getContext('2d');
-    cctx.clearRect(0, 0, W, H);
-    cctx.globalCompositeOperation = 'lighter';
-    for (const [color, off] of [['#ff0000', split], ['#00ff00', 0], ['#0000ff', -split]]) {
-      bctx.globalCompositeOperation = 'source-over';
-      bctx.clearRect(0, 0, W, H);
-      bctx.drawImage(bufA, off, 0);
-      bctx.globalCompositeOperation = 'multiply';
-      bctx.fillStyle = color;
-      bctx.fillRect(0, 0, W, H);
-      bctx.globalCompositeOperation = 'destination-in';
-      bctx.drawImage(bufA, off, 0);
-      cctx.drawImage(bufB, 0, 0);
-    }
-    bctx.globalCompositeOperation = 'source-over';
-    cctx.globalCompositeOperation = 'source-over';
-    src = bufC;
-  }
-  // redraw the band strip by strip into the doc-space buffer
-  rctx.save();
-  rctx.setTransform(band.dx, band.dy, -band.dy, band.dx, 0, 0);
-  rctx.clearRect(band.uStart, bv0, band.u1 + pad - band.uStart, H);
-  for (const strip of glitchSlices(fadeSeedOf(layer, fx), band, cell)) {
-    const sy = strip.v - bv0;
-    for (const seg of strip.segs) {
-      if (!seg.keep) continue;
-      rctx.drawImage(src, seg.u - bu0, sy, seg.w, strip.h, seg.u + seg.shift, strip.v, seg.w, strip.h);
-    }
-  }
-  rctx.restore();
 }
 
 // A layer's trim as a list of windows, each a list of { x, y }. `clip` is
@@ -1091,24 +568,9 @@ export function clipPolys(layer) {
 }
 
 export function drawLayer(ctx, layer, forSpec = false) {
-  // layer effects apply only to raster layers (image/text). Stroke changes
-  // the design silhouette so it renders in both paint and spec passes;
-  // shadow and glow are paint-only cosmetics.
+  // a shadow is for text and pictures, and for the paint only: it is not part of the design's own outline
   const fx = layer.fx;
-  const isRaster = layer.img && (layer.type === 'image' || layer.type === 'text');
-  const hasImgFx = fx && isRaster;
-  const doStroke = hasImgFx && fx.strokeW > 0;
-  const doShadow = hasImgFx && !forSpec && fx.shadow > 0;
-  const doGlow = hasImgFx && !forSpec && fx.glow > 0;
-  // halftone fade changes the silhouette, so it runs in paint AND spec passes
-  const doFade = fx && fx.fade > 0 && (isRaster || isRegionLayer(layer));
-  // neon halo: from the fx slider, or implied by the Neon material itself
-  // (bloom matParam). Paint-only — the sim spec map has no emissive channel.
-  const neonAmt = !forSpec && isRaster
-    ? Math.max(0, Math.min(60, (fx && fx.neon > 0 ? fx.neon
-        : layer.material === 'neon' ? (resolveParams('neon', layer.matParams).bloom ?? 26)
-        : 0)))
-    : 0;
+  const doShadow = !forSpec && fx && fx.shadow > 0 && layer.img && (layer.type === 'image' || layer.type === 'text');
   ctx.save();
   const windows = clipPolys(layer);
   if (windows.length) {
@@ -1124,32 +586,12 @@ export function drawLayer(ctx, layer, forSpec = false) {
     ctx.clip();
   }
   ctx.globalAlpha = layer.opacity;
-  ctx.globalCompositeOperation = (BLEND_MODES[layer.blend] || BLEND_MODES.normal).op;
-  if (!doStroke && !doShadow && !doGlow && !neonAmt && !doFade) {
-    drawLayerContent(ctx, layer);
-    ctx.restore();
-    return;
-  }
-  // render the transformed layer once into a doc-space buffer, then stamp
-  // effects (bottom → top: shadow, glow, stroke) beneath the layer itself
-  const rctx = fxScratch.getContext('2d');
-  rctx.clearRect(0, 0, SIZE, SIZE);
-  drawLayerContent(rctx, layer);
-  if (doFade && fx.fadeStyle === 'glitch') {
-    // glitch displaces the buffer rather than masking it; same seed in the
-    // paint and spec passes keeps the two in step
-    glitchPass(rctx, layer, fx, forSpec);
-  } else if (doFade) {
-    // punch the dot screen into the buffer first so every later effect
-    // (shadow, glow, outline) follows the dots rather than the full shape
-    paintFadeMask(fxTint.getContext('2d'), layer, fx);
-    rctx.save();
-    rctx.globalCompositeOperation = 'destination-in';
-    rctx.drawImage(fxTint, 0, 0);
-    rctx.restore();
-  }
   if (doShadow) {
-    // draw the buffer fully off-canvas and let the shadow land in view
+    // the layer is drawn once into a buffer; drawn fully off-canvas from
+    // there, only its shadow lands in view, beneath the layer itself
+    const rctx = fxScratch.getContext('2d');
+    rctx.clearRect(0, 0, SIZE, SIZE);
+    drawLayerContent(rctx, layer);
     ctx.save();
     ctx.shadowColor = fx.shadowColor || '#000000';
     ctx.shadowBlur = Math.max(0, Math.min(60, fx.shadow));
@@ -1157,95 +599,20 @@ export function drawLayer(ctx, layer, forSpec = false) {
     ctx.shadowOffsetY = fx.shadowDY ?? 8;
     ctx.drawImage(fxScratch, -SIZE, 0);
     ctx.restore();
+    ctx.drawImage(fxScratch, 0, 0);
+  } else {
+    drawLayerContent(ctx, layer);
   }
-  if (doGlow) {
-    ctx.save();
-    ctx.shadowColor = fx.glowColor || '#ffffff';
-    ctx.shadowBlur = Math.max(1, Math.min(60, fx.glow));
-    ctx.shadowOffsetX = SIZE; // zero net offset — glow sits behind the layer
-    ctx.shadowOffsetY = 0;
-    for (let i = 0; i < 3; i++) ctx.drawImage(fxScratch, -SIZE, 0); // stamped for intensity
-    ctx.restore();
-  }
-  if (neonAmt) {
-    // tube-light look: wide additive halo in the neon color, then a tight
-    // white-hot core. 'lighter' compositing is what sells the emissive read.
-    const color = (fx && fx.neonColor) || layer.textColor || layer.color || '#39ff14';
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.shadowColor = color;
-    ctx.shadowBlur = neonAmt * 2;
-    ctx.shadowOffsetX = SIZE;
-    ctx.shadowOffsetY = 0;
-    for (let i = 0; i < 4; i++) ctx.drawImage(fxScratch, -SIZE, 0);
-    ctx.shadowColor = '#ffffff';
-    ctx.shadowBlur = Math.max(1, neonAmt * 0.4);
-    for (let i = 0; i < 2; i++) ctx.drawImage(fxScratch, -SIZE, 0);
-    ctx.restore();
-  }
-  if (doStroke) {
-    const w = Math.max(0, Math.min(40, fx.strokeW));
-    // silhouette tinted with the stroke color (applyTint's source-in trick)
-    const tctx = fxTint.getContext('2d');
-    tctx.clearRect(0, 0, SIZE, SIZE);
-    tctx.save();
-    tctx.drawImage(fxScratch, 0, 0);
-    tctx.globalCompositeOperation = 'source-in';
-    tctx.fillStyle = fx.strokeColor || '#000000';
-    tctx.fillRect(0, 0, SIZE, SIZE);
-    tctx.restore();
-    // stamp around a circle; intermediate radii close gaps on wide strokes
-    const radii = w > 12 ? [w, w * 2 / 3, w / 3] : w > 4 ? [w, w / 2] : [w];
-    const steps = Math.max(12, Math.ceil(w * 1.5));
-    for (const r of radii) {
-      for (let k = 0; k < steps; k++) {
-        const a = (k / steps) * Math.PI * 2;
-        ctx.drawImage(fxTint, Math.cos(a) * r, Math.sin(a) * r);
-      }
-    }
-  }
-  ctx.drawImage(fxScratch, 0, 0);
   ctx.restore();
 }
 
-export function mixHex(hexA, hexB, t) {
-  const a = [1, 3, 5].map(i => parseInt(hexA.slice(i, i + 2), 16));
-  const b = [1, 3, 5].map(i => parseInt(hexB.slice(i, i + 2), 16));
-  return '#' + a.map((v, i) => Math.round(v + (b[i] - v) * t).toString(16).padStart(2, '0')).join('');
-}
-
-// material tint: a color wash over the layer's paint — at high metallic the
-// sim colors reflections from the paint underneath, so this is how you shift
-// what a pearl/candy/flake finish reads as (e.g. pearl drifting warm/yellow
-// under showroom lighting → tint it cool).
-function applyTint(ctx, layer) {
-  const p = layer.matParams;
-  const amt = (p?.tintAmt || 0) / 100;
-  if (!amt || !p.tint) return;
-  const sctx = scratch.getContext('2d');
-  sctx.clearRect(0, 0, SIZE, SIZE);
-  drawLayer(sctx, layer, false);
-  sctx.save();
-  sctx.globalCompositeOperation = 'source-in';
-  sctx.fillStyle = p.tint;
-  sctx.fillRect(0, 0, SIZE, SIZE);
-  sctx.restore();
-  ctx.save();
-  ctx.globalAlpha = amt;
-  ctx.drawImage(scratch, 0, 0);
-  ctx.restore();
-}
-
-// ghost material and "material only" layers exist solely in the spec map
+// a Finish-mode area exists solely in the finish map
 function inPaintMap(layer) {
-  return layer.visible && !(MATERIALS[layer.material] || {}).ghost && !layer.specOnly;
+  return layer.visible && !layer.specOnly;
 }
 
 function paintBase(ctx, doc) {
-  const bp = doc.baseMatParams;
-  ctx.fillStyle = (bp?.tintAmt && bp.tint)
-    ? mixHex(doc.baseColor, bp.tint, bp.tintAmt / 100)
-    : doc.baseColor;
+  ctx.fillStyle = doc.baseColor;
   ctx.fillRect(0, 0, SIZE, SIZE);
   const light = sparkleLight(doc.baseMaterial, doc.baseMatParams);
   if (light) { ctx.save(); ctx.globalAlpha = light.amount; ctx.drawImage(light.canvas, 0, 0); ctx.restore(); }
@@ -1279,16 +646,15 @@ let linearEdges = false; // on for the length of one renderPaint that asked for 
 // ordinary mix people expect from every other paint program.
 // (A picture made by merging such layers says so with linearMix, so that it
 // keeps the look its parts had.)
-function edgesInLinear(layer, normal) {
-  return normal && (layer.type === 'fill' || layer.type === 'text' || layer.linearMix) && (layer.opacity ?? 1) === 1;
+function edgesInLinear(layer) {
+  return (layer.type === 'fill' || layer.type === 'text' || layer.linearMix) && (layer.opacity ?? 1) === 1;
 }
 
 // where a layer can leave pixels, as whole-pixel bounds inside the sheet
 function paintBox(layer) {
   let x0 = 0, y0 = 0, x1 = SIZE, y1 = SIZE;
   const fx = layer.fx;
-  const spills = fx && (fx.strokeW > 0 || fx.shadow > 0 || fx.glow > 0 || fx.neon > 0);
-  if (!spills && layer.material !== 'neon') {
+  if (!(fx && fx.shadow > 0)) { // a shadow falls outside the layer's own box
     try {
       const cs = layerCorners(layer), xs = cs.map(q => q.x), ys = cs.map(q => q.y);
       x0 = Math.max(0, Math.floor(Math.min(...xs)) - 3); y0 = Math.max(0, Math.floor(Math.min(...ys)) - 3);
@@ -1327,11 +693,7 @@ function mixLinearInto(ctx, src, box) {
   if (touched) ctx.putImageData(img, box.x, box.y);
 }
 
-// A layer and its Tint wash are painted as one: the layer is drawn off to the
-// side, its colour mixed toward the tint there, and the result composited
-// once. Washing the tint over a layer that was already on the sheet let the
-// layer's own colour show through on every soft edge pixel — a pale rim
-// round tinted white shapes (lasso, + Piece and wand recolour layers).
+// a layer onto the sheet, with its sparkle's lighter flecks over it
 function paintLayerInto(ctx, layer) {
   paintLayerPaint(ctx, layer);
   const light = sparkleLight(layer.material, layer.matParams);
@@ -1349,33 +711,14 @@ function paintLayerInto(ctx, layer) {
   ctx.drawImage(lightScratch, 0, 0);
 }
 function paintLayerPaint(ctx, layer) {
-  const p = layer.matParams;
-  const amt = (p?.tintAmt || 0) / 100;
-  const normal = (BLEND_MODES[layer.blend] || BLEND_MODES.normal).op === 'source-over';
-  if (linearEdges && (!amt || !p.tint) && edgesInLinear(layer, normal)) {
+  if (linearEdges && edgesInLinear(layer)) {
     const sctx = scratch.getContext('2d');
     sctx.clearRect(0, 0, SIZE, SIZE);
     drawLayer(sctx, layer, false);
     mixLinearInto(ctx, scratch, paintBox(layer));
     return;
   }
-  if (!amt || !p.tint || !normal) {
-    // ponytail: layers with a blend mode keep the two-pass wash, whose look
-    // they were tuned against — fold them in here if a rim shows up on one.
-    drawLayer(ctx, layer, false);
-    applyTint(ctx, layer);
-    return;
-  }
-  const sctx = scratch.getContext('2d');
-  sctx.clearRect(0, 0, SIZE, SIZE);
-  drawLayer(sctx, layer, false);
-  sctx.save();
-  sctx.globalCompositeOperation = 'source-atop';
-  sctx.globalAlpha = amt;
-  sctx.fillStyle = p.tint;
-  sctx.fillRect(0, 0, SIZE, SIZE);
-  sctx.restore();
-  ctx.drawImage(scratch, 0, 0);
+  drawLayer(ctx, layer, false);
 }
 
 // The given layers painted in stack order over a transparent sheet, exactly
@@ -1413,9 +756,7 @@ export function renderPaint(doc, { linearEdges: lin = false } = {}) {
 // static. buildDragCache pre-renders those two slabs once; renderPaintWithDrag
 // then draws slab → moving layers → slab per frame instead of recompositing
 // the whole stack. Returns null (caller falls back to renderPaint) when the
-// moving layers aren't a contiguous run of the paint-visible stack, or when a
-// layer above them uses a blend mode — a blended layer baked against a
-// transparent backdrop wouldn't composite the same as against real paint.
+// moving layers aren't a contiguous run of the paint-visible stack.
 
 const dragBelow = document.createElement('canvas');
 dragBelow.width = dragBelow.height = SIZE;
@@ -1432,10 +773,6 @@ export function buildDragCache(doc, movingIds) {
   for (let i = lo; i <= hi; i++) {
     const l = doc.layers[i];
     if (!movingIds.has(l.id) && inPaintMap(l)) return null; // static layer interleaved
-  }
-  for (let i = hi + 1; i < doc.layers.length; i++) {
-    const l = doc.layers[i];
-    if (inPaintMap(l) && l.blend && l.blend !== 'normal') return null;
   }
 
   const bctx = dragBelow.getContext('2d');
@@ -1484,13 +821,12 @@ export function renderSpec(doc) {
   // touches only the box its layers lie in.
   const sctx = scratch.getContext('2d');
   sctx.clearRect(0, 0, SIZE, SIZE);
-  const stamped = doc.layers.filter(l => l.visible && !l.paintOnly); // paint-only layers never stamp the spec: what is beneath keeps its finish
-  const finishKey = (l) => (l.lumSpec && l.lumSpec.amt > 0) || (l.specBlend && l.specBlend !== 'replace') ? null // weathered, or stacked on what is beneath: on its own
-    : (l.material || 'gloss') + '|' + JSON.stringify(l.matParams || null);
+  const stamped = doc.layers.filter(l => l.visible);
+  const finishKey = (l) => (l.material || 'gloss') + '|' + JSON.stringify(l.matParams || null);
   for (let i = 0; i < stamped.length;) {
     const layer = stamped[i], key = finishKey(layer);
     let j = i + 1;
-    if (key !== null) while (j < stamped.length && finishKey(stamped[j]) === key) j++;
+    while (j < stamped.length && finishKey(stamped[j]) === key) j++;
     const run = stamped.slice(i, j);
     i = j;
     const mat = MATERIALS[layer.material] || MATERIALS.gloss;
@@ -1502,52 +838,23 @@ export function renderSpec(doc) {
     if (w <= 0 || h <= 0) continue;
     // paint the silhouettes, then fill them with the material —
     // flat channel values, or a procedural micro-texture for tex materials
-    for (const l of run) drawLayer(sctx, l, true); // silhouette pass — stroke fx included, shadow/glow not
-    if (layer.lumSpec && layer.lumSpec.amt > 0) {
-      // weathered: spec follows the paint's lights and darks — mask from the
-      // silhouette pass so shadow/glow fx still never stamp the spec
-      const mask = sctx.getImageData(0, 0, SIZE, SIZE).data;
-      sctx.clearRect(0, 0, SIZE, SIZE);
-      drawLayer(sctx, layer, false);
-      applyTint(sctx, layer);
-      const img = sctx.getImageData(0, 0, SIZE, SIZE);
-      const d = img.data;
-      const { amt, invert } = layer.lumSpec;
-      for (let k = 0; k < d.length; k += 4) {
-        const al = mask[k + 3];
-        if (!al) { d[k + 3] = 0; continue; }
-        const lum = (0.2126 * d[k] + 0.7152 * d[k + 1] + 0.0722 * d[k + 2]) / 255;
-        const c = lumSpecChannels(lum, p, !!invert, amt);
-        d[k] = c.met; d[k + 1] = c.rough; d[k + 2] = c.clear; d[k + 3] = al;
-      }
-      sctx.putImageData(img, 0, 0);
+    for (const l of run) drawLayer(sctx, l, true); // silhouette pass: no shadow
+    sctx.save();
+    sctx.globalCompositeOperation = 'source-in';
+    // only inside the box: outside it there is nothing of this run to fill
+    sctx.beginPath(); sctx.rect(x0, y0, w, h); sctx.clip();
+    if (mat.tex) {
+      sctx.drawImage(specTexture(mat.tex, p), 0, 0);
     } else {
-      sctx.save();
-      sctx.globalCompositeOperation = 'source-in';
-      // only inside the box: outside it there is nothing of this run to fill
-      sctx.beginPath(); sctx.rect(x0, y0, w, h); sctx.clip();
-      if (mat.tex) {
-        sctx.drawImage(specTexture(mat.tex, p), 0, 0);
-      } else {
-        sctx.fillStyle = `rgb(${p.met},${p.rough},${p.clear})`;
-        sctx.fillRect(x0, y0, w, h);
-      }
-      sctx.restore();
+      sctx.fillStyle = `rgb(${p.met},${p.rough},${p.clear})`;
+      sctx.fillRect(x0, y0, w, h);
     }
-    // spec stacking: Replace overwrites, Add brightens channels where layers
-    // overlap (compound coats), Multiply darkens
-    ctx.save();
-    ctx.globalCompositeOperation =
-      layer.specBlend === 'add' ? 'lighter' :
-      layer.specBlend === 'multiply' ? 'multiply' : 'source-over';
+    sctx.restore();
     ctx.drawImage(scratch, x0, y0, w, h, x0, y0, w, h);
-    ctx.restore();
     sctx.clearRect(x0, y0, w, h); // left clean for the next run
   }
   return specCanvas;
 }
-
-// ---------- template overlay ----------
 
 // ---------- hit testing ----------
 
@@ -1582,18 +889,9 @@ export function serializeDoc(doc) {
     baseColor: doc.baseColor,
     baseMaterial: doc.baseMaterial,
     baseMatParams: doc.baseMatParams || null,
-    templateOpacity: doc.templateOpacity,
-    templateColor: doc.templateColor,
-    templateBold: doc.templateBold,
     template: doc.template ? doc.template.src : null,
     customFonts: (doc.customFonts || []).map(f => ({ name: f.name, data: f.data })),
     regionMap: doc.regionMap || null,
-    drivers: (doc.drivers || []).map(d => ({
-      id: d.id, name: d.name, number: d.number, custid: d.custid, enabled: d.enabled !== false,
-    })),
-    paintMask: doc.paintMask ? paintMaskToDataURL(doc.paintMask) : null,
-    showUnpaintable: !!doc.showUnpaintable,
-    patternCar: typeof doc.patternCar === 'string' && doc.patternCar ? doc.patternCar : null,
     palette: cleanPalette(doc.palette),
     baseRef: doc.baseRef || null,
     googleFonts: (doc.googleFonts || []).filter(f => typeof f === 'string' && f).slice(0, 60),
@@ -1603,12 +901,8 @@ export function serializeDoc(doc) {
       id: l.id, type: l.type, name: l.name,
       groupId: l.groupId || null,
       visible: l.visible, locked: !!l.locked, opacity: l.opacity, material: l.material,
-      blend: l.blend || 'normal',
       matParams: l.matParams || null,
-      specBlend: l.specBlend || 'replace',
       specOnly: !!l.specOnly,
-      paintOnly: !!l.paintOnly,
-      lumSpec: l.lumSpec || null,
       fx: l.fx || null,
       color: l.color,
       shape: l.shape, fillType: l.fillType, color2: l.color2, gradAngle: l.gradAngle,
@@ -1632,30 +926,17 @@ export function serializeDoc(doc) {
       fadeStyle: l.fadeStyle === 'radial' || l.fadeStyle === 'linear' ? l.fadeStyle : undefined,
       colorMid: l.colorMid ?? null, midPos: l.midPos ?? 0.5,
       src: l.src,
-      // car pattern: which kit design + its three slot colours
-      patternId: l.type === 'carpattern' ? (l.patternId || null) : undefined,
-      colors: l.type === 'carpattern' && Array.isArray(l.colors) ? l.colors.slice(0, 3) : undefined,
       text: l.text, font: l.font, fontSize: l.fontSize,
       textColor: l.textColor, outlineColor: l.outlineColor, outlineWidth: l.outlineWidth,
       italic: l.italic, letterSpacing: l.letterSpacing,
       curve: l.curve || 0,
-      variable: l.variable || null,
       x: l.x, y: l.y, scale: l.scale, scaleY: l.scaleY ?? null, rotation: l.rotation,
-      skewX: l.skewX || 0, skewY: l.skewY || 0,
       flipH: l.flipH, flipV: l.flipV,
       rx: l.rx, ry: l.ry, rw: l.rw, rh: l.rh,
       // trim window (see drawLayer), absolute doc space
       clip: clipPolys(l).length ? clipPolys(l).map(p => p.map(q => ({ x: q.x, y: q.y }))) : null,
       // the spot picked in each window: says which region (and half) it is
       clipAt: [].concat(l.clipAt || []).map(q => ({ x: q.x, y: q.y })),
-      // the traced outline, so a lasso layer can be re-shaped after a reload
-      lassoPts: Array.isArray(l.lassoPts) ? l.lassoPts.map(q => ({ x: q.x, y: q.y })) : null,
-      // corner-pin quad, absolute doc space
-      corners: Array.isArray(l.corners) && l.corners.length === 4
-        ? l.corners.map(q => ({ x: q.x, y: q.y })) : null,
-      cornerFit: l.cornerFit || null,
-      cornerPan: l.cornerPan ? { x: l.cornerPan.x, y: l.cornerPan.y } : null,
-      cornerZoom: Number.isFinite(l.cornerZoom) ? l.cornerZoom : null,
     })),
   };
 }
@@ -1723,34 +1004,10 @@ function decodeImage(src) {
   });
 }
 
-// restore a saved lumSpec block — amt 0 means the feature is off (null)
-function normalizeLumSpec(ls) {
-  if (!ls || typeof ls !== 'object') return null;
-  const amt = Math.max(0, Math.min(100, ls.amt ?? 0));
-  return amt > 0 ? { amt, invert: !!ls.invert } : null;
-}
-
 // restore a saved fx block, coercing missing sub-fields to the UI defaults
 function normalizeFx(fx) {
   if (!fx || typeof fx !== 'object') return null;
-  return {
-    strokeW: fx.strokeW ?? 0,
-    strokeColor: fx.strokeColor || '#000000',
-    shadow: fx.shadow ?? 0,
-    shadowDX: fx.shadowDX ?? 8,
-    shadowDY: fx.shadowDY ?? 8,
-    shadowColor: fx.shadowColor || '#000000',
-    glow: fx.glow ?? 0,
-    glowColor: fx.glowColor || '#ffffff',
-    neon: fx.neon ?? 0,
-    neonColor: fx.neonColor || '#39ff14',
-    fade: fx.fade ?? 0,
-    fadeAngle: fx.fadeAngle ?? 0,
-    fadeCell: fx.fadeCell ?? 14,
-    fadeStyle: FADE_STYLES.includes(fx.fadeStyle) ? fx.fadeStyle : 'dots',
-    fadeSeed: Number.isFinite(fx.fadeSeed) ? (fx.fadeSeed >>> 0) : null, // null = derive from layer id
-    glitchSplit: Math.max(0, Math.min(12, fx.glitchSplit ?? 4)),
-  };
+  return { shadow: fx.shadow ?? 0, shadowDX: fx.shadowDX ?? 8, shadowDY: fx.shadowDY ?? 8, shadowColor: fx.shadowColor || '#000000' };
 }
 
 export async function deserializeDoc(data) {
@@ -1761,9 +1018,6 @@ export async function deserializeDoc(data) {
   doc.baseColor = data.baseColor || doc.baseColor;
   doc.baseMaterial = data.baseMaterial || doc.baseMaterial;
   doc.baseMatParams = data.baseMatParams || null;
-  doc.templateOpacity = data.templateOpacity ?? doc.templateOpacity;
-  doc.templateColor = data.templateColor || doc.templateColor;
-  doc.templateBold = data.templateBold ?? doc.templateBold;
   if (data.template) {
     try {
       doc.template = { img: await loadImage(data.template), src: data.template };
@@ -1774,27 +1028,6 @@ export async function deserializeDoc(data) {
       doc.regionMap = parseRegionMap(data.regionMap);
     } catch { /* bad region map — drop it */ }
   }
-  // driver variants: tolerate junk rows, keep ids unique
-  if (Array.isArray(data.drivers)) {
-    const seen = new Set();
-    for (const d of data.drivers) {
-      if (!d || typeof d !== 'object') continue;
-      let id = typeof d.id === 'string' && d.id ? d.id : null;
-      if (!id || seen.has(id)) id = 'D' + newId();
-      seen.add(id);
-      doc.drivers.push({
-        id, name: String(d.name ?? ''), number: String(d.number ?? ''),
-        custid: String(d.custid ?? '').trim(), enabled: d.enabled !== false,
-      });
-    }
-  }
-  if (typeof data.paintMask === 'string' && data.paintMask) {
-    try {
-      doc.paintMask = await paintMaskFromDataURL(data.paintMask);
-    } catch { /* mask image failed — bleed checks just switch off */ }
-  }
-  doc.showUnpaintable = !!data.showUnpaintable;
-  doc.patternCar = typeof data.patternCar === 'string' && data.patternCar ? data.patternCar : null;
   doc.palette = cleanPalette(data.palette);
   doc.finishRules = cleanFinishRules(data.finishRules);
   doc.googleFonts = Array.isArray(data.googleFonts) ? data.googleFonts.filter(f => typeof f === 'string' && f).slice(0, 60) : [];
@@ -1818,12 +1051,8 @@ export async function deserializeDoc(data) {
           id: l.id || newId(), name: l.name || 'fill',
           visible: l.visible !== false, locked: !!l.locked, opacity: l.opacity ?? 1,
           material: l.material || 'gloss',
-          blend: BLEND_MODES[l.blend] ? l.blend : 'normal',
           matParams: l.matParams || null,
-          specBlend: l.specBlend || 'replace',
           specOnly: !!l.specOnly,
-          paintOnly: !!l.paintOnly,
-          lumSpec: normalizeLumSpec(l.lumSpec),
           shape: l.shape || 'rect',
           pts: shapePts(l.pts),
           colorRef: typeof l.colorRef === 'string' ? l.colorRef : null,
@@ -1842,12 +1071,8 @@ export async function deserializeDoc(data) {
           id: l.id || newId(), type: 'text', name: l.name || 'text',
           visible: l.visible !== false, locked: !!l.locked, opacity: l.opacity ?? 1,
           material: l.material || 'gloss',
-          blend: BLEND_MODES[l.blend] ? l.blend : 'normal',
           matParams: l.matParams || null,
-          specBlend: l.specBlend || 'replace',
           specOnly: !!l.specOnly,
-          paintOnly: !!l.paintOnly,
-          lumSpec: normalizeLumSpec(l.lumSpec),
           img: null, src: l.src || null,
           text: l.text ?? 'TEXT', font: l.font || 'Arial Black',
           fontSize: l.fontSize ?? 160,
@@ -1856,12 +1081,10 @@ export async function deserializeDoc(data) {
           outlineWidth: l.outlineWidth ?? 0,
           italic: !!l.italic, letterSpacing: l.letterSpacing ?? 0,
           curve: l.curve ?? 0,
-          variable: typeof l.variable === 'string' && l.variable ? l.variable : null,
           fx: normalizeFx(l.fx),
           x: l.x ?? SIZE / 2, y: l.y ?? SIZE / 2,
           scale: l.scale ?? 1, scaleY: Number.isFinite(l.scaleY) ? l.scaleY : null,
           rotation: l.rotation ?? 0,
-          skewX: l.skewX ?? 0, skewY: l.skewY ?? 0,
           flipH: !!l.flipH, flipV: !!l.flipV,
         };
         try {
@@ -1870,55 +1093,22 @@ export async function deserializeDoc(data) {
           continue;
         } catch { /* regeneration failed — fall through to the saved raster */ }
       }
+      if (l.type !== 'image') continue; // a kind of layer this app does not make (one from the original screen): left out
       const img = await loadImage(l.src);
-      if (l.type === 'carpattern') {
-        doc.layers.push({
-          ...createCarPatternLayer(l.patternId, img, l.colors, l.src),
-          id: l.id || newId(), name: l.name || 'car pattern',
-          visible: l.visible !== false, locked: !!l.locked, opacity: l.opacity ?? 1,
-          material: l.material || 'gloss',
-          blend: BLEND_MODES[l.blend] ? l.blend : 'normal',
-          matParams: l.matParams || null,
-          specBlend: l.specBlend || 'replace',
-          specOnly: !!l.specOnly,
-          paintOnly: !!l.paintOnly,
-          lumSpec: normalizeLumSpec(l.lumSpec),
-          fx: normalizeFx(l.fx),
-          rx: l.rx ?? 0, ry: l.ry ?? 0, rw: l.rw ?? SIZE, rh: l.rh ?? SIZE,
-        });
-        continue;
-      }
       doc.layers.push({
         id: l.id || newId(),
-        type: l.type === 'pattern' ? 'pattern' : 'image',
+        type: 'image',
         name: l.name || 'image',
         visible: l.visible !== false, locked: !!l.locked, opacity: l.opacity ?? 1,
         material: l.material || 'gloss',
-        blend: BLEND_MODES[l.blend] ? l.blend : 'normal',
         matParams: l.matParams || null,
-        specBlend: l.specBlend || 'replace',
         specOnly: !!l.specOnly,
-        paintOnly: !!l.paintOnly,
-        lumSpec: normalizeLumSpec(l.lumSpec),
         fx: normalizeFx(l.fx),
         img, src: l.src,
         x: l.x ?? SIZE / 2, y: l.y ?? SIZE / 2,
         scale: l.scale ?? 1, scaleY: Number.isFinite(l.scaleY) ? l.scaleY : null,
         rotation: l.rotation ?? 0,
-        skewX: l.skewX ?? 0, skewY: l.skewY ?? 0,
         flipH: !!l.flipH, flipV: !!l.flipV,
-        rx: l.rx ?? 0, ry: l.ry ?? 0, rw: l.rw ?? SIZE, rh: l.rh ?? SIZE,
-        corners: Array.isArray(l.corners) && l.corners.length === 4
-          && l.corners.every(q => q && Number.isFinite(q.x) && Number.isFinite(q.y))
-          ? l.corners.map(q => ({ x: q.x, y: q.y })) : null,
-        cornerFit: l.cornerFit === 'cover' ? 'cover' : 'stretch',
-        cornerPan: l.cornerPan && Number.isFinite(l.cornerPan.x) && Number.isFinite(l.cornerPan.y)
-          ? { x: l.cornerPan.x, y: l.cornerPan.y } : { x: 0, y: 0 },
-        cornerZoom: Number.isFinite(l.cornerZoom) ? l.cornerZoom : 1,
-        lassoPts: Array.isArray(l.lassoPts) && l.lassoPts.length >= 3
-          ? l.lassoPts.filter(q => q && Number.isFinite(q.x) && Number.isFinite(q.y))
-                      .map(q => ({ x: q.x, y: q.y }))
-          : null,
       });
     } catch { /* skip broken layer */ }
   }

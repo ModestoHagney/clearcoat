@@ -30,7 +30,7 @@ const BIG = 0.6;       // a layer covering more of the sheet than this is not gr
 
 export const isShape = (l) => !!l && l.type === 'fill' && l.shape === 'path' && Array.isArray(l.pts) && l.pts.length >= 3;
 // text or a picture: placed by a centre, a size and a turn (not pinned by corners)
-export const isPic = (l) => !!l && !!l.img && (l.type === 'image' || l.type === 'text') && !l.corners;
+export const isPic = (l) => !!l && !!l.img && (l.type === 'image' || l.type === 'text');
 // a ready-made fill (circle, box, triangle…): sized by its box, not by points
 export const isBox = (l) => !!l && l.type === 'fill' && !isShape(l);
 export const READY = SHAPES;
@@ -616,7 +616,7 @@ export function initTools(app, env) {
       const A = onScreen({ x: 0, y: 0 }), B = onScreen({ x: SIZE, y: SIZE });
       for (const l of app.doc.layers) {
         if (!l.visible || l.specOnly) continue;
-        const pts = isShape(l) ? l.pts : isBox(l) ? boxOutline(l.shape, l.rx, l.ry, l.rw, l.rh) : l.img ? (l.corners && l.corners.length === 4 ? l.corners : layerCorners(l)) : null;
+        const pts = isShape(l) ? l.pts : isBox(l) ? boxOutline(l.shape, l.rx, l.ry, l.rw, l.rh) : l.img ? layerCorners(l) : null;
         if (!pts || !pts.some(off)) continue;
         ctx.save();
         ctx.beginPath(); ctx.rect(-1e5, -1e5, 2e5, 2e5); ctx.rect(A.x, A.y, B.x - A.x, B.y - A.y); ctx.clip('evenodd'); // everywhere but the sheet

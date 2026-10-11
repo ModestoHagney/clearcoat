@@ -6,7 +6,6 @@
 import { SIZE } from './engine.js';
 import { detectPieces } from './regions.js';
 import { alphaComponents } from './zones.js';
-import { patternStats } from './patterns.js';
 
 let agPsdPromise = null;
 
@@ -94,10 +93,10 @@ function wirePieces(psd, wires) {
   return pieces.map(pts => pts.map(q => ({ x: q.x * kx, y: q.y * ky })));
 }
 
-// ---------- template intelligence (zones / mask / decals) ----------
+// ---------- template intelligence (zones / decals) ----------
 // Official kits ship hidden helper layers: "Sponsor"/"Sponsor Blocks" and
 // "Numbers"/"Number Blocks" are solid rectangles marking the official decal
-// zones; "Mask" is INVERTED (alpha > 0 = not paintable); "Car_decal" /
+// zones; "Car_decal" /
 // "Color Change Logos" / "IMSA LOGOS" hold the kit's stock decals, whose
 // orientation reveals how each panel reads. Hidden layers still carry a
 // canvas in ag-psd; every layer is positioned by its left/top offset.
@@ -105,7 +104,6 @@ function wirePieces(psd, wires) {
 const SPONSOR_RE = /sponsor/i;
 const NUMBER_RE = /number/i;
 const NUMBER_SKIP_RE = /leaderboard|official/i; // alt-series variants of the same blocks
-const MASK_RE = /^\s*mask\s*$/i;
 const DECAL_RE = /(decal|logos?)\b/i;
 
 function zoneKind(name) {
@@ -140,23 +138,6 @@ function extractZones(entries, w, h) {
   return zones;
 }
 
-// the inverted Mask layer → a greyscale canvas where paintable = white
-function extractPaintMask(entries, w, h) {
-  const mask = entries.find(e => MASK_RE.test(e.layer.name || ''));
-  if (!mask) return null;
-  const c = composeLayers([mask.layer], w, h);
-  const ctx = c.getContext('2d', { willReadFrequently: true });
-  const img = ctx.getImageData(0, 0, w, h);
-  const d = img.data;
-  for (let i = 0; i < d.length; i += 4) {
-    const v = d[i + 3] > 127 ? 0 : 255; // marked = not paintable
-    d[i] = d[i + 1] = d[i + 2] = v;
-    d[i + 3] = 255;
-  }
-  ctx.putImageData(img, 0, 0);
-  return c;
-}
-
 // visible stock-decal layers composed in place (hidden alt-series variants
 // would double every blob, so they stay out)
 function extractDecals(entries, w, h) {
@@ -164,76 +145,10 @@ function extractDecals(entries, w, h) {
   return decals.length ? composeLayers(decals.map(e => e.layer), w, h) : null;
 }
 
-// ---------- car patterns ----------
-// Official kits hide a "Car Patterns" group: ~24 full-sheet layers named
-// car_pattern_000.tga … — iRacing's own designs for this exact car, already
-// correct across every panel, COLOUR-KEYED (red = slot 1, green = slot 2,
-// blue = slot 3, gradient mixes between). See patterns.js for the catalogue.
-
-const PATTERN_LAYER_RE = /car_pattern_\d+/i;
-const PATTERN_GROUP_RE = /pattern/i;
-const PATTERN_SKIP_RE = /spec/i; // "_spec" siblings are spec maps, not keyed designs
-const THUMB_PX = 256;
-
-function collectPatternLayers(children, inGroup, out) {
-  for (const layer of children || []) {
-    const name = layer.name || '';
-    if (layer.children) {
-      collectPatternLayers(layer.children, inGroup || PATTERN_GROUP_RE.test(name), out);
-    } else if (layer.canvas && (inGroup || PATTERN_LAYER_RE.test(name)) && !PATTERN_SKIP_RE.test(name)) {
-      out.push(layer);
-    }
-  }
-}
-
-function canvasToBlob(c) {
-  return new Promise((resolve, reject) => c.toBlob(b => b ? resolve(b) : reject(new Error('encode failed')), 'image/png'));
-}
-
-// One layer at a time: 24 × 2048² RGBA raw is ~400 MB, so each sheet is
-// encoded to a PNG blob straight away (3-tone images compress to a few
-// hundred KB) and its canvas dropped before the next one is rendered.
-// Returns catalogue entries [{ name, index, blob, thumb, stats, width, height }].
-async function extractCarPatterns(psd) {
-  const layers = [];
-  collectPatternLayers(psd.children, false, layers);
-  if (!layers.length) return [];
-  const w = psd.width, h = psd.height;
-  const sheet = document.createElement('canvas');
-  sheet.width = w; sheet.height = h;
-  const sctx = sheet.getContext('2d');
-  const small = document.createElement('canvas');
-  const s = Math.min(1, THUMB_PX / Math.max(w, h));
-  small.width = Math.max(1, Math.round(w * s)); small.height = Math.max(1, Math.round(h * s));
-  const smctx = small.getContext('2d', { willReadFrequently: true });
-  const entries = [];
-  for (const layer of layers) {
-    try {
-      sctx.clearRect(0, 0, w, h);
-      sctx.drawImage(layer.canvas, layer.left || 0, layer.top || 0);
-      const blob = await canvasToBlob(sheet);
-      smctx.clearRect(0, 0, small.width, small.height);
-      smctx.drawImage(sheet, 0, 0, small.width, small.height);
-      const img = smctx.getImageData(0, 0, small.width, small.height);
-      const stats = patternStats(img.data, small.width, small.height);
-      const name = layer.name || '';
-      const m = name.match(/(\d+)/);
-      entries.push({
-        name, index: m ? parseInt(m[1], 10) : entries.length,
-        blob, thumb: small.toDataURL('image/png'), stats, width: w, height: h,
-      });
-    } catch { /* one bad layer never sinks the catalogue */ }
-  }
-  sheet.width = sheet.height = 1; // release the backing store now, not at GC
-  return entries;
-}
-
-// Returns { src (PNG dataURL), usedWireframe (bool), pieces, zones, paintMask, decals, patterns }
+// Returns { src (PNG dataURL), usedWireframe (bool), pieces, zones, decals }
 //   pieces    — outlines of the sheet's pieces from the wireframe ([] when there are none)
 //   zones     — [{ kind: 'sponsor'|'number', x, y, w, h }] ([] when the kit has no block layers)
-//   paintMask — greyscale canvas, paintable = 255 (null without a Mask layer)
 //   decals    — RGBA canvas of the stock decals, for orientation probing (null if none)
-//   patterns  — car pattern catalogue entries (see extractCarPatterns; [] without the group)
 export async function psdToTemplate(arrayBuffer) {
   const agPsd = await loadAgPsd();
   const psd = agPsd.readPsd(arrayBuffer);
@@ -253,18 +168,13 @@ export async function psdToTemplate(arrayBuffer) {
   // helper layers are walked without SKIP_RE (it drops "Color Change Logos")
   const all = [];
   collectAllLayers(psd.children, false, all);
-  let intel = { zones: [], paintMask: null, decals: null, patterns: [] };
+  let intel = { zones: [], decals: null };
   try {
     intel = {
       zones: extractZones(all, psd.width, psd.height),
-      paintMask: extractPaintMask(all, psd.width, psd.height),
       decals: extractDecals(all, psd.width, psd.height),
-      patterns: [],
     };
   } catch { /* intelligence is a bonus — the wireframe still loads */ }
-  try {
-    intel.patterns = await extractCarPatterns(psd);
-  } catch { intel.patterns = []; /* a kit without the group yields an empty catalogue */ }
 
   if (wires.length) {
     drawLayers(ctx, wires);

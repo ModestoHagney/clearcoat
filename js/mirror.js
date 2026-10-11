@@ -91,10 +91,6 @@ export function mirrorLayer(map, sel) {
     locked: false,
     groupId: null,
     matParams: sel.matParams ? { ...sel.matParams } : null,
-    lumSpec: sel.lumSpec ? { ...sel.lumSpec } : null,
-    corners: Array.isArray(sel.corners) ? sel.corners.map(q => ({ x: q.x, y: q.y })) : null,
-    lassoPts: Array.isArray(sel.lassoPts) ? sel.lassoPts.map(q => ({ x: q.x, y: q.y })) : null,
-    cornerPan: sel.cornerPan ? { ...sel.cornerPan } : null,
     fx: sel.fx ? { ...sel.fx } : null,
     // a trimmed layer's copy is trimmed to the matching place: the other half
     // across a centreline, or the whole twin panel
@@ -107,14 +103,12 @@ export function mirrorLayer(map, sel) {
     // a true mirror image reflects the whole transform, not just the picture
     rotation: mid ? ((-(sel.rotation || 0) + 2 * mid.angle) % 360 + 360) % 360 - 180
       : reflect ? -(sel.rotation || 0) : kind === 'rot180' ? ((sel.rotation || 0) + 180) % 360 : (sel.rotation || 0),
-    skewX: reflect ? -(sel.skewX || 0) : (sel.skewX || 0),
-    skewY: reflect ? -(sel.skewY || 0) : (sel.skewY || 0),
   };
   // Words and logos have to read the right way round on both sides of the
   // car, so by default they are carried across but not reversed: the flip a
   // mirror gives them is taken back out, about their own upright. (On a twin
   // that lies upside-down on the sheet that leaves them turned to match it.)
-  if ((sel.type === 'image' || sel.type === 'text') && !sel.mirrorFlip && !copy.corners) copy.flipH = !copy.flipH;
+  if ((sel.type === 'image' || sel.type === 'text') && !sel.mirrorFlip) copy.flipH = !copy.flipH;
   // a pattern is drawn through the mirror, so the other side is its mirror image
   if (sel.motif) { const f = frameFrom((x, y) => carry(x, y)); copy.motifFrame = sel.motifFrame ? framed(f, sel.motifFrame) : f; }
   // a fade's two points go across with the shape
@@ -129,15 +123,6 @@ export function mirrorLayer(map, sel) {
     const xs = copy.pts.flatMap(q => (q.c ? [q.x, q.c.x] : [q.x])), ys = copy.pts.flatMap(q => (q.c ? [q.y, q.c.y] : [q.y]));
     copy.rx = Math.min(...xs); copy.ry = Math.min(...ys);
     copy.rw = Math.max(1, Math.max(...xs) - copy.rx); copy.rh = Math.max(1, Math.max(...ys) - copy.ry);
-  } else if (copy.corners) {
-    // a pinned layer lives entirely in its corners; re-ordering afterwards
-    // keeps the quad from coming out inside-out
-    const m = copy.corners.map(pt);
-    copy.corners = mid || kind === 'flip' ? [m[1], m[0], m[3], m[2]]
-      : kind === 'flipV' ? [m[3], m[2], m[1], m[0]]
-      : kind === 'rot180' ? [m[2], m[3], m[0], m[1]]
-      : m;
-    if (Array.isArray(copy.lassoPts)) copy.lassoPts = copy.lassoPts.map(pt);
   } else if (isRegionLayer(sel)) {
     // carry the box's corners across and take the box around them
     const cs = [[0, 0], [1, 0], [1, 1], [0, 1]].map(([u, v]) => carry(sel.rx + u * sel.rw, sel.ry + v * sel.rh));
@@ -153,11 +138,7 @@ export function mirrorLayer(map, sel) {
       const rel = (q) => ({ x: copy.rx + (q.x - sel.rx) / sel.rw * copy.rw, y: copy.ry + (q.y - sel.ry) / sel.rh * copy.rh });
       copy.fadeFrom = rel(sel.fadeFrom); copy.fadeTo = rel(sel.fadeTo);
     }
-    if (sel.type === 'pattern') {
-      const o = carry(sel.x || 0, sel.y || 0); // the point it tiles from moves too
-      copy.x = o.x;
-      copy.y = o.y;
-    } else if (mid) {
+    if (mid) {
       // ponytail: a box cannot turn, so the nearer of an upright or a level
       // flip stands in for the centreline — exact when the line is one of
       // those, approximate when tilted.

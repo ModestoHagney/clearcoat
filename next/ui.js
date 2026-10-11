@@ -336,7 +336,7 @@ export function initUI(app, actions, version) {
     const l = app.doc.layers.find((x) => x.id === app.sel);
     if (!l) return '<div class="note">Nothing selected</div>';
     const colour = l.type === 'fill' || l.type === 'text' || l.type === 'image' ? colourNote() : '';
-    const isText = l.type === 'text', isPic = (isText || l.type === 'image') && !l.corners;
+    const isText = l.type === 'text', isPic = isText || l.type === 'image';
     const range = (id, min, max, v) => `<input id="${id}" type="range" min="${min}" max="${max}" value="${v}">`;
     const fx = l.fx || {};
     const fonts = [...new Set([...TEXT_FONTS, ...GOOGLE_FONTS, ...(app.doc.googleFonts || []), ...(app.doc.customFonts || []).map((f) => f.name)])];

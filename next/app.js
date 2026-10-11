@@ -118,14 +118,9 @@ function templateLines(doc) {
   lineCache = { img, dark, borders: canvas(B, true), mesh: canvas(M, false) };
   return lineCache;
 }
-function syncLineColour(doc) {
-  doc.templateColor = luminance(doc.baseColor) > 0.5 ? '#101114' : '#ffffff';
-  doc.templateBold = true; // hairlines are too faint at fit-to-screen zoom
-}
 function newDoc() {
   const doc = createDoc();
   doc.baseColor = '#ffffff';
-  syncLineColour(doc);
   return doc;
 }
 
@@ -510,7 +505,6 @@ const safeName = () => (app.doc.name || 'livery').replace(/[^\w.-]+/g, '_');
 
 async function setDoc(doc, projectId) {
   await flush();
-  syncLineColour(doc);
   if (tools) tools.cancel();
   if (mapTools) mapTools.cancel();
   app.piece = app.centreFor = null;
@@ -590,9 +584,9 @@ const TEXT_KEYS = new Set(['text', 'font', 'fontSize', 'textColor', 'outlineColo
 // they are never changed in place)
 function cloneLayer(l) {
   const c = { ...l, id: newId(), groupId: null }; // a copy does not join the original's group
-  for (const k of ['pts', 'lassoPts', 'corners', 'clipAt']) if (Array.isArray(l[k])) c[k] = l[k].map(q => (q.c ? { ...q, c: { ...q.c } } : { ...q }));
+  for (const k of ['pts', 'clipAt']) if (Array.isArray(l[k])) c[k] = l[k].map(q => (q.c ? { ...q, c: { ...q.c } } : { ...q }));
   if (Array.isArray(l.clip)) c.clip = l.clip.map(poly => (Array.isArray(poly) ? poly.map(q => ({ ...q })) : { ...poly }));
-  for (const k of ['matParams', 'lumSpec', 'fx', 'cornerPan', 'fadeFrom', 'fadeTo']) if (l[k]) c[k] = { ...l[k] };
+  for (const k of ['matParams', 'fx', 'fadeFrom', 'fadeTo']) if (l[k]) c[k] = { ...l[k] };
   return c;
 }
 
@@ -751,7 +745,6 @@ const actions = {
       const d = app.doc;
       const t = await loadTemplate(file, d.regionMap);
       d.template = t.template;
-      d.paintMask = t.paintMask;
       d.regionMap = t.regionMap;
       if (!d.name || d.name === 'untitled livery') d.name = t.carName;
       fit();
@@ -1556,7 +1549,7 @@ const actions = {
   applyColour(hex, { ref = null, typed = false } = {}) {
     app.colour = hex;
     let painted = 0;
-    if (app.sel === 'base') { app.doc.baseColor = hex; app.doc.baseRef = ref; syncLineColour(app.doc); painted = 1; }
+    if (app.sel === 'base') { app.doc.baseColor = hex; app.doc.baseRef = ref; painted = 1; }
     else for (const l of selectedLayers()) { // every selected shape and text takes it
       if (l.type === 'fill') { l.color = hex; l.colorRef = ref; keepFadeOut(l); painted++; }
       else if (l.type === 'text') { l.textColor = hex; l.colorRef = ref; regenerateText(l); painted++; }
@@ -1600,7 +1593,7 @@ const actions = {
         if (l.colorRef !== id) continue;
         if (l.type === 'text') { l.textColor = c.color; regenerateText(l); } else { l.color = c.color; keepFadeOut(l); }
       }
-      if (d.baseRef === id) { d.baseColor = c.color; syncLineColour(d); }
+      if (d.baseRef === id) d.baseColor = c.color;
     }
     change({ now: true });
   },
@@ -1812,7 +1805,6 @@ async function boot() {
   // the sheet may already have been drawn once, from the blank livery this
   // started with, while the saved one was still loading: draw it again
   dirty = true;
-  syncLineColour(app.doc);
   try {
     const lib = await persist.loadBlob('next-library');
     if (lib) library = { logos: Array.isArray(lib.logos) ? lib.logos : [], shapes: Array.isArray(lib.shapes) ? lib.shapes : [] };

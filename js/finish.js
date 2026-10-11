@@ -51,8 +51,7 @@ export function writeFinish(f, hint = 'gloss') {
 // what to call it: "Matte", "Matte + sparkle", "Custom"…
 export function finishLabel(material, params) {
   const f = readFinish(material, params), key = presetOf(f);
-  // a finish from the original screen that is neither a preset nor sparkle keeps its own name
-  const name = key ? finishName(key) : (!f.sparkle && !FINISHES.includes(material) && !params && MATERIALS[material]) ? finishName(material) : 'Custom';
+  const name = key ? finishName(key) : 'Custom';
   return f.sparkle ? `${name} + sparkle` : name;
 }
 
