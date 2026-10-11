@@ -34,8 +34,6 @@ and Live need Chrome or Edge; everything else works in other browsers.
   `shapes.js`, `mirror.js`, `finish.js`, `svgpath.js`, `regions.js`,
   `zones.js`, `template.js`, `psd.js`, `tga.js`, `iracing.js`, `persist.js`.
 - `test/` — `npm test`.
-- `next/index.html` — the address the app had while it was being built;
-  it sends visitors on to the site's own address.
 - `sw.js` — the service worker. Bump `VERSION` there and in `next/app.js`
   together on every deploy.
 

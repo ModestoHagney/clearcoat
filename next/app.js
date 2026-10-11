@@ -26,7 +26,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { regionOutline, parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.71';
+export const VERSION = 'v0.68-pieces.72';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -55,7 +55,6 @@ export const app = {
   bandWidth: 60,                      // px on the sheet
   stamp: { key: 'star', size: 120 },  // what the Stamp tool places: a shape's key (see motifOf) and its size on the sheet
   picking: false,                     // the next click on the sheet picks a colour
-  ways: { Hex: true, RGB: false },    // which colour read-outs the Colour panel shows
   trimming: false,                    // clicks on the sheet choose the selected layer's panels
   piece: null,                        // Map mode: the selected panel's id
   centreFor: null,                    // Map mode: the panel a centreline is being set on, if fixed
@@ -1595,11 +1594,6 @@ const actions = {
   // picking: true = for the selection (or the next shape), 'pattern' = for the selected pattern
   pickColour() { app.picking = !app.picking; toolChanged(); ui.refresh(); },
   pickPatternColour() { app.picking = app.picking === 'pattern' ? false : 'pattern'; toolChanged(); ui.refresh(); },
-  setWay(w) {
-    app.ways[w] = !app.ways[w];
-    try { localStorage.setItem('next-ways', JSON.stringify(app.ways)); } catch { /* fine */ }
-    ui.refresh();
-  },
 
   setTheme(theme) {
     app.theme = theme;
@@ -1774,7 +1768,6 @@ new ResizeObserver(() => (app.workshop ? fit() : requestDraw())).observe($('stag
 
 async function boot() {
   try { applyStoredTheme(localStorage.getItem('next-theme')); } catch { /* default theme */ }
-  try { Object.assign(app.ways, JSON.parse(localStorage.getItem('next-ways') || '{}')); } catch { /* defaults */ }
   app.doc = newDoc();
   app.custid = (await persist.loadSetting('custid').catch(() => '')) || '';
   app.live = !!(await persist.loadSetting('liveSync').catch(() => false)) && persist.fsSupported();

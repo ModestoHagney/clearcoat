@@ -98,10 +98,6 @@ const MAP_TOOLS = [
   ['mcentre', 'Centreline'],
 ];
 const PANELS = ['layers', 'props', 'colour'];
-// ponytail: the Hex and RGB boxes, and the buttons that switch them, are
-// hidden for now: Chrome's own colour pop-up has both. Set this to true to
-// bring them back (Colour panel and Pattern colour alike).
-const TYPED_COLOURS = false;
 // A pattern's Size and Spacing sliders are finer at the low end, where a
 // pixel matters most: the slider runs 0 to 1000 and the value goes with its
 // square. [least, most] in px on the sheet.
@@ -109,11 +105,6 @@ const CURVED = { size: [10, 400], gap: [0, 200] };
 const toSlider = (k, v) => Math.round(1000 * Math.sqrt(Math.max(0, Math.min(1, (v - CURVED[k][0]) / (CURVED[k][1] - CURVED[k][0])))));
 const fromSlider = (k, s) => Math.round(CURVED[k][0] + (CURVED[k][1] - CURVED[k][0]) * (s / 1000) ** 2);
 const hexOf = (v) => (/^#?[0-9a-f]{6}$/i.test(String(v).trim()) ? '#' + String(v).trim().replace('#', '').toLowerCase() : null);
-const rgbOf = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(', ');
-const hexOfRgb = (v) => {
-  const n = String(v).split(/[^\d]+/).filter(Boolean).map(Number);
-  return n.length === 3 && n.every((x) => x >= 0 && x <= 255) ? '#' + n.map((x) => x.toString(16).padStart(2, '0')).join('') : null;
-};
 
 export function initUI(app, actions, version) {
   const panels = {};
@@ -281,8 +272,6 @@ export function initUI(app, actions, version) {
           cols.map((c, k) => `<span class="mwrap"><input class="mini" data-patc="${k}" id="f-pat-c${k}" type="color" value="${esc(c)}" title="Click to change this colour" aria-label="Colour ${k + 2} of the pattern">${out('data-patcdrop', k, 'colour')}</span>`).join('') +
           (cols.length < 6 ? `<button type="button" class="icon" data-act="addPatternColour" title="Add another colour: they take turns, or mix when Random is on" aria-label="Add another colour to the pattern">+</button>` : '') +
           `<button type="button" class="icon${app.picking === 'pattern' ? ' on' : ''}" data-act="pickPatternColour" title="Pick the first colour from the sheet" aria-label="Pick the pattern's first colour from the sheet">${svg('dropper')}</button></span></div>` +
-        (TYPED_COLOURS && app.ways.Hex ? field('Hex', `<input data-pat="hex" id="f-pat-hex" class="mono" type="text" maxlength="7" spellcheck="false" value="${col}">`) : '') +
-        (TYPED_COLOURS && app.ways.RGB ? field('RGB', `<input data-pat="rgb" id="f-pat-rgb" class="mono" type="text" spellcheck="false" value="${rgbOf(col)}">`) : '') +
         field('Size', range('f-pat-size', 0, 1000, toSlider('size', mo.size))) +
         field('Spacing', range('f-pat-gap', 0, 1000, toSlider('gap', mo.gap))) +
         field('Stagger', range('f-pat-stagger', 0, 100, Math.round(mo.stagger))) +
@@ -461,9 +450,7 @@ export function initUI(app, actions, version) {
     const used = usedColours();
     return `<div class="sub">Saved with this livery</div><div class="chips">${saved}<button class="chip add" data-act="saveColour" title="Save the current colour">+ Save</button></div>` +
       (used.length ? `<div class="sub">In this livery</div><div class="dots">${used.map((c) => `<button class="dot" data-col="${c}" style="background:${c}" title="${c.toUpperCase()}" aria-label="${c}"></button>`).join('')}</div>` : '') +
-      `<div class="cur"><input data-colour="pick" id="c-pick" type="color" value="${esc(cur)}" title="Choose a colour" aria-label="Colour"><button class="icon${app.picking === true ? ' on' : ''}" data-act="pickColour" title="Pick a colour from the sheet (I)" aria-label="Pick a colour from the sheet">${svg('dropper')}</button>${TYPED_COLOURS ? `<span class="ways">${Object.keys(app.ways).map((w) => `<button data-way="${w}" aria-pressed="${app.ways[w]}">${w}</button>`).join('')}</span>` : ''}</div>` +
-      (TYPED_COLOURS && app.ways.Hex ? field('Hex', `<input data-colour="hex" id="c-hex" class="mono" type="text" maxlength="7" spellcheck="false" value="${esc(cur)}">`) : '') +
-      (TYPED_COLOURS && app.ways.RGB ? field('RGB', `<input data-colour="rgb" id="c-rgb" class="mono" type="text" spellcheck="false" value="${rgbOf(cur)}">`) : '');
+      `<div class="cur"><input data-colour="pick" id="c-pick" type="color" value="${esc(cur)}" title="Choose a colour" aria-label="Colour"><button class="icon${app.picking === true ? ' on' : ''}" data-act="pickColour" title="Pick a colour from the sheet (I)" aria-label="Pick a colour from the sheet">${svg('dropper')}</button></div>`;
   }
   function drawPanels() {
     const inMap = app.mode === 'map', inFinish = app.mode === 'finish';
@@ -481,17 +468,11 @@ export function initUI(app, actions, version) {
   const refresh = () => { drawChrome(); drawPanels(); };
 
   // controls inside Properties: these must not rebuild the panel they sit in
-  // Every colour control, in whichever panel, is one of three kinds (a colour
-  // box, a hex box, an RGB box). Typing in one updates the others in place.
+  // the Colour panel's colour box
   document.addEventListener('input', (e) => {
-    const t = e.target, kind = t.dataset ? t.dataset.colour : null;
-    if (!kind) return;
-    const v = kind === 'rgb' ? hexOfRgb(t.value) : hexOf(t.value);
-    if (!v) return; // half-typed
-    for (const el of document.querySelectorAll('[data-colour]')) {
-      if (el === t) continue;
-      el.value = el.dataset.colour === 'rgb' ? rgbOf(v) : v;
-    }
+    const t = e.target;
+    if (!t.dataset || !t.dataset.colour) return;
+    const v = t.value;
     const sw = panels.layers.querySelector(`[data-layer="${CSS.escape(String(app.sel))}"] .sw`);
     if (sw && (app.sel === 'base' || (actions.selected() || {}).type === 'fill')) sw.style.background = v;
     actions.setColour(v);
@@ -505,14 +486,7 @@ export function initUI(app, actions, version) {
     const fn = /^fn-(met|rough|clear|amount|size|strength|bright)$/.exec(t.id || '');
     if (fn) { actions.tweakFinish(fn[1], +t.value); drawTile(); return; }
     if (t.id === 'f-fade-to') { actions.setFade('to', t.value); return; }
-    // the pattern's colour: a colour box, a hex box and an RGB box, kept in step like the Colour panel's
-    if (t.dataset.pat) {
-      const v = t.dataset.pat === 'rgb' ? hexOfRgb(t.value) : hexOf(t.value);
-      if (!v) return; // half-typed
-      for (const el of panels.props.querySelectorAll('[data-pat]')) if (el !== t) el.value = el.dataset.pat === 'rgb' ? rgbOf(v) : v;
-      actions.tweakMotif('color', v);
-      return;
-    }
+    if (t.dataset.pat) { actions.tweakMotif('color', t.value); return; } // the pattern's colour
     if (t.dataset.patc !== undefined) { actions.patternColour(+t.dataset.patc, t.value); return; }
     const pat = /^f-pat-(size|gap|stagger|turn|rSize|rPos|rTurn)$/.exec(t.id || '');
     if (pat) { actions.tweakMotif(pat[1], CURVED[pat[1]] ? fromSlider(pat[1], +t.value) : +t.value); return; }
@@ -889,7 +863,6 @@ export function initUI(app, actions, version) {
     if (t.dataset.edit) return actions.editColour(t.dataset.edit);
     if (t.dataset.pal) return actions.usePalette(t.dataset.pal);
     if (t.dataset.col) return actions.applyColour(t.dataset.col);
-    if (t.dataset.way) return actions.setWay(t.dataset.way);
     if (t.dataset.kind) return actions.setShapeKind(t.dataset.kind);
     if (t.dataset.del) return actions.removeLayer(t.dataset.del);
     if (t.dataset.eye) {

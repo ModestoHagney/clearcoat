@@ -4,7 +4,7 @@
 // every deploy. The new VERSION names a new cache; the app sees the new
 // worker, saves, and reloads itself once to take it.
 
-const VERSION = 'v0.68-pieces.71';
+const VERSION = 'v0.68-pieces.72';
 const CACHE = 'clearcoat-' + VERSION;
 
 // The app's page and the icons. Every path here must exist in the repo, or
@@ -62,15 +62,6 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(req.url);
 
   if (url.origin === self.location.origin) {
-    // The address the app had while it was being built now leads to the
-    // site's own. Done here, not only in that page, because this worker is
-    // the one thing that knows no older worker is still answering the site's
-    // address with an old page (which sent visitors to next/, and so round
-    // and round).
-    if (req.mode === 'navigate' && /\/next\/(index\.html)?$/.test(url.pathname)) {
-      event.respondWith(Response.redirect(url.pathname.replace(/next\/(index\.html)?$/, '') + url.search, 302));
-      return;
-    }
     // Everything the app loads comes fresh from the network, so a deploy
     // shows up on the next reload; each file is kept as it is fetched, and
     // the kept copy is used when there is no network.
