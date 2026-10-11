@@ -425,7 +425,7 @@ export function detectPieces(mask, w, h, { minArea = 600, tolerance = 2 } = {}) 
   return found.sort((a, b) => b.area - a.area).map(f => f.pts);
 }
 
-// a region map with one outlined region per detected piece, "Piece 1" being
+// a region map with one outlined region per detected piece, "Panel 1" being
 // the largest — small pieces come last so they win the hover inside big ones
 export function piecesRegionMap(car, outlines) {
   const map = createRegionMap(car);
@@ -434,7 +434,7 @@ export function piecesRegionMap(car, outlines) {
     const xs = points.map(q => q.x), ys = points.map(q => q.y);
     const x = Math.min(...xs), y = Math.min(...ys);
     map.regions.push({
-      id: `piece_${i + 1}`, name: `Piece ${i + 1}`,
+      id: `piece_${i + 1}`, name: `Panel ${i + 1}`, // the id keeps its old word: maps already saved use it
       x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y, points,
     });
   });

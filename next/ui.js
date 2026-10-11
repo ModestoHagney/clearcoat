@@ -78,9 +78,9 @@ const shapeSvg = (it) => {
 const TOOLS = [
   ['select', 'Select (V)', true],
   ['pen', 'Pen (P)', true],
-  ['shape', 'Shape (S)', true],
+  ['shape', 'Shape (U)', true],
   ['band', 'Straight band (B)', true],
-  ['stamp', 'Stamp: click to place copies of a shape', true],
+  ['stamp', 'Stamp (S): click to place copies of a shape', true],
   ['text', 'Text (T)', true],
   ['image', 'Library: pictures, shapes, icons', true],
   ['piece', 'Fill a panel (G)', true],
@@ -89,7 +89,7 @@ const TOOLS = [
 const FINISH_TOOLS = [
   ['select', 'Pick what to finish (V)', true],
   ['pen', 'Draw an area (P)', true],
-  ['shape', 'Area from a shape (S)', true],
+  ['shape', 'Area from a shape (U)', true],
   ['piece', 'A whole panel (G)', true],
 ];
 const MAP_TOOLS = [
@@ -164,7 +164,7 @@ export function initUI(app, actions, version) {
     ],
     View: [
       ['Layers', '', 'show:layers', { tick: app.show.layers }], ['Properties', '', 'show:props', { tick: app.show.props }], ['Colour', '', 'show:colour', { tick: app.show.colour }], 0,
-      ['Piece outlines', '', 'show:outlines', { tick: app.show.outlines }], ['Panel lines', '', 'show:lines', { tick: app.show.lines }], ['Mesh', '', 'show:mesh', { tick: app.show.mesh }], 0,
+      ['Panel outlines', '', 'show:outlines', { tick: app.show.outlines }], ['Template lines', '', 'show:lines', { tick: app.show.lines }], ['Mesh', '', 'show:mesh', { tick: app.show.mesh }], 0,
       ['Light', '', 'theme:light', { tick: app.theme === 'light' }], ['Dark', '', 'theme:dark', { tick: app.theme === 'dark' }], ['Match system', '', 'theme:system', { tick: app.theme === 'system' }], 0,
       ['Fit to screen', 'F', 'fit'],
     ],
@@ -810,7 +810,7 @@ export function initUI(app, actions, version) {
       ['View'],
       ['Pan', 'Space-drag, middle-drag'], ['Zoom', 'Wheel, + and −'], ['Fit to screen', 'F'],
       ['Tools'],
-      ['Select, Pen, Shape, Band', 'V, P, S, B'], ['Fill a panel, Text', 'G, T'], ['Pick a colour from the sheet', 'I'], ['Put a tool down', 'Esc'],
+      ['Select, Pen, Shape, Band', 'V, P, U, B'], ['Stamp, Fill a panel, Text', 'S, G, T'], ['Pick a colour from the sheet', 'I'], ['Put a tool down', 'Esc'],
       ['Drawing'],
       ['Finish a pen shape', 'Enter'], ['Take back the last pen point', 'Backspace'], ['Hold a line to 45° steps', 'Shift'],
       ['Keep a shape even', 'Shift'], ['Turn in 15° steps', 'Shift'],

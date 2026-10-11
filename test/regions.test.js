@@ -398,8 +398,8 @@ test('detectPieces finds one outline per separate mesh, largest first', () => {
   assert.equal(pieces.length, 2);
   const map = piecesRegionMap('test car', pieces);
   assert.deepEqual(map.regions.map(r => [r.id, r.name, r.x, r.y, r.w, r.h]), [
-    ['piece_1', 'Piece 1', 80, 20, 101, 81],
-    ['piece_2', 'Piece 2', 10, 10, 41, 31],
+    ['piece_1', 'Panel 1', 80, 20, 101, 81],
+    ['piece_2', 'Panel 2', 10, 10, 41, 31],
   ]);
   assert.equal(map.regions[0].points.length, 4); // a box simplifies to its corners
   parseRegionMap(map); // what detection produces must load as a map

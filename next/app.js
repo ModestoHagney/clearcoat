@@ -31,7 +31,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.61';
+export const VERSION = 'v0.68-pieces.62';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -755,7 +755,7 @@ const actions = {
       if (!d.name || d.name === 'untitled livery') d.name = t.carName;
       fit();
       change();
-      ui.say(t.pieces ? `${t.pieces} pieces found` : 'Template loaded');
+      ui.say(t.pieces ? `${t.pieces} panels found` : 'Template loaded');
     } catch (err) {
       ui.say('Could not load that template: ' + (err.message || 'unknown error'), true);
     }
@@ -1719,7 +1719,8 @@ window.addEventListener('keydown', (e) => {
   if (k === 'escape') { actions.select(null); return; }
   if (k === 'v') actions.setTool('select');
   else if (k === 'p') actions.setTool('pen');
-  else if (k === 's') actions.setTool('shape');
+  else if (k === 'u') actions.setTool('shape');
+  else if (k === 's' && app.mode === 'paint') actions.setTool('stamp'); // S and U as Photoshop has them
   else if (k === 'b' && app.mode === 'paint') actions.setTool('band');
   else if (k === 'g') actions.setTool('piece');
   else if (k === 't' && app.mode === 'paint') actions.setTool('text');
