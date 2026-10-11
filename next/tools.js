@@ -549,7 +549,7 @@ export function initTools(app, env) {
   function cancel() { draft = null; cursor = null; drag = null; rubber = null; band = null; hover = null; stampRun = null; }
 
   const hint = () => {
-    if (app.tool === 'hand') return 'Drag to move the sheet · wheel zooms · Esc puts it down';
+    if (app.tool === 'hand') return 'Drag to move the sheet · wheel zooms · H or Esc puts it down';
     if (app.picking) return 'Click a colour on the sheet · Esc cancels';
     if (app.trimming) return 'Click panels to show it in · click again to take one out · Enter when done';
     if (app.mode === 'finish') {

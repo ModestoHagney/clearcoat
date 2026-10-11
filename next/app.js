@@ -31,7 +31,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.66';
+export const VERSION = 'v0.68-pieces.67';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -558,6 +558,7 @@ function keepFadeOut(l) {
 // in Finish mode the paint is not to be disturbed: only an area may be changed
 const canChange = () => app.mode !== 'finish' || isArea(actions.selected());
 let spaceHeld = false; // Space is down: a drag moves the sheet
+let handFrom = 'select'; // the tool that was armed when the Hand was taken up
 const toolChanged = () => {
   cv.classList.toggle('draw', (app.tool !== 'select' && app.tool !== 'mpick' && app.tool !== 'hand') || app.picking || app.trimming);
   handCursor();
@@ -1078,11 +1079,20 @@ const actions = {
   },
 
   setTool(id) {
-    if (tools) tools.cancel();
-    if (mapTools) mapTools.cancel();
+    // The Hand is taken up and put down again (H a second time, its button, or
+    // Esc) without disturbing what was in progress: a half-drawn pen shape, or
+    // panels being picked for a trim, is still there when the tool it came
+    // from is back.
+    if (id === 'hand' && app.tool === 'hand') id = handFrom;
+    const aside = id === 'hand' || (app.tool === 'hand' && id === handFrom);
+    if (id === 'hand') handFrom = app.tool;
+    if (!aside) {
+      if (tools) tools.cancel();
+      if (mapTools) mapTools.cancel();
+      app.picking = app.trimming = false;
+      if (id !== 'mcentre') app.centreFor = null;
+    }
     app.tool = id;
-    app.picking = app.trimming = false;
-    if (id !== 'mcentre') app.centreFor = null;
     toolChanged();
     requestDraw();
     ui.refresh();
@@ -1692,7 +1702,7 @@ window.addEventListener('keydown', (e) => {
   // in a box you type in, only the keys that have nothing to do with typing work
   if ($('dlg').open || (typing() && !(mod && (k === 's' || k === 'm')))) return;
   if (e.code === 'Space') { spaceHeld = true; handCursor(); e.preventDefault(); return; }
-  if (app.tool === 'hand' && k === 'escape') { actions.setTool(app.mode === 'map' ? 'mpick' : 'select'); return; }
+  if (app.tool === 'hand' && k === 'escape') { actions.setTool('hand'); return; } // put down: back to the tool it came from
   if (!mod && onSheet().key(e)) { e.preventDefault(); return; }
   if (mod && k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
   if (mod && k === 'y') { e.preventDefault(); redo(); return; }

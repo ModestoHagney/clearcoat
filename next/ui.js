@@ -79,7 +79,7 @@ const shapeSvg = (it) => {
 // is the final one; tools from later stages are dimmed.
 const TOOLS = [
   ['select', 'Select (V)', true],
-  ['hand', 'Hand (H): drag to move the sheet', true],
+  ['hand', 'Hand (H): drag to move the sheet. H again puts it down.', true],
   ['pen', 'Pen (P)', true],
   ['shape', 'Shape (U)', true],
   ['band', 'Straight band (B)', true],
@@ -91,14 +91,14 @@ const TOOLS = [
 // Finish mode: the same drawing tools, but what they draw is an area
 const FINISH_TOOLS = [
   ['select', 'Pick what to finish (V)', true],
-  ['hand', 'Hand (H): drag to move the sheet', true],
+  ['hand', 'Hand (H): drag to move the sheet. H again puts it down.', true],
   ['pen', 'Draw an area (P)', true],
   ['shape', 'Area from a shape (U)', true],
   ['piece', 'A whole panel (G)', true],
 ];
 const MAP_TOOLS = [
   ['mpick', 'Select a panel', true],
-  ['hand', 'Hand (H): drag to move the sheet', true],
+  ['hand', 'Hand (H): drag to move the sheet. H again puts it down.', true],
   ['mcentre', 'Centreline', true],
 ];
 const LATER = 'later stage';
