@@ -668,8 +668,10 @@ export function initUI(app, actions, version) {
       `<label><span>Customer number</span><input id="cs-id" type="text" inputmode="numeric" placeholder="e.g. 123456" value="${esc(cur.custid)}"></label>` +
       `<label><span>Painting a</span><select id="cs-target">${opt('car', 'Car', cur.target === 'car')}${opt('helmet', 'Helmet', cur.target === 'helmet')}${opt('suit', 'Suit', cur.target === 'suit')}</select></label>` +
       `<label class="check"><input id="cs-num" type="checkbox"${cur.customNumber ? ' checked' : ''}><span>Custom number paint</span></label>` +
-      (cur.cars.length ? `<label><span>Car folder</span><select id="cs-car">${opt('', '(' + cur.folder + ')', !cur.car)}${cur.cars.map((c) => opt(c, c, c === cur.car)).join('')}</select></label>` : '') +
-      `<div class="note">${cur.folder ? 'Folder linked: ' + esc(cur.folder) : 'No iRacing paints folder linked yet.'}</div>`;
+      (cur.cars.length ? `<label><span>Car folder</span><select id="cs-car">${opt('', 'Choose…', !cur.cars.includes(cur.car))}` +
+        (cur.near.length ? `<optgroup label="Closest to this livery's name">${cur.near.map((c) => opt(c, c, false)).join('')}</optgroup><optgroup label="All">` : '') +
+        cur.cars.map((c) => opt(c, c, c === cur.car)).join('') + (cur.near.length ? '</optgroup>' : '') + '</select></label>' : '') +
+      `<div class="note">${!cur.folder ? 'No iRacing paints folder linked yet.' : cur.cars.length ? 'Folder linked: ' + esc(cur.folder) : `No car folders found in ${esc(cur.folder)}. Link the iRacing paints folder itself.`}</div>`;
     if (!await ask({ title: 'Car setup', body, ok: 'Save' })) return null;
     return { custid: $('cs-id').value, target: $('cs-target').value, customNumber: $('cs-num').checked, car: $('cs-car') ? $('cs-car').value : null };
   }

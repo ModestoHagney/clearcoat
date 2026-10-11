@@ -16,7 +16,7 @@ import {
 import { canvasToTGA } from '../js/tga.js';
 import * as persist from '../js/persist.js';
 import { loadTemplate } from '../js/template.js';
-import { saveToIracing, paintFilenames, validCustid, exportPaintCanvas, paintsDir } from '../js/iracing.js';
+import { saveToIracing, paintFilenames, validCustid, exportPaintCanvas, paintsDir, carFolders, isPaintsFolder, matchCar } from '../js/iracing.js';
 import { initUI } from './ui.js';
 import { initTools, isShape, isBox, moveLayer, setShape, fadeEnds, hasFade, hasAim } from './tools.js';
 import { moved, joined, boxOutline, pieces, SHAPES, hasInner, outerOnly, wrapped, bounds as shapeBounds, mapped as shapeMapped } from '../js/shapes.js';
@@ -26,7 +26,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { regionOutline, parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.73';
+export const VERSION = 'v0.68-pieces.74';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -743,24 +743,47 @@ const actions = {
       if (!d.name || d.name === 'untitled livery') d.name = t.carName;
       fit();
       change();
-      ui.say(t.pieces ? `${t.pieces} panels found` : 'Template loaded');
+      await actions.findCar(t.carName);
+      ui.say((t.pieces ? `${t.pieces} panels found` : 'Template loaded') + (d.target === 'car' && d.car ? ` · Car folder: ${d.car}` : ''));
     } catch (err) {
       ui.say('Could not load that template: ' + (err.message || 'unknown error'), true);
     }
   },
 
-  async carSetup() {
-    // After a reload the browser still holds the folder but wants to be asked
-    // again before it can be read (the same thing that pauses Live). Asked
-    // here, from this click: without it there are no car folders to list.
-    const root = await persist.getPaintsFolder({ requestIfNeeded: true }).catch(() => null) || await persist.getPaintsFolder().catch(() => null);
-    const cars = root ? (await persist.listSubdirs(root).catch(() => [])).filter(n => n !== 'clearcoat-backup') : [];
-    const car = await persist.loadSetting('paintsCar').catch(() => null);
-    const res = await ui.carSetup({ custid: app.custid, target: app.doc.target, customNumber: app.doc.customNumber, folder: root ? root.name : null, cars, car });
+  // The linked paints folder and the car folders in it. After a reload the
+  // browser still holds the folder but wants to be asked again before it can
+  // be read (the same thing that pauses Live); request: ask now, which only
+  // works from a click.
+  async paintsFolder(request) {
+    const root = (request && await persist.getPaintsFolder({ requestIfNeeded: true }).catch(() => null)) || await persist.getPaintsFolder().catch(() => null);
+    return { root, cars: root ? await carFolders(root).catch(() => []) : [] };
+  },
+
+  // Which car folder this livery goes to: worked out from the template's name
+  // (or the livery's) when one folder stands clear, asked for when none does.
+  // → true once there is one
+  async findCar(hint, request = false) {
+    const d = app.doc;
+    if (d.target !== 'car' || d.car) return true;
+    const { root, cars } = await actions.paintsFolder(request);
+    if (!cars.length) {
+      if (root && request) ui.say(`There are no car folders in ${root.name}. Link the iRacing paints folder itself, not a car's folder.`, true);
+      return false; // or nothing is linked, or it cannot be read until a click allows it
+    }
+    const { car } = matchCar(hint || d.name, cars);
+    if (car) { d.car = car; change(); return true; }
+    await actions.carSetup(hint);
+    return !!d.car;
+  },
+
+  async carSetup(hint) {
+    const { root, cars } = await actions.paintsFolder(true);
+    const near = matchCar(hint || app.doc.name, cars).ranked.filter(r => r.score >= 0.3).slice(0, 3).map(r => r.folder);
+    const res = await ui.carSetup({ custid: app.custid, target: app.doc.target, customNumber: app.doc.customNumber, folder: root ? root.name : null, cars, near, car: app.doc.car });
     if (!res) return false;
     app.custid = res.custid.trim();
     persist.saveSetting('custid', app.custid).catch(() => {});
-    if (cars.length) persist.saveSetting('paintsCar', res.car || null).catch(() => {});
+    if (cars.length) app.doc.car = res.car || null;
     app.doc.target = res.target;
     app.doc.customNumber = res.customNumber;
     change();
@@ -770,8 +793,10 @@ const actions = {
   async linkFolder() {
     if (!persist.fsSupported()) { ui.say('Linking a folder needs Chrome or Edge', true); return false; }
     try {
-      const h = await persist.pickPaintsFolder();
+      const h = await persist.pickPaintsFolder(isPaintsFolder);
+      if (!h) { ui.say('That is one car\'s folder. Link the paints folder itself: Documents › iRacing › paints.', true); return false; }
       ui.say(`Linked ${h.name}`);
+      await actions.findCar();
       return true;
     } catch (err) {
       if (err && err.name !== 'AbortError') ui.say('Could not link that folder', true);
@@ -784,6 +809,7 @@ const actions = {
     if (!persist.fsSupported()) { ui.say('Saving to iRacing needs Chrome or Edge. Use Export TGA instead.', true); return false; }
     if (!validCustid(app.custid) && !await actions.carSetup()) return false;
     if (!await persist.getPaintsFolder().catch(() => null) && !await actions.linkFolder()) return false;
+    if (!await actions.findCar(null, true)) return false;
     const res = await saveToIracing(shown(), app.custid);
     if (res.ok) ui.say(res.backed ? `Saved ${res.paintName}. Your previous paint is kept in clearcoat-backup.` : `Saved ${res.paintName}`);
     else ui.say(res.error, true);
@@ -827,7 +853,7 @@ const actions = {
     download(blob, name);
     let mip = null, old = false;
     try {
-      const dir = car && await paintsDir();
+      const dir = car && await paintsDir(app.doc);
       mip = dir && await persist.readFileFromFolder(dir, `car_spec_${app.custid}.mip`);
       const tga = mip && await persist.readFileFromFolder(dir, `car_spec_${app.custid}.tga`);
       old = !!tga && mip.lastModified < tga.lastModified; // made before the finishes last changed

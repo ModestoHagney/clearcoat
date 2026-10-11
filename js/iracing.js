@@ -30,19 +30,42 @@ export function exportPaintCanvas(doc, canvas) {
   return c;
 }
 
-// The user can link either one car's folder (paints/<car>) or the paints
-// root; with the root linked, the chosen car subfolder (setting 'paintsCar')
-// is where files go.
-export async function paintsDir({ requestIfNeeded = false } = {}) {
+// The car folders in the linked paints folder (the backups folder is not one).
+export const carFolders = async (root) => (await persist.listSubdirs(root)).filter(n => n !== 'clearcoat-backup');
+// Is this the paints folder itself, and not one car's folder inside it?
+// ponytail: told by having folders in it, or by its name when it is empty.
+export const isPaintsFolder = async (handle) => /^paints$/i.test(handle.name) || (await carFolders(handle)).length > 0;
+
+// Which car folder a template is for, going by the template's file name
+// ("Hyundai Veloster N" → hyundaivelostern).
+// → { car, ranked }: car is the folder when one stands clear of the rest
+// (else null); ranked is every folder, nearest first, as [{ folder, score }].
+// A folder whose whole name is in the template's name beats any that only
+// shares letters with it, the longer the better (ferrari488gt3evo over
+// ferrari488gt3); otherwise it is the share of letter pairs they have in common.
+export function matchCar(name, folders) {
+  const norm = (s) => String(s || '').toLowerCase().replace(/template|iracing|\.psd$/g, '').replace(/[^a-z0-9]/g, '');
+  const pairs = (s) => new Set(Array.from({ length: Math.max(0, s.length - 1) }, (_, i) => s.slice(i, i + 2)));
+  const t = norm(name), tp = pairs(t);
+  const ranked = folders.map((folder) => {
+    const f = norm(folder), fp = pairs(f);
+    let both = 0;
+    for (const p of fp) if (tp.has(p)) both++;
+    return { folder, score: f.length > 2 && t.includes(f) ? 1 + f.length : fp.size + tp.size ? 2 * both / (fp.size + tp.size) : 0 };
+  }).sort((a, b) => b.score - a.score || a.folder.localeCompare(b.folder));
+  const [a, b] = ranked;
+  const clear = !!a && a.score >= 0.5 && (!b || a.score - b.score >= 0.1);
+  return { car: clear ? a.folder : null, ranked };
+}
+
+// Where a livery's files go: a car's own folder inside the linked paints
+// folder (doc.car); a helmet or a suit goes in the paints folder itself.
+// → the folder, or null when there is none to write to
+export async function paintsDir(doc, { requestIfNeeded = false } = {}) {
   const root = await persist.getPaintsFolder({ requestIfNeeded }).catch(() => null);
-  if (!root) return null;
-  const car = await persist.loadSetting('paintsCar').catch(() => null);
-  if (!car) return root;
-  try {
-    return await root.getDirectoryHandle(car);
-  } catch {
-    return root; // subfolder deleted or permission pending — fall back to root
-  }
+  if (!root || doc.target !== 'car') return root;
+  if (!doc.car) return null;
+  return root.getDirectoryHandle(doc.car).catch(() => null); // folder gone, or permission pending
 }
 
 // Snapshot whatever is in the folder already (e.g. a Trading Paints livery)
@@ -83,8 +106,9 @@ export async function saveToIracing(doc, custid, { quiet = false, paint: made = 
   custid = String(custid || '').trim();
   if (!validCustid(custid)) return { ok: false, error: 'Enter your iRacing customer number first.' };
   try {
-    const handle = await paintsDir({ requestIfNeeded: !quiet });
-    if (!handle) return { ok: false, error: 'No iRacing folder linked, or its permission was lost.' };
+    if (doc.target === 'car' && !doc.car) return { ok: false, error: 'Choose the car\'s folder first: File › Car setup.' };
+    const handle = await paintsDir(doc, { requestIfNeeded: !quiet });
+    if (!handle) return { ok: false, error: 'No iRacing paints folder linked, its permission was lost, or the car\'s folder is not in it.' };
     const [paintName, specName] = paintFilenames(doc, custid);
     const backed = await backupOriginals(handle, [paintName, specName]);
     const paint = exportPaintCanvas(doc, (made && made()) || renderPaint(doc, { linearEdges: true }));

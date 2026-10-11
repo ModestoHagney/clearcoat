@@ -68,8 +68,10 @@ export const loadProject = (id) => kvGet('project:' + id);
 
 export const fsSupported = () => 'showDirectoryPicker' in window;
 
-export async function pickPaintsFolder() {
+// ok(handle): is this the folder wanted? One that is not is not kept (→ null).
+export async function pickPaintsFolder(ok = () => true) {
   const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+  if (!await ok(handle)) return null;
   await kvSet('paintsDir', handle);
   return handle;
 }
@@ -111,8 +113,7 @@ export async function getBackupDir(dirHandle, create = false) {
   }
 }
 
-// All subdirectory names (non-recursive) — used to offer car-folder selection
-// when the user links the paints root instead of a single car folder.
+// All subdirectory names (non-recursive): the car folders of the paints folder.
 export async function listSubdirs(dirHandle) {
   const names = [];
   try {

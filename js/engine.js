@@ -125,6 +125,7 @@ export function createDoc() {
     name: 'untitled livery',
     target: 'car',       // what this project paints: 'car' | 'helmet' | 'suit'
     customNumber: false, // iRacing Custom Number paints export car_num_<id>.tga
+    car: null,           // the car's folder inside the iRacing paints folder
     baseColor: '#1a6cff',
     baseMaterial: 'gloss',
     baseMatParams: null,
@@ -886,6 +887,7 @@ export function serializeDoc(doc) {
     name: doc.name,
     target: doc.target,
     customNumber: !!doc.customNumber,
+    car: doc.car || null,
     baseColor: doc.baseColor,
     baseMaterial: doc.baseMaterial,
     baseMatParams: doc.baseMatParams || null,
@@ -1015,6 +1017,7 @@ export async function deserializeDoc(data) {
   doc.name = data.name || doc.name;
   doc.target = ['car', 'helmet', 'suit'].includes(data.target) ? data.target : 'car';
   doc.customNumber = !!data.customNumber;
+  doc.car = typeof data.car === 'string' && data.car ? data.car : null;
   doc.baseColor = data.baseColor || doc.baseColor;
   doc.baseMaterial = data.baseMaterial || doc.baseMaterial;
   doc.baseMatParams = data.baseMatParams || null;
