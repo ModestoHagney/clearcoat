@@ -210,8 +210,17 @@ dialog .dbody label.check input { accent-color: var(--accent); width: 16px; heig
 dialog table { width: 100%; border-collapse: collapse; }
 dialog td { padding: 4px 0; }
 dialog td:last-child { text-align: right; font: 12px var(--mono); color: var(--muted); }
-dialog table.keys th { text-align: left; padding: 12px 0 3px; font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--line); }
-dialog table.keys tr:first-child th { padding-top: 2px; }
+/* keyboard shortcuts: two columns of groups, an action to a row, keys as keycaps */
+.keys { display: grid; grid-template-columns: 1fr 1fr; gap: 0 40px; align-items: start; }
+.keys h4 { margin: 12px 0 3px; padding-bottom: 5px; font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--line); }
+.keys section:first-child h4 { margin-top: 2px; }
+.keys .key { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 26px; }
+dialog .dbody:has(.keys) { max-height: 82vh; } /* the whole list in view where the window allows */
+.keys .caps { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.keys kbd { min-width: 22px; padding: 2px 6px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; background: var(--bar); color: var(--fg); font: 11px var(--mono); text-align: center; }
+.keys i { font-style: normal; font-size: 11px; color: var(--muted); }
+.keys i.or { margin: 0 3px; }
+@media (max-width: 640px) { .keys { grid-template-columns: 1fr; } }
 dialog .dbody:focus-visible { outline: none; } /* a long list scrolls, and the browser would ring the scrolling box */
 dialog footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px 16px; }
 dialog.wide { width: min(720px, calc(100% - 32px)); }

@@ -79,26 +79,26 @@ const shapeSvg = (it) => {
 // is the final one; tools from later stages are dimmed.
 const TOOLS = [
   ['select', 'Select (V)', true],
-  ['hand', 'Hand (H): drag to move the sheet. H again puts it down.', true],
+  ['hand', 'Hand (H)', true],
   ['pen', 'Pen (P)', true],
   ['shape', 'Shape (U)', true],
-  ['band', 'Straight band (B)', true],
-  ['stamp', 'Stamp (S): click to place copies of a shape', true],
+  ['band', 'Band (B)', true],
+  ['stamp', 'Stamp (S)', true],
   ['text', 'Text (T)', true],
-  ['image', 'Library: pictures, shapes, icons', true],
-  ['piece', 'Fill a panel (G)', true],
+  ['image', 'Library', true],
+  ['piece', 'Fill panel (G)', true],
 ];
 // Finish mode: the same drawing tools, but what they draw is an area
 const FINISH_TOOLS = [
   ['select', 'Pick what to finish (V)', true],
-  ['hand', 'Hand (H): drag to move the sheet. H again puts it down.', true],
+  ['hand', 'Hand (H)', true],
   ['pen', 'Draw an area (P)', true],
   ['shape', 'Area from a shape (U)', true],
   ['piece', 'A whole panel (G)', true],
 ];
 const MAP_TOOLS = [
   ['mpick', 'Select a panel', true],
-  ['hand', 'Hand (H): drag to move the sheet. H again puts it down.', true],
+  ['hand', 'Hand (H)', true],
   ['mcentre', 'Centreline', true],
 ];
 const LATER = 'later stage';
@@ -173,7 +173,7 @@ export function initUI(app, actions, version) {
       ['Light', '', 'theme:light', { tick: app.theme === 'light' }], ['Dark', '', 'theme:dark', { tick: app.theme === 'dark' }], ['Match system', '', 'theme:system', { tick: app.theme === 'system' }], 0,
       ['Fit to screen', 'F', 'fit'],
     ],
-    Help: [['Shortcuts…', 'F1', 'shortcuts'], ['About…', '', 'about']],
+    Help: [['Keyboard shortcuts…', 'F1', 'shortcuts'], ['About…', '', 'about']],
   });
   const itemHtml = (it) => {
     if (!it) return '<hr>';
@@ -806,30 +806,50 @@ export function initUI(app, actions, version) {
     $('dlg-body').onclick = null;
     return picked;
   }
-  // Every key the app answers to (see the keydown handler in app.js and key()
-  // in tools.js), and what the mouse does that no button says. A row with one
-  // entry is a heading.
-  const shortcuts = () => ask({
-    title: 'Shortcuts', ok: 'Close', cancel: null,
-    body: '<table class="keys">' + [
-      ['View'],
-      ['Move the sheet', 'H then drag, Space-drag, middle-drag'], ['Zoom', 'Wheel, + and −'], ['Fit to screen', 'F'],
-      ['Tools'],
-      ['Select, Pen, Shape, Band', 'V, P, U, B'], ['Stamp, Fill a panel, Text', 'S, G, T'], ['Pick a colour from the sheet', 'I'], ['Hand, up and down again', 'H'], ['Put a tool down', 'Esc'],
-      ['Drawing'],
-      ['Finish a pen shape', 'Enter'], ['Take back the last pen point', 'Backspace'], ['Hold a line to 45° steps', 'Shift'],
-      ['Keep a shape even', 'Shift'], ['Turn in 15° steps', 'Shift'],
-      ['Add a point', 'Click the line'], ['Remove a point', 'Right-click it'],
-      ['Layers'],
-      ['Select several', 'Ctrl+click, or drag a box'], ['Select all, select nothing', 'Ctrl+A, Esc'],
-      ['Copy, paste, duplicate', 'Ctrl+C, Ctrl+V, Ctrl+D'], ['Nudge 1 px, 10 px', 'Arrows, Shift+Arrows'], ['Delete', 'Del or Backspace'],
-      ['Mirrored on or off', 'Ctrl+M'], ['Merge', 'Ctrl+E'], ['Group, ungroup', 'Ctrl+G, Ctrl+Shift+G'],
-      ['Forward, backward', 'Ctrl+], Ctrl+['], ['To the front, to the back', 'Ctrl+Shift+], Ctrl+Shift+['],
-      ['A layer\'s menu', 'Right-click it'],
-      ['File'],
-      ['Undo, redo', 'Ctrl+Z, Ctrl+Y'], ['Save', 'Ctrl+S'], ['This list', 'F1'],
-    ].map(([a, b]) => (b === undefined ? `<tr><th colspan="2">${a}</th></tr>` : `<tr><td>${a}</td><td>${b}</td></tr>`)).join('') + '</table>',
-  });
+  // Keyboard shortcuts, laid out as other programs lay theirs out: one action
+  // to a row under the name it usually goes by, keys as keycaps, in groups.
+  // Each entry: [action, ...ways], a way being the keys pressed together.
+  // (What the keys really do is in the keydown handler in app.js and key() in tools.js.)
+  const MAC = /Mac|iPhone|iPad/.test(navigator.platform || '');
+  const KEYS = [
+    ['Tools', [
+      ['Select', ['V']], ['Hand', ['H']], ['Pen', ['P']], ['Shape', ['U']], ['Band', ['B']], ['Stamp', ['S']],
+      ['Text', ['T']], ['Fill panel', ['G']], ['Eyedropper', ['I']],
+    ]],
+    ['View', [
+      ['Pan', ['Space', 'Drag'], ['Middle-drag']], ['Zoom', ['Scroll']], ['Zoom in', ['+']], ['Zoom out', ['−']], ['Fit to screen', ['F']],
+    ]],
+    ['Selection', [
+      ['Select all', ['Ctrl', 'A']], ['Deselect', ['Esc']], ['Add to selection', ['Shift', 'Click']], ['Marquee select', ['Drag']],
+    ]],
+    ['Edit', [
+      ['Undo', ['Ctrl', 'Z']], ['Redo', ['Ctrl', 'Y'], ['Ctrl', 'Shift', 'Z']],
+      ['Copy', ['Ctrl', 'C']], ['Paste', ['Ctrl', 'V']], ['Duplicate', ['Ctrl', 'D']], ['Delete', ['Del'], ['Backspace']],
+      ['Nudge 1 px', ['Arrow keys']], ['Nudge 10 px', ['Shift', 'Arrow keys']],
+    ]],
+    ['Arrange', [
+      ['Bring forward', ['Ctrl', ']']], ['Send backward', ['Ctrl', '[']], ['Bring to front', ['Ctrl', 'Shift', ']']], ['Send to back', ['Ctrl', 'Shift', '[']],
+      ['Group', ['Ctrl', 'G']], ['Ungroup', ['Ctrl', 'Shift', 'G']], ['Merge', ['Ctrl', 'E']], ['Mirror', ['Ctrl', 'M']],
+    ]],
+    ['Drawing', [
+      ['Finish path', ['Enter']], ['Remove last point', ['Backspace']], ['Cancel', ['Esc']],
+      ['Constrain angle to 45°', ['Shift']], ['Constrain proportions', ['Shift']], ['Rotate in 15° steps', ['Shift']],
+      ['Add point', ['Click path']], ['Delete point', ['Right-click']], ['Context menu', ['Right-click']],
+    ]],
+    ['File', [
+      ['Save', ['Ctrl', 'S']], ['Keyboard shortcuts', ['F1']],
+    ]],
+  ];
+  const keycap = (k) => `<kbd>${esc(MAC && k === 'Ctrl' ? '⌘' : k)}</kbd>`;
+  const shortcuts = () => {
+    const group = ([name, rows]) => `<section><h4>${name}</h4>${rows.map(([action, ...ways]) =>
+      `<div class="key"><span>${action}</span><span class="caps">${ways.map((w) => w.map(keycap).join('<i>+</i>')).join('<i class="or">or</i>')}</span></div>`).join('')}</section>`;
+    // two columns, each a run of whole groups
+    const cols = [[KEYS[0], KEYS[1], KEYS[2], KEYS[6]], [KEYS[3], KEYS[4], KEYS[5]]]; // Tools, View, Selection, File | Edit, Arrange, Drawing
+    const p = ask({ title: 'Keyboard shortcuts', ok: 'Close', cancel: null, body: `<div class="keys">${cols.map((c) => `<div>${c.map(group).join('')}</div>`).join('')}</div>` });
+    dlg.classList.add('wide');
+    return p.then(() => dlg.classList.remove('wide'));
+  };
   // who drew the icons used in the open livery: the open sets ask to be named
   const credits = () => {
     const list = actions.credits();
