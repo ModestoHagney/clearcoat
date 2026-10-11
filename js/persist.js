@@ -33,16 +33,6 @@ async function kvGet(key) {
   });
 }
 
-async function kvDelete(key) {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, 'readwrite');
-    tx.objectStore(STORE).delete(key);
-    tx.oncomplete = () => { db.close(); resolve(); };
-    tx.onerror = () => { db.close(); reject(tx.error); };
-  });
-}
-
 // ---------- autosave ----------
 
 export const saveSetting = (key, value) => kvSet('setting:' + key, value);
