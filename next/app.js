@@ -26,7 +26,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { regionOutline, parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.77';
+export const VERSION = 'v0.68-pieces.78';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -44,6 +44,7 @@ export const app = {
   show: { layers: true, props: true, colour: true, outlines: false, lines: true, mesh: true },
   custid: '',
   live: false,
+  target: null,                       // the pattern colour the Colour panel's next colour goes to (-1 the first, 0… the rest); null: the paint
   liveBad: false,                     // the last live save failed
   projectId: null,                    // browser project autosave writes through to
   canUndo: false,
@@ -1178,6 +1179,7 @@ const actions = {
   selectedLayers,
   // several at once: the last one is the one Properties shows
   selectMany(ids) {
+    app.target = null;
     const all = new Set();
     for (const id of ids) for (const m of groupOf(id)) all.add(m);
     app.sels = app.doc.layers.filter(l => all.has(l.id)).map(l => l.id);
@@ -1561,8 +1563,13 @@ const actions = {
   // ---- colour ----
   // what the colour controls are showing: the selection's colour, else the
   // colour the next shape will get
+  // A pattern colour was clicked: the next colour chosen in the Colour panel
+  // goes to it and not to the paint. null: to the paint again.
+  setTarget(k) { if (app.target !== k) { app.target = k; ui.refreshTarget(); } },
+  targetOff() { actions.setTarget(null); },
   currentColour() {
     const l = actions.selected();
+    if (app.target !== null && l && l.motif) return (app.target < 0 ? l.motif.color : (l.motif.colors || [])[app.target]) || l.color || app.colour;
     if (app.sel === 'base') return app.doc.baseColor;
     if (l && l.type === 'text') return l.textColor || app.colour;
     return l && (l.type === 'fill' || l.type === 'image') && l.color ? l.color : app.colour;
@@ -1571,6 +1578,12 @@ const actions = {
   // shapes. ref: the saved colour it now follows, or null for a one-off.
   // typed: it came from a control the user is still holding, so panels stay.
   applyColour(hex, { ref = null, typed = false } = {}) {
+    if (app.target !== null && !patterned().some(l => l.motif)) app.target = null; // what it pointed at is gone
+    if (app.target !== null) {
+      app.target < 0 ? actions.tweakMotif('color', hex) : actions.patternColour(app.target, hex);
+      if (!typed) { app.target = null; ui.refresh(); } // a colour clicked: done, and back to the paint
+      return;
+    }
     app.colour = hex;
     let painted = 0;
     if (app.sel === 'base') { app.doc.baseColor = hex; app.doc.baseRef = ref; painted = 1; }
@@ -1641,6 +1654,7 @@ const actions = {
 
   // add: Ctrl- or Shift-click — it joins the selection, or leaves it
   select(id, add = false) {
+    app.target = null;
     const real = id !== 'base' && app.doc.layers.some(l => l.id === id);
     if (id !== 'base' && !real) { app.sel = null; app.sels = []; }
     else if (add && real && app.sel && app.sel !== 'base') {

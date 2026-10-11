@@ -128,6 +128,9 @@ button:disabled { cursor: default; opacity: .38; }
 .nest { margin: 0 0 4px 8px; border-left: 2px solid var(--line); } /* what belongs to the switch above it */
 .pair.wrap { flex-wrap: wrap; }
 input[type="color"].mini { width: 24px; height: 24px; }
+input[type="color"].aimed { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.note.aimed { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 4px 6px 2px; padding: 5px 6px 5px 9px; border: 1px solid var(--accent); border-radius: 7px; background: var(--accent-soft); color: var(--fg); }
+.note.aimed .btn { padding: 2px 9px; }
 .pair.wrap { gap: 4px; }
 .pair select { flex: 1; min-width: 0; }
 /* a pattern's shapes and colours: small tiles in a row, each with a x that shows when pointed at */
