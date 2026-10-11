@@ -23,7 +23,9 @@ and Live need Chrome or Edge; everything else works in other browsers.
 
 ## Where things are
 
-- `next/` — the app: `index.html`, `app.js` (state, drawing, actions),
+- `index.html` — the app's page.
+- `next/` — the app's code (the folder is named for when it was the new
+  screen beside the original): `app.js` (state, drawing, actions),
   `ui.js` (menus, panels, dialogs), `tools.js` (pointer and keys on the
   sheet), `map.js` (Map mode), `icons.js` (icon search, SVG shapes),
   `preview.js` (the finish preview).
@@ -32,7 +34,8 @@ and Live need Chrome or Edge; everything else works in other browsers.
   `shapes.js`, `mirror.js`, `finish.js`, `svgpath.js`, `regions.js`,
   `zones.js`, `template.js`, `psd.js`, `tga.js`, `iracing.js`, `persist.js`.
 - `test/` — `npm test`.
-- `index.html` — hands over to `next/`.
+- `next/index.html` — the address the app had while it was being built;
+  it sends visitors on to the site's own address.
 - `sw.js` — the service worker. Bump `VERSION` there and in `next/app.js`
   together on every deploy.
 

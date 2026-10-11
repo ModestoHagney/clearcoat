@@ -2,6 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<!-- The app's address is the site's own now; this is the address it had while it was being built.
+     A visit here is sent on. The one case where it cannot be yet is a browser still under the
+     service worker of an older version, which would answer the site's address with its old
+     page and send the visitor straight back: there this page runs the app as before, takes
+     the new worker, and from then on the worker itself redirects this address (see sw.js).
+     ponytail: delete this file once nobody is on a version before v0.68-pieces.64. -->
+<script>if (!(navigator.serviceWorker && navigator.serviceWorker.controller)) location.replace('../');</script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Clearcoat</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
