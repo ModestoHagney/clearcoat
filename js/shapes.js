@@ -390,3 +390,25 @@ export function outerOnly(pts) {
   });
   return out;
 }
+
+// ---------- wrap ----------
+
+// One outline pulled tight round all the given ones, like a rubber band: two
+// circles become a slot whose straight sides are tangent to both, a circle and
+// a point a teardrop. (The hull of every outline, bends taken in short steps.)
+// ponytail: where it follows a bend it is many short straight lines, close
+// enough to round that the eye cannot tell; fit bends back if point counts matter.
+export function wrapped(list, steps = 12) {
+  const pts = list.flatMap(q => flatten(q, steps)).sort((a, b) => a.x - b.x || a.y - b.y);
+  if (pts.length < 3) return pts.map(p => ({ x: p.x, y: p.y }));
+  const cross = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+  const half = (seq) => { // one side of the band: a point is dropped when the band would turn inward at it (or run straight through it)
+    const h = [];
+    for (const p of seq) {
+      while (h.length >= 2 && cross(h[h.length - 2], h[h.length - 1], p) <= 1e-9) h.pop();
+      h.push(p);
+    }
+    return h.slice(0, -1);
+  };
+  return [...half(pts), ...half([...pts].reverse())].map(p => ({ x: p.x, y: p.y }));
+}

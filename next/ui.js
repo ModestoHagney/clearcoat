@@ -130,11 +130,22 @@ export function initUI(app, actions, version) {
   // ---------- menus ----------
   // [label, shortcut, action, { off, tick }]
   const hasLayer = () => app.sel !== null && app.sel !== 'base';
+  // what can be done to the selected shapes as shapes, and whether each applies now
+  const shapeCan = () => {
+    const ls = actions.selectedLayers(), fills = ls.filter((l) => l.type === 'fill' && !l.specOnly), one = ls.length === 1 ? ls[0] : null;
+    const parts = one && Array.isArray(one.pts) && one.pts.some((q) => q.m);
+    return { merge: ls.length > 1, wrap: fills.length > 0 && fills.length === ls.length, split: !!parts, fillIn: !!parts && hasInner(one.pts) };
+  };
+  const shapeItems = () => {
+    const can = shapeCan();
+    return [['Merge', 'Ctrl+E', 'merge', { off: !can.merge }], ['Wrap', '', 'wrap', { off: !can.wrap }], ['Split', '', 'split', { off: !can.split }], ['Fill in', '', 'fillIn', { off: !can.fillIn }]];
+  };
   const layerItems = () => [
     ['Copy', 'Ctrl+C', 'copy', { off: !hasLayer() }], ['Paste', 'Ctrl+V', 'paste', { off: !app.clipboard }], ['Duplicate', 'Ctrl+D', 'duplicate', { off: !hasLayer() }], 0,
     ['Bring to front', 'Ctrl+Shift+]', 'front', { off: !hasLayer() }], ['Bring forward', 'Ctrl+]', 'forward', { off: !hasLayer() }],
     ['Send backward', 'Ctrl+[', 'backward', { off: !hasLayer() }], ['Send to back', 'Ctrl+Shift+[', 'back', { off: !hasLayer() }], 0,
     ['Save to library', '', 'saveShape', { off: (actions.selected() || {}).type !== 'fill' }],
+    ...shapeItems(), 0,
     ['Mirrored', 'Ctrl+M', 'mirror', { off: !hasLayer(), tick: !!(actions.selected() || {}).mirrored }], ['Trim to panels', '', 'trim', { off: !hasLayer() }], 0,
     ['Delete', 'Del', 'remove', { off: !hasLayer() }],
   ];
@@ -196,6 +207,8 @@ export function initUI(app, actions, version) {
       opts.innerHTML = `<label class="optrow"><span>Shape</span><select id="f-stamp">${motifOptions(app.stamp.key)}</select></label>` +
         `<label class="optrow"><span>Size</span><input id="f-stamp-size" type="range" min="10" max="600" value="${app.stamp.size}"><output id="f-stamp-n" class="num">${app.stamp.size}</output></label>`;
     }
+    // drawing a shape: its window's own buttons follow what is selected
+    if (app.workshop) { const can = shapeCan(); for (const k of ['wrap', 'split', 'fillIn']) $('sb-' + k).disabled = !can[k]; }
     opts.classList.toggle('rows', app.tool === 'stamp');
     opts.classList.toggle('grid', app.tool === 'shape');
     opts.hidden = app.tool !== 'shape' && app.tool !== 'band' && app.tool !== 'stamp';
@@ -314,6 +327,7 @@ export function initUI(app, actions, version) {
         (fills.length ? fadeHtml(fills.find((x) => x.fillType === 'linear' || x.fillType === 'radial') || fills[0]) + patternHtml(fills.find((x) => x.motif) || fills[0]) : '') +
         `<label class="switch" title="Paint them on the twin panel too, or across the centreline (Ctrl+M)">Mirrored<input id="f-mirrored" type="checkbox"${many.some((x) => x.mirrored) ? ' checked' : ''}></label>` +
         `<div class="acts"><button class="btn" data-act="merge" title="Make them one picture (Ctrl+E)">Merge</button>` +
+        (shapeCan().wrap ? '<button class="btn" data-act="wrap" title="One shape pulled tight round them, like a rubber band: two circles become a slot">Wrap</button>' : '') +
         `<button class="btn" data-act="${grouped ? 'ungroup' : 'group'}" title="${grouped ? 'They stop being picked up together (Ctrl+Shift+G)' : 'Pick them up together from now on (Ctrl+G)'}">${grouped ? 'Ungroup' : 'Group'}</button></div>`;
     }
     const l = app.doc.layers.find((x) => x.id === app.sel);

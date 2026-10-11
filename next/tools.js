@@ -18,7 +18,7 @@
 // or picture has a handle on each corner to resize it and one above to turn it.
 
 import { SIZE, createFillLayer, isRegionLayer, toLocal, layerCorners } from '../js/engine.js';
-import { bounds, contains, moved, segmentAt, midOf, bendTo, insertAt, removeAt, snapAngle, nextIndex, SHAPES, aspect, boxOutline, placed, joined } from '../js/shapes.js';
+import { bounds, contains, moved, mapped, segmentAt, midOf, bendTo, insertAt, removeAt, snapAngle, nextIndex, SHAPES, aspect, boxOutline, placed, joined } from '../js/shapes.js';
 import { regionOutline, snapToOutline, trimShape, growOutline, pointInPolygon } from '../js/regions.js';
 import { clipPolys, fadeStyleOf } from '../js/engine.js';
 import { pieceAt } from '../js/mirror.js';
@@ -91,6 +91,36 @@ export function initTools(app, env) {
     return { x: top.x + dx / len * 26, y: top.y + dy / len * 26, top };
   }
   const corners = (l) => [[l.rx, l.ry], [l.rx + l.rw, l.ry], [l.rx + l.rw, l.ry + l.rh], [l.rx, l.ry + l.rh]].map(([x, y]) => ({ x, y }));
+  // A selected shape's frame, on the screen: a handle just outside each corner
+  // of its box to resize it by (clear of the shape's own points), and a round
+  // one above the middle to turn it by. A ready-made box has its resize
+  // handles on its corners already, and uses only the turn handle.
+  const FRAME = 12;
+  function frameOf(l) {
+    const A = onScreen({ x: l.rx, y: l.ry }), B = onScreen({ x: l.rx + l.rw, y: l.ry + l.rh });
+    const x0 = A.x - FRAME, y0 = A.y - FRAME, x1 = B.x + FRAME, y1 = B.y + FRAME, mid = (x0 + x1) / 2;
+    return { corners: [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }], top: { x: mid, y: y0 }, turn: { x: mid, y: y0 - 24 } };
+  }
+  const copyPts = (pts) => pts.map(q => (q.c ? { ...q, c: { ...q.c } } : { ...q }));
+  // A shape with a great many points (an icon, a wrapped slot) would be a
+  // fringe of handles at this zoom: its points are put away until there is
+  // room for them on the screen, about 9 px apart. Zooming in brings them back.
+  const pointsShow = (l) => {
+    const pts = l.pts;
+    let run = 0;
+    for (let i = 0; i < pts.length; i++) run += far(onScreen(pts[i]), onScreen(pts[nextIndex(pts, i)]));
+    return run / pts.length >= 9;
+  };
+  // a turn begins: about the middle of the shape's box, from where the pointer is now
+  const spinFrom = (l, p) => {
+    const c = { x: l.rx + l.rw / 2, y: l.ry + l.rh / 2 };
+    return { kind: 'spin', layer: l, c, a0: Math.atan2(p.y - c.y, p.x - c.x), pts0: null, fade0: l.fadeFrom && l.fadeTo ? [{ ...l.fadeFrom }, { ...l.fadeTo }] : null };
+  };
+  // the shape, and the fade line that belongs to it, put through f from how they were when the drag began
+  function reshape(l, d, f) {
+    setShape(l, mapped(d.pts0, f));
+    if (d.fade0) { l.fadeFrom = f(d.fade0[0]); l.fadeTo = f(d.fade0[1]); }
+  }
   let rubber = null;   // ready-made shape being dragged out: { a, b } doc points
   let band = null;     // band being placed: { a, b, pressed }
   let hover = null;    // the panel under the pointer, while a panel is being picked
@@ -306,11 +336,20 @@ export function initTools(app, env) {
     }
     const shape = selShape();
     if (shape) {
-      const pts = shape.pts;
-      const vi = pts.findIndex(q => far(onScreen(q), s) <= GRAB);
+      const pts = shape.pts, shown = pointsShow(shape);
+      const vi = shown ? pts.findIndex(q => far(onScreen(q), s) <= GRAB) : -1;
       if (vi !== -1) { drag = { kind: 'point', layer: shape, i: vi }; return; }
-      const mi = pts.findIndex((q, i) => far(onScreen(midOf(pts, i)), s) <= GRAB - 1);
+      const mi = shown ? pts.findIndex((q, i) => far(onScreen(midOf(pts, i)), s) <= GRAB - 1) : -1;
       if (mi !== -1) { drag = { kind: 'bend', layer: shape, i: mi, start: s, went: false }; return; }
+      const fr = frameOf(shape);
+      if (far(fr.turn, s) <= GRAB) { drag = spinFrom(shape, p); return; }
+      const fi = fr.corners.findIndex(q => far(q, s) <= GRAB);
+      if (fi !== -1) {
+        // resized from the corner opposite the one taken; the handle sits a little off the corner, so that offset is kept
+        const cs = corners(shape), c0 = cs[fi];
+        drag = { kind: 'resize', layer: shape, anchor: cs[(fi + 2) % 4], c0, off: { x: p.x - c0.x, y: p.y - c0.y }, pts0: copyPts(pts), fade0: shape.fadeFrom && shape.fadeTo ? [{ ...shape.fadeFrom }, { ...shape.fadeTo }] : null };
+        return;
+      }
       const seg = segmentAt(pts, p.x, p.y, EDGE / app.view.zoom);
       if (seg) { drag = { kind: 'edge', layer: shape, seg, start: s, last: p, went: false }; return; }
     }
@@ -325,6 +364,7 @@ export function initTools(app, env) {
     }
     const box = selBox();
     if (box) {
+      if (far(frameOf(box).turn, s) <= GRAB) { drag = spinFrom(box, p); return; }
       const ci = corners(box).findIndex(q => far(onScreen(q), s) <= GRAB);
       if (ci !== -1) { drag = { kind: 'size', layer: box, anchor: corners(box)[(ci + 2) % 4] }; return; }
     }
@@ -392,6 +432,33 @@ export function initTools(app, env) {
       change({ panels: false });
       return;
     }
+    if (drag.kind === 'resize') {
+      const a = drag.anchor, w0 = drag.c0.x - a.x, h0 = drag.c0.y - a.y;
+      let sx = w0 ? Math.max(0.02, (p.x - drag.off.x - a.x) / w0) : 1, sy = h0 ? Math.max(0.02, (p.y - drag.off.y - a.y) / h0) : 1;
+      if (e.shiftKey) sx = sy = Math.max(sx, sy); // kept even
+      reshape(l, drag, q => ({ x: a.x + (q.x - a.x) * sx, y: a.y + (q.y - a.y) * sy }));
+      change({ panels: false });
+      return;
+    }
+    if (drag.kind === 'spin') {
+      if (!drag.pts0) {
+        // A ready-made box is drawn from its box, which cannot turn: from here
+        // on it is an outline like any other shape (a flip it carried goes into the outline).
+        if (isBox(l)) {
+          const cx = l.rx + l.rw / 2, cy = l.ry + l.rh / 2, fh = !!l.flipH, fv = !!l.flipV;
+          const pts = mapped(boxOutline(l.shape, l.rx, l.ry, l.rw, l.rh), q => ({ x: fh ? 2 * cx - q.x : q.x, y: fv ? 2 * cy - q.y : q.y }));
+          l.shape = 'path'; l.flipH = l.flipV = false;
+          setShape(l, pts);
+        }
+        drag.pts0 = copyPts(l.pts);
+      }
+      let ang = Math.atan2(p.y - drag.c.y, p.x - drag.c.x) - drag.a0;
+      if (e.shiftKey) ang = Math.round(ang / (Math.PI / 12)) * (Math.PI / 12); // 15° steps
+      const cos = Math.cos(ang), sin = Math.sin(ang), c = drag.c;
+      reshape(l, drag, q => ({ x: c.x + (q.x - c.x) * cos - (q.y - c.y) * sin, y: c.y + (q.x - c.x) * sin + (q.y - c.y) * cos }));
+      change({ panels: false });
+      return;
+    }
     if (drag.kind === 'point') {
       const pts = l.pts.map(q => ({ ...q }));
       pts[drag.i] = { ...pts[drag.i], x: p.x, y: p.y };
@@ -446,7 +513,7 @@ export function initTools(app, env) {
   function context(s) {
     if (app.tool !== 'select') return false;
     const shape = selShape();
-    const vi = shape ? shape.pts.findIndex(q => far(onScreen(q), s) <= GRAB) : -1;
+    const vi = shape && pointsShow(shape) ? shape.pts.findIndex(q => far(onScreen(q), s) <= GRAB) : -1;
     if (vi === -1) {
       // the menu that opens next should be about the layer under the pointer
       const hit = layerAt(screenToDoc(s.x, s.y));
@@ -499,9 +566,9 @@ export function initTools(app, env) {
     if (app.tool === 'shape') return 'Drag to draw · Shift keeps it even';
     if (app.tool === 'stamp') return 'Click to place one · Split makes them separate';
     if (app.tool === 'band') return band ? 'Click the end · Shift holds 45°' : 'Click the start, then the end · snaps to panel edges';
-    if (app.tool === 'select' && selBox()) return 'Drag a corner to resize · Shift keeps it even';
+    if (app.tool === 'select' && selBox()) return 'Drag a corner to resize · the round handle turns it · Shift keeps it even';
     if (app.tool === 'pen') return draft && draft.length ? 'Enter to finish · Backspace undoes a point · Shift holds 45°' : 'Click points to draw · Shift holds 45°';
-    if (selShape()) return 'Drag a point · drag a dot to bend · click a line to add a point';
+    if (selShape()) return (pointsShow(selShape()) ? 'Points and dots reshape it' : app.workshop ? 'Too many points to show here' : 'Zoom in to move its points') + ' · white corners resize · the round handle turns · Shift keeps it even';
     if (app.workshop) return 'Draw with the tools on the left · Ctrl+S saves the shape';
     return 'Space-drag to pan · wheel to zoom';
   };
@@ -650,8 +717,12 @@ export function initTools(app, env) {
       ctx.beginPath(); ctx.arc(h.x, h.y, 5, 0, Math.PI * 2); ctx.fillStyle = '#ffffff'; ctx.fill(); ctx.strokeStyle = accent; ctx.lineWidth = 1.5; ctx.stroke();
       layerCorners(pic).forEach((q) => square(onScreen(q), 4.5, accent));
     }
+    const turnKnob = (fr) => { // the round handle that turns a shape, on a short stalk above its frame
+      ctx.beginPath(); ctx.moveTo(fr.top.x, fr.top.y); ctx.lineTo(fr.turn.x, fr.turn.y); ctx.strokeStyle = accent; ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.beginPath(); ctx.arc(fr.turn.x, fr.turn.y, 5, 0, Math.PI * 2); ctx.fillStyle = '#ffffff'; ctx.fill(); ctx.strokeStyle = accent; ctx.lineWidth = 1.5; ctx.stroke();
+    };
     const box = app.tool === 'select' ? selBox() : null;
-    if (box) corners(box).forEach((q) => square(onScreen(q), 4.5, accent));
+    if (box) { turnKnob(frameOf(box)); corners(box).forEach((q) => square(onScreen(q), 4.5, accent)); }
     const fadeDots = () => { // where the fade starts (a ring) and where it ends (a dot)
       const faded = app.tool === 'select' ? selFade() : null;
       if (!faded) return;
@@ -670,12 +741,20 @@ export function initTools(app, env) {
     path(shape.pts, true);
     ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3.5; ctx.stroke();
     ctx.strokeStyle = accent; ctx.lineWidth = 1.5; ctx.stroke();
-    shape.pts.forEach((q, i) => { // the dot that bends each line
-      const m = onScreen(midOf(shape.pts, i));
-      ctx.beginPath(); ctx.arc(m.x, m.y, 4, 0, Math.PI * 2);
-      ctx.fillStyle = '#ffffff'; ctx.fill(); ctx.strokeStyle = accent; ctx.lineWidth = 1.5; ctx.stroke();
-    });
-    shape.pts.forEach((q) => square(onScreen(q), 4.5, accent));
+    if (pointsShow(shape)) {
+      shape.pts.forEach((q, i) => { // the dot that bends each line
+        const m = onScreen(midOf(shape.pts, i));
+        ctx.beginPath(); ctx.arc(m.x, m.y, 4, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff'; ctx.fill(); ctx.strokeStyle = accent; ctx.lineWidth = 1.5; ctx.stroke();
+      });
+      shape.pts.forEach((q) => square(onScreen(q), 4.5, accent));
+    }
+    // its frame: a thin line round the box, a white handle off each corner to resize by, the knob to turn by
+    const fr = frameOf(shape);
+    ctx.beginPath(); fr.corners.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y))); ctx.closePath();
+    ctx.globalAlpha = 0.45; ctx.strokeStyle = accent; ctx.lineWidth = 1; ctx.stroke(); ctx.globalAlpha = 1;
+    turnKnob(fr);
+    fr.corners.forEach((q) => square(q, 5, '#ffffff'));
     fadeDots();
   }
 

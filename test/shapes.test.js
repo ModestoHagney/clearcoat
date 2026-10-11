@@ -264,3 +264,22 @@ test('filling a shape in: its holes go, and so does anything inside them', () =>
   // shapes merely side by side have nothing inside each other
   assert.ok(!hasInner(joined([boxOutline('rect', 0, 0, 10, 10), boxOutline('rect', 50, 0, 10, 10)])));
 });
+
+test('wrap: one outline pulled tight round the shapes; two circles make a slot with tangent sides', () => {
+  const { wrapped } = shapesMod;
+  // two boxes: the band is the box round both, with nothing left of the corners between them
+  const band = wrapped([boxOutline('rect', 0, 0, 10, 10), boxOutline('rect', 30, 0, 10, 10)]);
+  assert.equal(band.length, 4);
+  assert.deepEqual(bounds(band), { x: 0, y: 0, w: 40, h: 10 });
+  // two circles of radius 50, centres 200 apart: a slot 300 long and 100 high, flat along the top and bottom
+  const slot = wrapped([boxOutline('ellipse', 0, 0, 100, 100), boxOutline('ellipse', 200, 0, 100, 100)]);
+  const b = bounds(slot);
+  assert.ok(Math.abs(b.w - 300) < 0.5 && Math.abs(b.h - 100) < 0.5, JSON.stringify(b));
+  assert.ok(contains(slot, 150, 2) && contains(slot, 150, 98));      // the straight sides run between the circles, at their full height
+  assert.ok(!contains(slot, 3, 3) && !contains(slot, 297, 97));      // and the ends are still round
+  // the longest side is the tangent between them: about 200 long and level
+  const sides = slot.map((p, i) => { const q = slot[(i + 1) % slot.length]; return { len: Math.hypot(q.x - p.x, q.y - p.y), dy: Math.abs(q.y - p.y) }; }).sort((a, c) => c.len - a.len);
+  assert.ok(Math.abs(sides[0].len - 200) < 14 && sides[0].dy < 0.6 && Math.abs(sides[1].len - 200) < 14, JSON.stringify(sides.slice(0, 2)));
+  // a shape that is hollow or dented is wrapped by its outside
+  assert.equal(wrapped([boxOutline('star', 0, 0, 100, 95)]).length, 5);
+});

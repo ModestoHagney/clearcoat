@@ -19,7 +19,7 @@ import { loadTemplate } from '../js/template.js';
 import { saveToIracing, paintFilenames, validCustid, exportPaintCanvas, paintsDir } from '../js/iracing.js';
 import { initUI } from './ui.js';
 import { initTools, isShape, isBox, moveLayer, setShape, fadeEnds, hasFade, hasAim } from './tools.js';
-import { joined, boxOutline, pieces, SHAPES, hasInner, outerOnly, bounds as shapeBounds, mapped as shapeMapped } from '../js/shapes.js';
+import { joined, boxOutline, pieces, SHAPES, hasInner, outerOnly, wrapped, bounds as shapeBounds, mapped as shapeMapped } from '../js/shapes.js';
 import { searchIcons, iconShape, svgToShape } from './icons.js';
 import { createFillLayer } from '../js/engine.js';
 import { moved } from '../js/shapes.js';
@@ -31,7 +31,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.57';
+export const VERSION = 'v0.68-pieces.58';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -1222,6 +1222,26 @@ const actions = {
     app.doc.layers.splice(app.doc.layers.indexOf(l), 1, ...made);
     app.sel = made[made.length - 1].id;
     app.sels = made.map(x => x.id);
+    change({ now: true });
+  },
+  // One shape pulled tight round the selected ones, like a rubber band: two
+  // circles become a slot whose sides are tangent to both. It takes their
+  // place, with the front one's colour and settings.
+  wrap() {
+    if (app.mode !== 'paint') return;
+    const ids = new Set(selectedLayers().map(l => l.id));
+    const targets = app.doc.layers.filter(l => ids.has(l.id) && l.visible && l.type === 'fill' && !isArea(l)); // back to front
+    if (!targets.length) { ui.say('Select the shapes to wrap. Ctrl+click them, or drag a box round them.'); return; }
+    const top = targets[targets.length - 1];
+    const pts = wrapped(targets.map(l => (isShape(l) ? l.pts : boxOutline(l.shape, l.rx, l.ry, l.rw, l.rh))));
+    if (pts.length < 3) return;
+    const credits = cleanCredits(targets.flatMap(l => l.credits || []));
+    top.shape = 'path'; top.flipH = top.flipV = false;
+    setShape(top, pts);
+    if (credits.length) top.credits = credits;
+    app.doc.layers = app.doc.layers.filter(l => l === top || !targets.includes(l));
+    pruneGroups();
+    app.sel = top.id; app.sels = [];
     change({ now: true });
   },
   // an outline-style shape made solid: its holes, and anything inside them, go
