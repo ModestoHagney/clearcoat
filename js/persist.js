@@ -33,24 +33,17 @@ async function kvGet(key) {
   });
 }
 
-async function kvDelete(key) {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, 'readwrite');
-    tx.objectStore(STORE).delete(key);
-    tx.oncomplete = () => { db.close(); resolve(); };
-    tx.onerror = () => { db.close(); reject(tx.error); };
-  });
-}
-
 // ---------- autosave ----------
-
-export const saveAutosave = (data) => kvSet('autosave', data);
-export const loadAutosave = () => kvGet('autosave');
-export const clearAutosave = () => kvDelete('autosave');
 
 export const saveSetting = (key, value) => kvSet('setting:' + key, value);
 export const loadSetting = (key) => kvGet('setting:' + key);
+
+// ---------- blob records ----------
+// Large records (the autosave, the library). IndexedDB stores Blobs
+// structurally, so values can carry them directly instead of base64 data URLs.
+
+export const saveBlob = (key, value) => kvSet('blob:' + key, value);
+export const loadBlob = (key) => kvGet('blob:' + key);
 
 // ---------- projects ----------
 // Index entries are {id, name, updatedAt, thumb} — thumb is a small dataURL
@@ -71,38 +64,14 @@ export async function saveProject(id, meta, data) {
 
 export const loadProject = (id) => kvGet('project:' + id);
 
-export async function deleteProject(id) {
-  await kvDelete('project:' + id);
-  await kvSet(PROJECTS_INDEX, (await listProjects()).filter(p => p.id !== id));
-}
-
-export async function renameProject(id, name) {
-  const index = await listProjects();
-  const entry = index.find(p => p.id === id);
-  if (!entry) return;
-  entry.name = name;
-  await kvSet(PROJECTS_INDEX, index);
-  // stored doc name stays in agreement — docs are stored as JSON strings
-  // (v0.31+) or plain objects (older saves)
-  const data = await kvGet('project:' + id);
-  if (typeof data === 'string') {
-    try {
-      const parsed = JSON.parse(data);
-      parsed.name = name;
-      await kvSet('project:' + id, JSON.stringify(parsed));
-    } catch { /* corrupt — leave it */ }
-  } else if (data) {
-    data.name = name;
-    await kvSet('project:' + id, data);
-  }
-}
-
 // ---------- File System Access ----------
 
 export const fsSupported = () => 'showDirectoryPicker' in window;
 
-export async function pickPaintsFolder() {
+// ok(handle): is this the folder wanted? One that is not is not kept (→ null).
+export async function pickPaintsFolder(ok = () => true) {
   const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+  if (!await ok(handle)) return null;
   await kvSet('paintsDir', handle);
   return handle;
 }
@@ -144,23 +113,7 @@ export async function getBackupDir(dirHandle, create = false) {
   }
 }
 
-export async function deleteFromFolder(dirHandle, filename) {
-  try { await dirHandle.removeEntry(filename); } catch { /* already gone */ }
-}
-
-// All file names in the folder (non-recursive).
-export async function listFolder(dirHandle) {
-  const names = [];
-  try {
-    for await (const entry of dirHandle.values()) {
-      if (entry.kind === 'file') names.push(entry.name);
-    }
-  } catch { /* permission revoked mid-iteration */ }
-  return names;
-}
-
-// All subdirectory names (non-recursive) — used to offer car-folder selection
-// when the user links the paints root instead of a single car folder.
+// All subdirectory names (non-recursive): the car folders of the paints folder.
 export async function listSubdirs(dirHandle) {
   const names = [];
   try {

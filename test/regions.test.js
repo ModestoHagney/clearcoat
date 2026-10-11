@@ -1,16 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  REGIONS_FORMAT,
-  createRegionMap,
-  parseRegionMap,
-  regionById,
-  regionAt,
-  mirrorPoint,
-  mirrorPairAt,
-  mirrorLayerPlacement,
-  uniqueRegionId,
-} from '../js/regions.js';
+import { REGIONS_FORMAT, createRegionMap, parseRegionMap, regionById, regionAt, mirrorPoint, uniqueRegionId, detectPieces, piecesRegionMap, simplifyOutline, renameRegion, labelPoint, pointInPolygon, snapToOutline, matchPoint, linkPoints, linkLength, linkDir, centerLine, mirrorAcross, setMirror, trimShape, growOutline, guessMirrorKind } from '../js/regions.js';
 
 // Convenience builder: a valid raw map with two mirrored door rectangles.
 function rawMap(overrides = {}) {
@@ -21,8 +11,7 @@ function rawMap(overrides = {}) {
       { id: 'door_l', name: 'Left Door', x: 100, y: 200, w: 300, h: 150, mirror: 'door_r' },
       { id: 'door_r', name: 'Right Door', x: 900, y: 200, w: 300, h: 150, mirror: 'door_l' },
     ],
-    ...overrides,
-  };
+    ...overrides };
 }
 
 // ---------------------------------------------------------------- parseRegionMap
@@ -34,23 +23,20 @@ test('parseRegionMap accepts a valid map and preserves geometry', () => {
   assert.equal(map.regions.length, 2);
   const l = map.regions[0];
   assert.deepEqual(l, {
-    id: 'door_l', name: 'Left Door', x: 100, y: 200, w: 300, h: 150, mirror: 'door_r',
-  });
+    id: 'door_l', name: 'Left Door', x: 100, y: 200, w: 300, h: 150, mirror: 'door_r' });
 });
 
 test('parseRegionMap normalizes a missing name to the id', () => {
   const map = parseRegionMap({
     format: REGIONS_FORMAT,
     car: 'c',
-    regions: [{ id: 'hood', x: 0, y: 0, w: 10, h: 10 }],
-  });
+    regions: [{ id: 'hood', x: 0, y: 0, w: 10, h: 10 }] });
   assert.equal(map.regions[0].name, 'hood');
   // empty-string name also falls back to id
   const map2 = parseRegionMap({
     format: REGIONS_FORMAT,
     car: 'c',
-    regions: [{ id: 'roof', name: '', x: 0, y: 0, w: 10, h: 10 }],
-  });
+    regions: [{ id: 'roof', name: '', x: 0, y: 0, w: 10, h: 10 }] });
   assert.equal(map2.regions[0].name, 'roof');
 });
 
@@ -58,8 +44,7 @@ test('parseRegionMap strips unknown extra fields from regions', () => {
   const map = parseRegionMap({
     format: REGIONS_FORMAT,
     car: 'c',
-    regions: [{ id: 'hood', x: 0, y: 0, w: 10, h: 10, color: 'red', locked: true }],
-  });
+    regions: [{ id: 'hood', x: 0, y: 0, w: 10, h: 10, color: 'red', locked: true }] });
   assert.deepEqual(Object.keys(map.regions[0]).sort(), ['h', 'id', 'name', 'w', 'x', 'y']);
 });
 
@@ -123,8 +108,7 @@ test('parseRegionMap rejects duplicate ids', () => {
       regions: [
         { id: 'a', x: 0, y: 0, w: 1, h: 1 },
         { id: 'a', x: 5, y: 5, w: 1, h: 1 },
-      ],
-    })),
+      ] })),
     /duplicate region id "a"/,
   );
 });
@@ -156,8 +140,7 @@ test('parseRegionMap rejects non-positive w/h', () => {
 test('parseRegionMap rejects a mirror pointing at an unknown id', () => {
   assert.throws(
     () => parseRegionMap(rawMap({
-      regions: [{ id: 'a', x: 0, y: 0, w: 1, h: 1, mirror: 'ghost' }],
-    })),
+      regions: [{ id: 'a', x: 0, y: 0, w: 1, h: 1, mirror: 'ghost' }] })),
     /region "a" mirrors unknown id "ghost"/,
   );
 });
@@ -182,16 +165,14 @@ test('regionAt: later (topmost) region wins where rectangles overlap', () => {
     regions: [
       { id: 'under', x: 0, y: 0, w: 100, h: 100 },
       { id: 'over', x: 50, y: 50, w: 100, h: 100 },
-    ],
-  }));
+    ] }));
   assert.equal(regionAt(map, 75, 75).id, 'over');   // overlap → topmost
   assert.equal(regionAt(map, 25, 25).id, 'under');  // only in the lower one
 });
 
 test('regionAt boundaries are inclusive on all edges', () => {
   const map = parseRegionMap(rawMap({
-    regions: [{ id: 'r', x: 10, y: 20, w: 30, h: 40 }],
-  }));
+    regions: [{ id: 'r', x: 10, y: 20, w: 30, h: 40 }] }));
   assert.equal(regionAt(map, 10, 20).id, 'r');   // top-left corner
   assert.equal(regionAt(map, 40, 60).id, 'r');   // bottom-right corner (x+w, y+h)
   assert.equal(regionAt(map, 9.999, 20), null);
@@ -237,67 +218,6 @@ test('mirrorPoint with a zero-size src does not produce NaN', () => {
   assert.deepEqual(p, { x: 150, y: 100 });
 });
 
-// ---------------------------------------------------------------- mirrorPairAt
-
-test('mirrorPairAt returns the { src, dst } pair for a mirrored region', () => {
-  const map = parseRegionMap(rawMap());
-  const pair = mirrorPairAt(map, 150, 250);
-  assert.ok(pair);
-  assert.equal(pair.src.id, 'door_l');
-  assert.equal(pair.dst.id, 'door_r');
-});
-
-test('mirrorPairAt returns null when no region contains the point', () => {
-  const map = parseRegionMap(rawMap());
-  assert.equal(mirrorPairAt(map, 5000, 5000), null);
-});
-
-test('mirrorPairAt returns null when the region has no mirror', () => {
-  const map = parseRegionMap(rawMap({
-    regions: [{ id: 'hood', x: 0, y: 0, w: 100, h: 100 }],
-  }));
-  assert.equal(mirrorPairAt(map, 50, 50), null);
-});
-
-test('mirrorPairAt returns null on a hand-built map with a dangling mirror id', () => {
-  // parseRegionMap would reject this, but the helper must still cope.
-  const map = {
-    format: REGIONS_FORMAT,
-    car: 'c',
-    regions: [{ id: 'a', name: 'a', x: 0, y: 0, w: 100, h: 100, mirror: 'ghost' }],
-  };
-  assert.equal(mirrorPairAt(map, 50, 50), null);
-});
-
-// ---------------------------------------------------------------- mirrorLayerPlacement
-
-test('mirrorLayerPlacement returns rounded mirrored coords with flip: true', () => {
-  const map = parseRegionMap(rawMap());
-  // layer center at u=0.25, v=0.5 of door_l (x=175, y=275)
-  const placed = mirrorLayerPlacement(map, { x: 175, y: 275 });
-  // mirrored to u=0.75 of door_r: x = 900 + 0.75*300 = 1125, y = 200 + 0.5*150 = 275
-  assert.deepEqual(placed, { x: 1125, y: 275, flip: true });
-});
-
-test('mirrorLayerPlacement rounds fractional results', () => {
-  const map = parseRegionMap(rawMap({
-    regions: [
-      { id: 'a', x: 0, y: 0, w: 3, h: 3, mirror: 'b' },
-      { id: 'b', x: 10, y: 10, w: 3, h: 3 },
-    ],
-  }));
-  const placed = mirrorLayerPlacement(map, { x: 1, y: 1 });
-  // u = 1/3 → x = 10 + (2/3)*3 = 12, y = 10 + 1 = 11
-  assert.deepEqual(placed, { x: 12, y: 11, flip: true });
-  assert.ok(Number.isInteger(placed.x));
-  assert.ok(Number.isInteger(placed.y));
-});
-
-test('mirrorLayerPlacement returns null when the layer center is outside any region', () => {
-  const map = parseRegionMap(rawMap());
-  assert.equal(mirrorLayerPlacement(map, { x: 5000, y: 5000 }), null);
-});
-
 // ---------------------------------------------------------------- uniqueRegionId
 
 test('uniqueRegionId slugs names: lowercase, non-alphanumeric → underscore, trimmed', () => {
@@ -312,8 +232,7 @@ test('uniqueRegionId suffixes collisions with _2, _3, ...', () => {
     regions: [
       { id: 'hood', x: 0, y: 0, w: 1, h: 1 },
       { id: 'hood_2', x: 5, y: 5, w: 1, h: 1 },
-    ],
-  }));
+    ] }));
   assert.equal(uniqueRegionId('Hood', map), 'hood_3');
 });
 
@@ -322,7 +241,299 @@ test('uniqueRegionId falls back to "region" for empty or all-symbol names', () =
   assert.equal(uniqueRegionId('', map), 'region');
   assert.equal(uniqueRegionId('!!!', map), 'region');
   const map2 = parseRegionMap(rawMap({
-    regions: [{ id: 'region', x: 0, y: 0, w: 1, h: 1 }],
-  }));
+    regions: [{ id: 'region', x: 0, y: 0, w: 1, h: 1 }] }));
   assert.equal(uniqueRegionId('***', map2), 'region_2');
+});
+
+// ---------------------------------------------------------------- outlined regions
+
+// An L: the full 100x100 box minus its top-right quarter.
+const L_SHAPE = [
+  { x: 0, y: 0 }, { x: 50, y: 0 }, { x: 50, y: 50 }, { x: 100, y: 50 }, { x: 100, y: 100 }, { x: 0, y: 100 },
+];
+
+test('parseRegionMap keeps a valid outline and rejects a bad one', () => {
+  const ok = parseRegionMap(rawMap({ regions: [{ id: 'l', x: 0, y: 0, w: 100, h: 100, points: L_SHAPE }] }));
+  assert.deepEqual(ok.regions[0].points, L_SHAPE);
+  assert.notEqual(ok.regions[0].points, L_SHAPE); // copied, not shared
+  for (const points of [[], L_SHAPE.slice(0, 2), [{ x: 0, y: 0 }, { x: 1 }, { x: 2, y: 2 }], 'nope']) {
+    assert.throws(
+      () => parseRegionMap(rawMap({ regions: [{ id: 'l', x: 0, y: 0, w: 100, h: 100, points }] })),
+      /bad "points"/,
+    );
+  }
+});
+
+test('regionAt follows the outline, not the bounding box', () => {
+  const map = parseRegionMap(rawMap({
+    regions: [
+      { id: 'under', x: 0, y: 0, w: 100, h: 100 },
+      { id: 'l', x: 0, y: 0, w: 100, h: 100, points: L_SHAPE },
+    ] }));
+  assert.equal(regionAt(map, 25, 25).id, 'l');
+  assert.equal(regionAt(map, 75, 75).id, 'l');
+  assert.equal(regionAt(map, 75, 25).id, 'under'); // inside l's box, outside its shape
+});
+
+// ---------------------------------------------------------------- detectPieces
+
+// Draw the outline of a w×h box plus a grid line every `step` px, the way a
+// wireframe draws one piece as a mesh.
+function drawMesh(mask, W, x0, y0, w, h, step) {
+  for (let y = y0; y < y0 + h; y++) {
+    for (let x = x0; x < x0 + w; x++) {
+      const edge = x === x0 || y === y0 || x === x0 + w - 1 || y === y0 + h - 1;
+      if (edge || (x - x0) % step === 0 || (y - y0) % step === 0) mask[y * W + x] = 1;
+    }
+  }
+}
+
+test('detectPieces finds one outline per separate mesh, largest first', () => {
+  const W = 200, H = 120;
+  const mask = new Uint8Array(W * H);
+  drawMesh(mask, W, 10, 10, 41, 31, 10);   // small piece
+  drawMesh(mask, W, 80, 20, 101, 81, 20);  // large piece
+  mask[5 * W + 190] = 1;                   // a stray speck
+  const pieces = detectPieces(mask, W, H);
+  assert.equal(pieces.length, 2);
+  const map = piecesRegionMap('test car', pieces);
+  assert.deepEqual(map.regions.map(r => [r.id, r.name, r.x, r.y, r.w, r.h]), [
+    ['piece_1', 'Panel 1', 80, 20, 101, 81],
+    ['piece_2', 'Panel 2', 10, 10, 41, 31],
+  ]);
+  assert.equal(map.regions[0].points.length, 4); // a box simplifies to its corners
+  parseRegionMap(map); // what detection produces must load as a map
+});
+
+test('detectPieces traces a diagonal line network and a concave shape', () => {
+  const W = 60, H = 60;
+  const mask = new Uint8Array(W * H);
+  // an L drawn with 1px lines, including a diagonal that only touches corner to corner
+  for (let i = 10; i <= 50; i++) { mask[10 * W + i] = 1; mask[i * W + 10] = 1; mask[50 * W + i] = 1; }
+  for (let i = 10; i <= 30; i++) { mask[i * W + 50] = 1; mask[30 * W + (20 + i)] = 1; }
+  for (let i = 30; i <= 50; i++) mask[i * W + 50] = 1;
+  for (let i = 0; i <= 40; i++) mask[(10 + i) * W + (10 + i)] = 1; // diagonal
+  const [outline] = detectPieces(mask, W, H, { minArea: 100 });
+  const map = parseRegionMap(piecesRegionMap('test car', [outline]));
+  assert.equal(regionAt(map, 30, 30).id, 'piece_1');
+  assert.equal(regionAt(map, 5, 5), null);
+});
+
+test('simplifyOutline drops points on a straight run and keeps real corners', () => {
+  const ring = [];
+  for (let x = 0; x < 100; x += 5) ring.push({ x, y: 0 });
+  for (let y = 0; y < 100; y += 5) ring.push({ x: 100, y });
+  for (let x = 100; x > 0; x -= 5) ring.push({ x, y: 100 });
+  for (let y = 100; y > 0; y -= 5) ring.push({ x: 0, y });
+  assert.deepEqual(simplifyOutline(ring, 1), [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 }]);
+});
+
+// ---------------------------------------------------------------- renameRegion / labelPoint
+
+test('renameRegion makes the id follow the name and repoints the mirror partner', () => {
+  const map = parseRegionMap(rawMap());
+  renameRegion(map, regionById(map, 'door_l'), 'Driver Door');
+  assert.deepEqual(map.regions.map(r => [r.id, r.name, r.mirror]), [
+    ['driver_door', 'Driver Door', 'door_r'],
+    ['door_r', 'Right Door', 'driver_door'],
+  ]);
+  parseRegionMap(map); // still a valid map: no dangling mirror
+});
+
+test('renameRegion avoids another region\'s id but not its own', () => {
+  const map = piecesRegionMap('test car', [L_SHAPE, L_SHAPE, L_SHAPE]);
+  renameRegion(map, map.regions[0], 'Roof');
+  renameRegion(map, map.regions[1], 'Roof');
+  renameRegion(map, map.regions[0], 'Roof'); // renaming to its current name is a no-op
+  assert.deepEqual(map.regions.map(r => r.id), ['roof', 'roof_2', 'piece_3']);
+});
+
+test('labelPoint lands inside the shape and keeps off regions drawn over it', () => {
+  const [l] = parseRegionMap(rawMap({ regions: [{ id: 'l', x: 0, y: 0, w: 100, h: 100, points: L_SHAPE }] })).regions;
+  const p = labelPoint(l);
+  assert.ok(pointInPolygon(L_SHAPE, p.x, p.y));
+  assert.ok(p.room > 15); // the widest part of the L, not a corner
+  const over = { id: 'over', x: 0, y: 40, w: 100, h: 60 }; // covers the L's foot
+  const q = labelPoint(l, [over]);
+  assert.ok(q.y < 40 && pointInPolygon(L_SHAPE, q.x, q.y));
+});
+
+// ---------------------------------------------------------------- seam links
+
+// Two 100px squares. Square A's right edge (top to bottom) meets square B's
+// top edge (right to left) — as if B were turned a quarter and moved away.
+function linkedMap() {
+  return parseRegionMap(rawMap({
+    regions: [
+      { id: 'a', x: 0, y: 0, w: 100, h: 100 },
+      { id: 'b', x: 500, y: 300, w: 100, h: 100 },
+    ],
+    links: [{
+      a: { region: 'a', from: { x: 100, y: 0 }, to: { x: 100, y: 100 } },
+      b: { region: 'b', from: { x: 600, y: 300 }, to: { x: 500, y: 300 } } }] }));
+}
+
+test('snapToOutline lands on the edge, and on a corner when one is close', () => {
+  const sq = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 }];
+  const edge = snapToOutline(sq, 104, 40, 8);
+  assert.deepEqual([edge.x, edge.y, edge.s], [100, 40, 140]);
+  const corner = snapToOutline(sq, 97, 5, 8);
+  assert.deepEqual([corner.x, corner.y, corner.s], [100, 0, 100]);
+});
+
+test('matchPoint carries a spot across a link to a turned, far-away region', () => {
+  const map = linkedMap();
+  const m = matchPoint(map, 102, 25, 5); // a quarter of the way down A's right edge
+  assert.equal(m.side, 'a');
+  assert.ok(Math.abs(m.t - 0.25) < 1e-9);
+  assert.deepEqual(m.at, { x: 100, y: 25 });
+  assert.deepEqual(m.partner, { x: 575, y: 300 }); // a quarter of the way along B's top edge, from the right
+  const back = matchPoint(map, 575, 298, 5); // and the same link read from B's side
+  assert.deepEqual(back.partner, { x: 100, y: 25 });
+});
+
+test('matchPoint ignores spots off the linked stretch or too far from it', () => {
+  const map = linkedMap();
+  assert.equal(matchPoint(map, 50, 0, 5), null);   // A's top edge is not linked
+  assert.equal(matchPoint(map, 130, 50, 5), null); // too far from the edge
+});
+
+test('linkPoints follows the stretch end to end, on both sides', () => {
+  const map = linkedMap();
+  const a = linkPoints(map, map.links[0], 'a'), b = linkPoints(map, map.links[0], 'b');
+  assert.deepEqual([a[0], a[a.length - 1]], [{ x: 100, y: 0 }, { x: 100, y: 100 }]);
+  assert.deepEqual([b[0], b[b.length - 1]], [{ x: 600, y: 300 }, { x: 500, y: 300 }]);
+  assert.equal(linkLength(map, map.links[0]), 100);
+});
+
+test('links survive parsing and follow a renamed region; bad links are rejected', () => {
+  const map = linkedMap();
+  renameRegion(map, regionById(map, 'b'), 'Rear Bumper');
+  assert.equal(map.links[0].b.region, 'rear_bumper');
+  assert.deepEqual(parseRegionMap(map).links, map.links);
+  assert.throws(() => parseRegionMap({ ...map, links: [{ a: map.links[0].a, b: { ...map.links[0].b, region: 'nope' } }] }), /unknown region "nope"/);
+  assert.throws(() => parseRegionMap({ ...map, links: [{ a: map.links[0].a }] }), /bad "b" end/);
+  assert.equal(parseRegionMap(rawMap()).links, undefined); // maps without links stay as they were
+});
+
+test('a link side runs the shorter way by default, and keeps a stored dir past half the outline', () => {
+  const map = linkedMap();
+  const side = map.links[0].a; // A's right edge, top to bottom: the way the corners are listed
+  assert.equal(linkDir(map, map.links[0], 'a'), 1);
+  side.dir = 1;
+  side.to = { x: 0, y: 50 }; // slide the end on round the bottom and half-way up the left edge
+  assert.equal(linkLength(map, { a: side, b: side }), 250); // 100 right + 100 bottom + 50 left, not the 150 short way
+  delete side.dir;
+  assert.equal(linkLength(map, { a: side, b: side }), 150);
+  side.dir = -1;
+  assert.equal(parseRegionMap(map).links[0].a.dir, -1); // dir survives a save and load
+});
+
+// ---------------------------------------------------------------- centerline
+
+test('centerLine runs square to the twin corners through their midpoint, spanning the region', () => {
+  // a 200x100 box whose twin corners are its top-left and bottom-left: the car's middle is the level line y=50
+  const r = { id: 'roof', x: 0, y: 0, w: 200, h: 100, center: { a: { x: 0, y: 0 }, b: { x: 0, y: 100 } } };
+  const c = centerLine(r);
+  assert.deepEqual(c.mid, { x: 0, y: 50 });
+  assert.deepEqual([c.p0, c.p1].map(q => [Math.round(q.x), Math.round(q.y)]).sort((p, q) => p[0] - q[0]), [[0, 50], [200, 50]]);
+  assert.ok(Math.abs(Math.abs(c.angle) % 180) < 1e-9); // level
+  assert.deepEqual(mirrorAcross(r, 30, 10), { x: 30, y: 90 });
+  assert.equal(centerLine({ id: 'door', x: 0, y: 0, w: 1, h: 1 }), null);
+});
+
+test('centerLine follows a region turned on the sheet', () => {
+  // twin corners on a 45° slant: the centerline is the other diagonal
+  const r = { id: 'bonnet', x: 0, y: 0, w: 100, h: 100, center: { a: { x: 0, y: 0 }, b: { x: 100, y: 100 } } };
+  const m = mirrorAcross(r, 100, 0); // a point on the centerline stays put
+  assert.ok(Math.abs(m.x - 100) < 1e-9 && Math.abs(m.y) < 1e-9);
+  const n = mirrorAcross(r, 0, 0);   // one twin lands on the other
+  assert.ok(Math.abs(n.x - 100) < 1e-9 && Math.abs(n.y - 100) < 1e-9);
+});
+
+test('parseRegionMap keeps a valid center and rejects a bad one', () => {
+  const center = { a: { x: 1, y: 2 }, b: { x: 3, y: 4 } };
+  const ok = parseRegionMap(rawMap({ regions: [{ id: 'roof', x: 0, y: 0, w: 10, h: 10, center }] }));
+  assert.deepEqual(ok.regions[0].center, center);
+  for (const bad of [{ a: center.a }, { a: center.a, b: center.a }, null]) {
+    assert.throws(() => parseRegionMap(rawMap({ regions: [{ id: 'roof', x: 0, y: 0, w: 10, h: 10, center: bad }] })), /bad "center"/);
+  }
+});
+
+test('setMirror pairs both ways, releases old partners, and unpairs', () => {
+  const map = parseRegionMap(rawMap({
+    regions: [
+      { id: 'a', x: 0, y: 0, w: 1, h: 1, mirror: 'b' },
+      { id: 'b', x: 2, y: 0, w: 1, h: 1, mirror: 'a' },
+      { id: 'c', x: 4, y: 0, w: 1, h: 1 },
+    ] }));
+  const [a, b, c] = map.regions;
+  setMirror(map, a, 'c'); // a leaves b for c
+  assert.deepEqual([a.mirror, b.mirror, c.mirror], ['c', undefined, 'a']);
+  setMirror(map, b, 'c'); // c is taken over by b, a is released
+  assert.deepEqual([a.mirror, b.mirror, c.mirror], [undefined, 'c', 'b']);
+  setMirror(map, c, null); // unpair
+  assert.deepEqual([a.mirror, b.mirror, c.mirror], [undefined, undefined, undefined]);
+  setMirror(map, a, 'a');  // a region cannot mirror itself — that is what a centerline is for
+  assert.equal(a.mirror, undefined);
+  parseRegionMap(map);
+});
+
+// ---------------------------------------------------------------- trimming
+
+const boxOf = (pts) => [Math.min(...pts.map(q => q.x)), Math.min(...pts.map(q => q.y)), Math.max(...pts.map(q => q.x)), Math.max(...pts.map(q => q.y))];
+
+test('growOutline pushes every side out, whichever way round the outline is listed', () => {
+  const sq = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 }];
+  for (const pts of [sq, [...sq].reverse()]) {
+    const [x0, y0, x1, y1] = boxOf(growOutline(pts, 2));
+    assert.ok(x0 < -1 && y0 < -1 && x1 > 101 && y1 > 101, JSON.stringify([x0, y0, x1, y1]));
+  }
+});
+
+test('trimShape is the whole region, or the clicked half when it has a centerline', () => {
+  const plain = { id: 'door', x: 0, y: 0, w: 200, h: 100 };
+  assert.deepEqual(boxOf(trimShape(plain, 50, 50, 0)), [0, 0, 200, 100]);
+  // twin corners top-left and bottom-left: the centerline is the level line y=50
+  const roof = { ...plain, id: 'roof', center: { a: { x: 0, y: 0 }, b: { x: 0, y: 100 } } };
+  assert.deepEqual(boxOf(trimShape(roof, 150, 20, 0)), [0, 0, 200, 50]);
+  assert.deepEqual(boxOf(trimShape(roof, 150, 80, 0)), [0, 50, 200, 100]);
+  // with bleed the two halves overlap a little, so no seam shows between them
+  const top = boxOf(trimShape(roof, 150, 20)), bottom = boxOf(trimShape(roof, 150, 80));
+  assert.ok(top[3] > 50 && bottom[1] < 50);
+});
+
+// ---------------------------------------------------------------- how a mirror partner lies
+
+test('guessMirrorKind tells how a partner lies from the two outlines', () => {
+  const at = (pts, dx, dy) => {
+    const p = pts.map(q => ({ x: q.x + dx, y: q.y + dy }));
+    const xs = p.map(q => q.x), ys = p.map(q => q.y);
+    return { id: 'r', x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys), points: p };
+  };
+  const src = at(L_SHAPE, 0, 0);
+  assert.equal(guessMirrorKind(src, at(L_SHAPE.map(q => ({ x: 100 - q.x, y: q.y })), 300, 0)), 'flip');
+  assert.equal(guessMirrorKind(src, at(L_SHAPE.map(q => ({ x: q.x, y: 100 - q.y })), 0, 300)), 'flipV');
+  assert.equal(guessMirrorKind(src, at(L_SHAPE.map(q => ({ x: 100 - q.x, y: 100 - q.y })), 300, 300)), 'rot180');
+  assert.equal(guessMirrorKind(src, at(L_SHAPE, 300, 300)), 'same');
+  // two plain boxes fit every way, and then it is the default
+  assert.equal(guessMirrorKind({ id: 'a', x: 0, y: 0, w: 10, h: 10 }, { id: 'b', x: 50, y: 0, w: 10, h: 10 }), 'flip');
+  // narrowed to the two reflections: a stacked twin that is not in the same column is still top/bottom
+  assert.equal(guessMirrorKind(src, at(L_SHAPE.map(q => ({ x: q.x, y: 100 - q.y })), 40, 300), ['flip', 'flipV']), 'flipV');
+  assert.equal(guessMirrorKind(src, at(L_SHAPE.map(q => ({ x: 100 - q.x, y: 100 - q.y })), 300, 300), ['flip', 'flipV']) === 'rot180', false);
+});
+
+test('setMirror records how the pair lies, and clears it when unpaired', () => {
+  const below = L_SHAPE.map(q => ({ x: q.x, y: 400 - q.y }));
+  const map = parseRegionMap(rawMap({
+    regions: [
+      { id: 'a', x: 0, y: 0, w: 100, h: 100, points: L_SHAPE },
+      { id: 'b', x: 0, y: 300, w: 100, h: 100, points: below },
+    ] }));
+  const [a, b] = map.regions;
+  setMirror(map, a, 'b');
+  assert.deepEqual([a.mirrorKind, b.mirrorKind], ['flipV', 'flipV']);
+  assert.equal(parseRegionMap(map).regions[0].mirrorKind, 'flipV'); // survives a save and load
+  setMirror(map, a, null);
+  assert.deepEqual([a.mirrorKind, b.mirrorKind], [undefined, undefined]);
 });

@@ -1,55 +1,19 @@
-// Clearcoat service worker — offline app shell + versioned cache.
+// Clearcoat service worker: versioned cache, so the app opens offline.
 //
-// DEPLOY RITUAL: bump VERSION below together with #app-version in index.html
-// on every deploy. The new VERSION names a new cache, the install step
-// re-precaches the shell, and the in-app "New version ready" toast offers
-// the reload that activates it. If VERSION doesn't change, returning users
-// keep being served the old cached shell.
+// DEPLOY RITUAL: bump VERSION below together with VERSION in next/app.js on
+// every deploy. The new VERSION names a new cache; the app sees the new
+// worker, saves, and reloads itself once to take it.
 
-const VERSION = 'v0.63';
+const VERSION = 'v0.68-pieces.81';
 const CACHE = 'clearcoat-' + VERSION;
 
-// app shell — every path here must exist in the repo
+// The app's page and the icons. Every path here must exist in the repo, or
+// the worker fails to install. The rest of the app is not listed: it is
+// fetched fresh and kept as it goes, see below.
 const PRECACHE = [
   './',
   './index.html',
   './manifest.webmanifest',
-  './css/app.css',
-  './js/advisor.js',
-  './js/engine.js',
-  './js/library.js',
-  './js/lightsweep.js',
-  './js/main.js',
-  './js/persist.js',
-  './js/psd.js',
-  './js/regions.js',
-  './js/separate.js',
-  './js/shaderball.js',
-  './js/showroom.js',
-  './js/studio.js',
-  './js/tga.js',
-  './js/textures.js',
-  './js/wand.js',
-  './js/lasso.js',
-  './js/warp.js',
-  './js/vendor/ag-psd.min.js',
-  // texture-library picker thumbnails (full-res PNGs runtime-cache on first use)
-  './textures/thumb/carbon-twill.jpg',
-  './textures/thumb/forged-carbon.jpg',
-  './textures/thumb/woodland-camo.jpg',
-  './textures/thumb/desert-camo.jpg',
-  './textures/thumb/digital-camo.jpg',
-  './textures/thumb/urban-camo.jpg',
-  './textures/thumb/brushed-alu.jpg',
-  './textures/thumb/diamond-plate.jpg',
-  './textures/thumb/hammered-ti.jpg',
-  './textures/thumb/hydro-dip.jpg',
-  './textures/thumb/liquid-marble.jpg',
-  './textures/thumb/galaxy.jpg',
-  './textures/thumb/geo-facets.jpg',
-  './textures/thumb/snakeskin.jpg',
-  './textures/thumb/cracked-lava.jpg',
-  './textures/thumb/circuit.jpg',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-192-maskable.png',
@@ -57,8 +21,8 @@ const PRECACHE = [
 ];
 
 self.addEventListener('install', (event) => {
-  // no skipWaiting here — the page shows an update toast and the user
-  // opts in via the SKIP_WAITING message below
+  // no skipWaiting here: the page asks for it (the SKIP_WAITING message
+  // below) once it has saved
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(PRECACHE)));
 });
 
@@ -78,6 +42,19 @@ self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
 });
 
+// from the network, kept as it is fetched; the kept copy when there is no network
+async function fresh(req, opts) {
+  try {
+    const res = await fetch(req, opts);
+    if (res && res.ok) (await caches.open(CACHE)).put(req, res.clone());
+    return res;
+  } catch (err) {
+    const cached = await caches.match(req);
+    if (cached) return cached;
+    throw err;
+  }
+}
+
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return; // never intercept non-GET
@@ -85,33 +62,14 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(req.url);
 
   if (url.origin === self.location.origin) {
-    // same-origin: cache-first, network fallback (caching what it fetches)
-    event.respondWith((async () => {
-      const cached = await caches.match(req);
-      if (cached) return cached;
-      const res = await fetch(req);
-      if (res && res.ok) {
-        const cache = await caches.open(CACHE);
-        cache.put(req, res.clone());
-      }
-      return res;
-    })());
+    // Everything the app loads comes fresh from the network, so a deploy
+    // shows up on the next reload; each file is kept as it is fetched, and
+    // the kept copy is used when there is no network.
+    // ponytail: network first costs a round trip per file on every load;
+    // precache the app and serve it cache-first if load time ever matters.
+    event.respondWith(fresh(req, { cache: 'no-cache' }));
   } else {
-    // cross-origin (Google Fonts, GitHub raw): network with cache fallback —
-    // fresh when online, stale if offline; never precached
-    event.respondWith((async () => {
-      try {
-        const res = await fetch(req);
-        if (res && res.ok) {
-          const cache = await caches.open(CACHE);
-          cache.put(req, res.clone());
-        }
-        return res;
-      } catch (err) {
-        const cached = await caches.match(req);
-        if (cached) return cached;
-        throw err;
-      }
-    })());
+    // cross-origin (Google Fonts, the icon search): the same, never precached
+    event.respondWith(fresh(req));
   }
 });

@@ -17,12 +17,8 @@ const {
   createFillLayer,
   serializeDoc,
   deserializeDoc,
-  mixHex,
   resolveParams,
   defaultParams,
-  lumSpecChannels,
-  fadeBand,
-  fadeDotFrac,
 } = await import('../js/engine.js');
 
 // Layers built by hand (factory functions for image/text need real canvas).
@@ -48,11 +44,7 @@ test('serializeDoc round-trips curve on text layers (default 0)', () => {
 });
 
 test('serializeDoc carries fx as-is, null when absent', () => {
-  const fx = {
-    strokeW: 6, strokeColor: '#ff0000',
-    shadow: 20, shadowDX: 8, shadowDY: 8, shadowColor: '#000000',
-    glow: 0, glowColor: '#ffffff',
-  };
+  const fx = { shadow: 20, shadowDX: 8, shadowDY: 8, shadowColor: '#000000' };
   const doc = createDoc();
   doc.layers.push(fakeTextLayer({ fx }), fakeTextLayer({ id: 'T2', fx: null }));
   const out = serializeDoc(doc);
@@ -87,65 +79,13 @@ test('deserializeDoc restores fill colorMid/midPos with defaults', async () => {
   assert.equal(doc.layers[1].midPos, 0.5);
 });
 
-test('deserializeDoc coerces partial fx blocks to full defaults', async () => {
+test('deserializeDoc keeps a shadow and fills in what it leaves out', async () => {
   const doc = await deserializeDoc({
     format: 'clearcoat/1',
-    layers: [
-      { type: 'image', src: 'data:x', fx: { strokeW: 10, glow: 30 } },
-      { type: 'image', src: 'data:x' }, // pre-feature save
-    ],
+    layers: [{ type: 'image', src: 'data:x', fx: { shadow: 12 } }, { type: 'image', src: 'data:x' }],
   });
-  assert.deepEqual(doc.layers[0].fx, {
-    strokeW: 10, strokeColor: '#000000',
-    shadow: 0, shadowDX: 8, shadowDY: 8, shadowColor: '#000000',
-    glow: 30, glowColor: '#ffffff',
-    neon: 0, neonColor: '#39ff14',
-    fade: 0, fadeAngle: 0, fadeCell: 14, fadeStyle: 'dots',
-  });
+  assert.deepEqual(doc.layers[0].fx, { shadow: 12, shadowDX: 8, shadowDY: 8, shadowColor: '#000000' });
   assert.equal(doc.layers[1].fx, null);
-});
-
-test('deserializeDoc keeps neon and fade settings across a reload', async () => {
-  const doc = await deserializeDoc({
-    format: 'clearcoat/1',
-    layers: [{ type: 'image', src: 'data:x', fx: { neon: 30, neonColor: '#ff00ff', fade: 60, fadeAngle: 90, fadeCell: 20, fadeStyle: 'lines' } }],
-  });
-  const fx = doc.layers[0].fx;
-  assert.equal(fx.neon, 30);
-  assert.equal(fx.neonColor, '#ff00ff');
-  assert.deepEqual([fx.fade, fx.fadeAngle, fx.fadeCell, fx.fadeStyle], [60, 90, 20, 'lines']);
-});
-
-test('fadeBand: axis-aligned box at 0° fades toward the right edge', () => {
-  const box = [{ x: 100, y: 200 }, { x: 500, y: 200 }, { x: 500, y: 300 }, { x: 100, y: 300 }];
-  const b = fadeBand(box, 0, 50);
-  assert.equal(b.u0, 100); assert.equal(b.u1, 500);
-  assert.equal(b.v0, 200); assert.equal(b.v1, 300);
-  assert.equal(b.uStart, 300); // last half of the width dissolves
-});
-
-test('fadeBand: 180° fades toward the left edge, 100% covers the whole layer', () => {
-  const box = [{ x: 100, y: 200 }, { x: 500, y: 200 }, { x: 500, y: 300 }, { x: 100, y: 300 }];
-  const b = fadeBand(box, 180, 100);
-  // u axis points left, so the box spans u = -500 .. -100 and the band is all of it
-  assert.ok(Math.abs(b.u0 - -500) < 1e-9 && Math.abs(b.u1 - -100) < 1e-9);
-  assert.ok(Math.abs(b.uStart - b.u0) < 1e-9);
-});
-
-test('fadeDotFrac: full dots at the band start, none at the end, area-linear between', () => {
-  const b = { u0: 0, u1: 400, uStart: 200 };
-  assert.equal(fadeDotFrac(0, b), 1);
-  assert.equal(fadeDotFrac(200, b), 1);
-  assert.equal(fadeDotFrac(400, b), 0);
-  assert.equal(fadeDotFrac(500, b), 0);
-  const mid = fadeDotFrac(300, b);
-  assert.ok(Math.abs(mid * mid - 0.5) < 1e-9); // radius² tracks coverage
-});
-
-test('mixHex interpolates channels', () => {
-  assert.equal(mixHex('#000000', '#ffffff', 0.5), '#808080');
-  assert.equal(mixHex('#ff0000', '#00ff00', 0), '#ff0000');
-  assert.equal(mixHex('#ff0000', '#00ff00', 1), '#00ff00');
 });
 
 test('resolveParams overlays matParams on material defaults', () => {
@@ -154,43 +94,6 @@ test('resolveParams overlays matParams on material defaults', () => {
 });
 
 // ---------- luminance-driven spec (weathering) ----------
-
-test('lumSpecChannels: amt 0 is a no-op, full amt swings dark pixels to oxide', () => {
-  const chrome = { met: 255, rough: 10, clear: 255 };
-  // amt 0 — flat material regardless of luminance
-  assert.deepEqual(lumSpecChannels(0, chrome, false, 0), chrome);
-  assert.deepEqual(lumSpecChannels(1, chrome, false, 0), chrome);
-  // amt 100 — bright pixels keep the material, dark pixels go full oxide
-  assert.deepEqual(lumSpecChannels(1, chrome, false, 100), chrome);
-  assert.deepEqual(lumSpecChannels(0, chrome, false, 100), { met: 0, rough: 235, clear: 30 });
-});
-
-test('lumSpecChannels: invert weathers the bright end instead', () => {
-  const chrome = { met: 255, rough: 10, clear: 255 };
-  assert.deepEqual(lumSpecChannels(1, chrome, true, 100), { met: 0, rough: 235, clear: 30 });
-  assert.deepEqual(lumSpecChannels(0, chrome, true, 100), chrome);
-});
-
-test('lumSpec serializes and round-trips; amt 0 and legacy saves normalize to null', async () => {
-  const doc = createDoc();
-  doc.layers.push({ ...createFillLayer('#8a5a2b'), lumSpec: { amt: 70, invert: true } });
-  const out = serializeDoc(doc);
-  assert.deepEqual(out.layers[0].lumSpec, { amt: 70, invert: true });
-
-  const back = await deserializeDoc({
-    format: 'clearcoat/1',
-    layers: [
-      { type: 'fill', color: '#8a5a2b', lumSpec: { amt: 70, invert: true } },
-      { type: 'fill', color: '#8a5a2b', lumSpec: { amt: 0, invert: true } },
-      { type: 'fill', color: '#8a5a2b' }, // pre-feature save
-      { type: 'image', src: 'data:x', lumSpec: { amt: 250 } }, // clamped
-    ],
-  });
-  assert.deepEqual(back.layers[0].lumSpec, { amt: 70, invert: true });
-  assert.equal(back.layers[1].lumSpec, null);
-  assert.equal(back.layers[2].lumSpec, null);
-  assert.deepEqual(back.layers[3].lumSpec, { amt: 100, invert: false });
-});
 
 test('deserializeDoc restores scaleY on image layers (stretch survived reload)', async () => {
   const doc = await deserializeDoc({
