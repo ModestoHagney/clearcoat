@@ -214,6 +214,9 @@ dialog footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12p
 dialog.wide { width: min(720px, calc(100% - 32px)); }
 dialog.lib .dbody { height: 60vh; } /* the same size whichever tab is open */
 .tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+#lib-q { width: 100%; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bar); color: var(--fg); font: inherit; }
+#lib-found { flex: 1; min-height: 0; overflow: auto; }
+.note.small { font-size: 11px; }
 .tabs button[data-libtab] { padding: 4px 12px; border: 1px solid var(--line); border-radius: 99px; color: var(--muted); }
 .tabs button[data-libtab][aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--fg); }
 .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }

@@ -579,13 +579,23 @@ function motifPath(layer, rx, ry, rw, rh) {
   return all;
 }
 const num = (v, lo, hi, d) => (Number.isFinite(+v) ? Math.max(lo, Math.min(hi, +v)) : d);
+// Who drew what a layer (or a pattern's shape) was made from: an icon from an
+// open set asks to be credited. [{ icon, name, set, author, licence, url }]
+const CREDIT_KEYS = ['icon', 'name', 'set', 'author', 'licence', 'url'];
+export function cleanCredits(list) {
+  if (!Array.isArray(list)) return [];
+  const seen = new Set();
+  return list.filter(c => c && typeof c === 'object' && typeof c.icon === 'string' && c.icon && !seen.has(c.icon) && seen.add(c.icon)).slice(0, 40)
+    .map(c => Object.fromEntries(CREDIT_KEYS.map(k => [k, typeof c[k] === 'string' ? c[k].slice(0, 200) : ''])));
+}
 // what repeats: a ready-made shape by name, or an outline of its own
 function cleanMotifShape(m) {
   if (!m || typeof m !== 'object') return null;
   if (m.kind !== 'own') return SHAPES[m.kind] ? { kind: m.kind } : null;
   const pts = shapePts(m.pts);
   if (!pts || !(m.w > 0) || !(m.h > 0)) return null;
-  return { kind: 'own', pts, w: +m.w, h: +m.h, id: typeof m.id === 'string' ? m.id : undefined, name: typeof m.name === 'string' ? m.name : 'Shape' };
+  const credits = cleanCredits(m.credits);
+  return { kind: 'own', pts, w: +m.w, h: +m.h, id: typeof m.id === 'string' ? m.id : undefined, name: typeof m.name === 'string' ? m.name : 'Shape', ...(credits.length ? { credits } : {}) };
 }
 export function cleanMotif(m) {
   const shape = cleanMotifShape(m);
@@ -1694,6 +1704,7 @@ export function serializeDoc(doc) {
       // its finish was chosen for this layer itself, so it does not follow a
       // colour's finish rule (see finish.js)
       finishOwn: l.finishOwn ? true : undefined,
+      credits: Array.isArray(l.credits) && l.credits.length ? l.credits : undefined, // see cleanCredits
       motif: l.type === 'fill' && l.motif ? l.motif : undefined,           // a pattern inside the fill
       motifFrame: l.type === 'fill' && l.motif && l.motifFrame ? l.motifFrame : undefined,
       linearMix: l.linearMix ? true : undefined, // a merged picture whose soft pixels mix as its parts' did
@@ -1991,6 +2002,8 @@ export async function deserializeDoc(data) {
     if (l.fadeStyle === 'radial' || l.fadeStyle === 'linear') loaded.get(l.id).fadeStyle = l.fadeStyle;
     if (typeof l.colorRef === 'string' && l.type !== 'fill') loaded.get(l.id).colorRef = l.colorRef; // text follows a saved colour too
     if (l.type === 'image' && /^#[0-9a-f]{6}$/i.test(l.color || '')) loaded.get(l.id).color = l.color; // a picture painted in one colour
+    const credits = cleanCredits(l.credits);
+    if (credits.length) loaded.get(l.id).credits = credits;
     const motif = l.type === 'fill' ? cleanMotif(l.motif) : null;
     if (motif) {
       loaded.get(l.id).motif = motif;

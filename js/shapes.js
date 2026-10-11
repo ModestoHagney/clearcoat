@@ -132,7 +132,7 @@ export function removeAt(pts, i) {
 const turn = (pts) => pts.reduce((s, p, i) => { const q = pts[(i + 1) % pts.length]; return s + p.x * q.y - q.x * p.y; }, 0);
 // the same outline, run the other way. A bend handle belongs to the line
 // leaving its point, so each moves to the point at that line's other end.
-function reversed(pts) {
+export function reversed(pts) {
   const n = pts.length;
   return pts.map((_, j) => {
     const p = pts[(n - j) % n], before = pts[(n - j - 1 + n) % n]; // new point j is old point n-j; its line runs to old n-j-1

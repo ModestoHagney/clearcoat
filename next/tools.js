@@ -186,7 +186,7 @@ export function initTools(app, env) {
   // stamps is one row in the Layers list; Split makes them shapes of their own.
   let stampRun = null;
   function stampAt(p) {
-    const pts = placed(env.motif(app.stamp.key), p.x, p.y, app.stamp.size);
+    const stamp = env.motif(app.stamp.key), pts = placed(stamp, p.x, p.y, app.stamp.size);
     let layer = app.doc.layers.find(l => l.id === stampRun && isShape(l) && !l.locked && l.color === app.colour);
     if (layer) {
       setShape(layer, joined([layer.pts, pts]));
@@ -198,6 +198,8 @@ export function initTools(app, env) {
       app.doc.layers.push(layer);
       stampRun = layer.id;
     }
+    // a stamp made from an icon carries the icon's credit with it
+    for (const c of stamp.credits || []) if (!(layer.credits || []).some(x => x.icon === c.icon)) layer.credits = [...(layer.credits || []), c];
     app.sel = layer.id;
     change({ now: true });
   }

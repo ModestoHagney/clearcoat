@@ -702,35 +702,66 @@ export function initUI(app, actions, version) {
   }
   // ---------- the library ----------
   // → { kind: 'logos' | 'graphics' | 'shapes' | 'file', item } or null
-  async function library(lib, builtIn, { remove }) {
-    let tab = lib.logos.length ? 'logos' : 'graphics', picked = null;
+  // The library: my own pictures, my own shapes, and a search of the open icon
+  // sets, whose finds come in as shapes. search(query) → the finds;
+  // fetchIcon(find) → the shape made from one.
+  async function library(lib, { remove, search, fetchIcon }) {
+    let tab = lib.logos.length ? 'logos' : lib.shapes.length ? 'shapes' : 'search', picked = null;
+    let query = '', found = null, state = ''; // found: the last search's finds; state: '' | 'busy' | a message
     const tile = (kind, it, art, own) => `<span class="tilewrap"><button type="button" class="tile" data-lib="${kind}:${esc(it.id)}" title="${esc(it.name)}">${art}<span>${esc(it.name)}</span></button>${own ? `<button type="button" class="tilex" data-libx="${kind}:${esc(it.id)}" title="Remove from the library" aria-label="Remove ${esc(it.name)}">${svg('close')}</button>` : ''}</span>`;
+    const results = () => (state === 'busy' ? '<div class="note">Searching…</div>'
+      : state ? `<div class="note">${esc(state)}</div>`
+      : !found ? '<div class="note">Type a word and press Enter: flame, wing, skull, wrench…</div>'
+      : !found.length ? '<div class="note">Nothing found for that. Try another word.</div>'
+      : `<div class="tiles">${found.map((it, k) => `<span class="tilewrap"><button type="button" class="tile" data-icon="${k}" title="${esc(it.name)} · ${esc(it.set)}${it.licence ? ' · ' + esc(it.licence) : ''}"><img alt="" loading="lazy" src="${esc(it.preview)}"><span>${esc(it.name)}</span></button></span>`).join('')}</div>`);
     const draw = () => {
-      const tabs = [['logos', `Your pictures${lib.logos.length ? ' · ' + lib.logos.length : ''}`], ['graphics', 'Graphics'], ['shapes', `Your shapes${lib.shapes.length ? ' · ' + lib.shapes.length : ''}`]];
+      const tabs = [['logos', `Your pictures${lib.logos.length ? ' · ' + lib.logos.length : ''}`], ['shapes', `Your shapes${lib.shapes.length ? ' · ' + lib.shapes.length : ''}`], ['search', 'Search icons']];
+      const side = tab === 'logos' ? '<button type="button" class="btn" data-lib="file:" style="margin-left:auto">Picture from a file…</button>'
+        : tab === 'shapes' ? '<button type="button" class="btn" data-lib="shapefile:" style="margin-left:auto" title="What the file fills becomes a shape: it takes a colour and works as a pattern or a stamp">Shape from an SVG file…</button>' : '';
       const grid = tab === 'logos' ? lib.logos.map((it) => tile('logos', it, `<img alt="" src="${esc(it.src)}">`, true)).join('')
-        : tab === 'graphics' ? builtIn.map((it) => tile('graphics', it, `<img alt="" src="data:image/svg+xml;utf8,${encodeURIComponent(it.svg)}">`, false)).join('')
         : lib.shapes.map((it) => tile('shapes', it, shapeSvg(it), true)).join('');
-      const empty = tab === 'logos' ? 'Pictures you bring in are kept here.' : 'Select a shape and choose Edit › Save to library.';
-      $('dlg-body').innerHTML = `<div class="tabs">${tabs.map(([k, name]) => `<button type="button" data-libtab="${k}" aria-pressed="${k === tab}">${name}</button>`).join('')}<button type="button" class="btn" data-lib="file:" style="margin-left:auto">From a file…</button></div>` +
-        (grid ? `<div class="tiles">${grid}</div>` : `<div class="note">${empty}</div>`);
+      const empty = tab === 'logos' ? 'Pictures you bring in are kept here.' : 'Shapes you save, search for or bring in from a file are kept here.';
+      $('dlg-body').innerHTML = `<div class="tabs">${tabs.map(([k, name]) => `<button type="button" data-libtab="${k}" aria-pressed="${k === tab}">${name}</button>`).join('')}${side}</div>` +
+        (tab === 'search'
+          ? `<input id="lib-q" type="text" placeholder="Search icons" value="${esc(query)}" spellcheck="false" autocomplete="off" aria-label="Search icons"><div id="lib-found">${results()}</div>` +
+            '<div class="note small">They come in as shapes. From Game Icons (credit kept with the livery), Material Symbols, Material Design Icons and Bootstrap Icons.</div>'
+          : grid ? `<div class="tiles">${grid}</div>` : `<div class="note">${empty}</div>`);
+      if (tab === 'search') $('lib-q').focus();
+    };
+    const run = async () => {
+      query = $('lib-q').value.trim();
+      if (!query) return;
+      state = 'busy'; $('lib-found').innerHTML = results();
+      const asked = query;
+      try { found = await search(query); state = ''; }
+      catch { found = null; state = 'The search could not be reached. It needs an internet connection.'; }
+      if (asked === query && tab === 'search' && $('lib-found')) $('lib-found').innerHTML = results(); // not if another search has started since
     };
     const p = ask({ title: 'Library', ok: null, cancel: 'Close' });
     dlg.classList.add('wide', 'lib');
     draw();
-    $('dlg-body').onclick = (e) => {
+    $('dlg-body').onkeydown = (e) => { if (e.key === 'Enter' && e.target.id === 'lib-q') { e.preventDefault(); run(); } }; // Enter searches; it must not close the dialog
+    $('dlg-body').onclick = async (e) => {
       const t = e.target.closest('button');
       if (!t) return;
       if (t.dataset.libtab) { tab = t.dataset.libtab; draw(); return; }
+      if (t.dataset.icon !== undefined) { // a find: fetched and made into a shape before the dialog closes
+        const it = found[+t.dataset.icon];
+        t.disabled = true;
+        try { picked = { kind: 'icon', item: await fetchIcon(it) }; dlg.close('ok'); }
+        catch (err) { t.disabled = false; say(err.message || 'That icon could not be made into a shape', true); }
+        return;
+      }
       const [kind, id] = (t.dataset.libx || t.dataset.lib || '').split(':');
       if (t.dataset.libx) { remove(kind, id); lib[kind] = lib[kind].filter((x) => x.id !== id); draw(); return; }
       if (!kind) return;
-      picked = kind === 'file' ? { kind } : { kind, item: (kind === 'graphics' ? builtIn : lib[kind]).find((x) => x.id === id) };
+      picked = kind === 'file' || kind === 'shapefile' ? { kind } : { kind, item: lib[kind].find((x) => x.id === id) };
       dlg.close('ok');
     };
     await p;
-    $('dlg-body').onclick = null;
+    $('dlg-body').onclick = $('dlg-body').onkeydown = null;
     dlg.classList.remove('wide', 'lib');
-    return picked && (picked.kind === 'file' || picked.item) ? picked : null;
+    return picked && (picked.kind === 'file' || picked.kind === 'shapefile' || picked.item) ? picked : null;
   }
   // Merging layers that cannot simply become one shape: what should happen?
   // → 'shape' | '#rrggbb' (make them all this colour, then one shape) | 'group' | 'picture' | null
@@ -764,7 +795,13 @@ export function initUI(app, actions, version) {
       ['Undo, redo', 'Ctrl+Z, Ctrl+Y'], ['Save', 'Ctrl+S'], ['This list', 'F1'],
     ].map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join('') + '</table>',
   });
-  const about = () => ask({ title: 'Clearcoat', ok: 'Close', cancel: null, body: `<div class="note">New screen, ${esc(version)}</div><div class="note">Built on <a href="https://github.com/OblivionsPeak/clearcoat" target="_blank" rel="noopener">Clearcoat by OblivionsPeak</a></div><div class="note"><a href="../">Open the original screen</a></div>` });
+  // who drew the icons used in the open livery: the open sets ask to be named
+  const credits = () => {
+    const list = actions.credits();
+    return !list.length ? '' : '<div class="sub">Icons in this livery</div>' + list.map((c) =>
+      `<div class="note">${esc(c.name)}: ${c.url ? `<a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.set)}</a>` : esc(c.set)}${c.author ? ' by ' + esc(c.author) : ''}${c.licence ? ', ' + esc(c.licence) : ''}</div>`).join('');
+  };
+  const about = () => ask({ title: 'Clearcoat', ok: 'Close', cancel: null, body: `<div class="note">${esc(version)}</div><div class="note">Built on <a href="https://github.com/OblivionsPeak/clearcoat" target="_blank" rel="noopener">Clearcoat by OblivionsPeak</a></div>` + credits() });
 
   // ---------- clicks ----------
   const run = (act) => {

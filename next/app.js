@@ -20,18 +20,18 @@ import { saveToIracing, paintFilenames, validCustid, exportPaintCanvas, paintsDi
 import { initUI } from './ui.js';
 import { initTools, isShape, isBox, moveLayer, setShape, fadeEnds, hasFade, hasAim } from './tools.js';
 import { joined, boxOutline, pieces, SHAPES } from '../js/shapes.js';
-import { LIBRARY, libraryItemToLayerSource } from '../js/library.js';
+import { searchIcons, iconShape, svgToShape } from './icons.js';
 import { createFillLayer } from '../js/engine.js';
 import { moved } from '../js/shapes.js';
 import { paintLayers } from '../js/engine.js';
 import { finishSpec } from '../js/finish.js';
 import { withFinishes, withPatterns, setRule, clearRule, ruleFor, layerColour, isArea, hasOwnFinish, readFinish, writeFinish, presetOf, FINISHES, SPARKLE } from '../js/finish.js';
-import { MATERIALS, fadeStyleOf } from '../js/engine.js';
+import { MATERIALS, fadeStyleOf, cleanCredits } from '../js/engine.js';
 import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.54';
+export const VERSION = 'v0.68-pieces.55';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -481,6 +481,19 @@ function sampleColour(p) {
 
 let library = { logos: [], shapes: [] };
 const saveLibrary = () => persist.saveBlob('next-library', library).catch(() => { /* quota: it still works this session */ });
+// A shape brought in from outside (an icon, an SVG file) is kept in the
+// library, so it is there for patterns and stamps too. One already kept (the
+// same icon again) is not kept twice. → the library's copy
+function keepShape(made) {
+  const icon = made.credit ? made.credit.icon : null;
+  const had = icon && library.shapes.find(x => (x.credits || []).some(c => c.icon === icon));
+  if (had) return had;
+  const { credit, ...rest } = made;
+  const item = { id: 's' + newId(), ...rest, ...(credit ? { credits: [credit] } : {}) };
+  library.shapes.unshift(item);
+  saveLibrary();
+  return item;
+}
 
 // settings of a text layer that change what its picture looks like
 const TEXT_KEYS = new Set(['text', 'font', 'fontSize', 'textColor', 'outlineColor', 'outlineWidth', 'italic', 'letterSpacing', 'curve']);
@@ -540,7 +553,7 @@ function motifOf(key) {
   if (SHAPES[key]) return { kind: key };
   const it = library.shapes.find(x => 'own:' + x.id === key);
   if (!it) return null;
-  return { kind: 'own', id: it.id, name: it.name, w: it.w, h: it.h, pts: (it.pts || boxOutline(it.shape, 0, 0, it.w, it.h)).map(q => (q.c ? { ...q, c: { ...q.c } } : { ...q })) };
+  return { kind: 'own', id: it.id, name: it.name, w: it.w, h: it.h, ...(it.credits && it.credits.length ? { credits: it.credits } : {}), pts: (it.pts || boxOutline(it.shape, 0, 0, it.w, it.h)).map(q => (q.c ? { ...q, c: { ...q.c } } : { ...q })) };
 }
 
 const actions = {
@@ -1065,6 +1078,7 @@ const actions = {
     const targets = app.doc.layers.filter(l => ids.has(l.id) && l.visible && !isArea(l)); // back to front
     if (targets.length < 2) { ui.say('Select two or more layers to merge. Ctrl+click them, or drag a box round them.'); return; }
     const top = targets[targets.length - 1], spec = finishSpec(app.doc, top);
+    const credits = cleanCredits(targets.flatMap(l => l.credits || [])); // whatever they become, the icons in them stay credited
     const same = (f) => targets.every(l => f(l) === f(top));
     const shapes = targets.every(l => isShape(l) || (isBox(l) && ['rect', 'ellipse', 'triangle'].includes(l.shape) && !l.flipH && !l.flipV));
     const sameColour = same(l => (l.color || '').toLowerCase());
@@ -1084,6 +1098,7 @@ const actions = {
       if (how !== 'shape') { top.color = how; top.colorRef = null; keepFadeOut(top); } // the colour chosen for them all
       setShape(top, joined(targets.map(l => (isShape(l) ? l.pts : boxOutline(l.shape, l.rx, l.ry, l.rw, l.rh)))));
       top.shape = 'path';
+      if (credits.length) top.credits = credits;
       app.doc.layers = app.doc.layers.filter(l => l === top || !targets.includes(l));
       pruneGroups();
       app.sel = top.id; app.sels = [];
@@ -1111,6 +1126,7 @@ const actions = {
     merged.y = y0 + crop.height / 2;
     merged.scale = 1;
     merged.linearMix = true; // its soft edges and fades go on mixing the way its parts' did
+    if (credits.length) merged.credits = credits;
     // one finish for the lot: the top layer's
     merged.material = spec.material; merged.matParams = spec.params ? { ...spec.params } : null; merged.finishOwn = spec.material !== 'gloss' || !!spec.params;
     const at = app.doc.layers.indexOf(top);
@@ -1289,19 +1305,37 @@ const actions = {
   // Kept in this browser, across liveries: pictures you have brought in, and
   // shapes you have saved. The built-in graphics come with the app.
   async openLibrary() {
-    const pick = await ui.library(library, LIBRARY, {
+    const pick = await ui.library(library, {
       remove(kind, id) { library[kind] = library[kind].filter(x => x.id !== id); saveLibrary(); },
+      search: searchIcons, fetchIcon: iconShape,
     });
     if (!pick) return;
     if (pick.kind === 'file') return actions.pickImage();
+    if (pick.kind === 'shapefile') return $('file-shape').click();
     if (pick.kind === 'logos') return actions.addImage(pick.item.src, pick.item.name);
-    if (pick.kind === 'graphics') return actions.addImage(await libraryItemToLayerSource(pick.item), pick.item.name, null, false);
     if (pick.kind === 'shapes') return actions.addShape(pick.item);
+    if (pick.kind === 'icon') return actions.addShape(keepShape(pick.item));
+  },
+  // a shape from an SVG file: kept in the library, and put on the sheet
+  async addShapeFile(file) {
+    try {
+      const made = svgToShape(await file.text());
+      actions.addShape(keepShape({ name: file.name.replace(/\.[^.]+$/, '') || 'Shape', shape: 'path', ...made }));
+    } catch (err) {
+      ui.say(err.message || 'That file could not be read as a shape', true);
+    }
+  },
+  // who is to be credited for what is in the livery: icons from the open sets, wherever they ended up
+  credits() {
+    const all = [];
+    for (const l of app.doc.layers) all.push(...(l.credits || []), ...(l.motif ? [l.motif, ...(l.motif.more || [])].flatMap(m => m.credits || []) : []));
+    return cleanCredits(all);
   },
   saveShape() {
     const l = actions.selected();
     if (!l || l.type !== 'fill') return;
     const item = { id: 's' + newId(), name: l.name, shape: l.shape, w: l.rw, h: l.rh };
+    if (l.credits && l.credits.length) item.credits = l.credits; // made from an icon: the credit goes with it
     if (isShape(l)) item.pts = moved(l.pts, -l.rx, -l.ry); // from its own corner, so it can be put anywhere
     library.shapes.unshift(item);
     saveLibrary();
@@ -1312,6 +1346,7 @@ const actions = {
     const x = Math.round(mid.x - item.w / 2), y = Math.round(mid.y - item.h / 2);
     l.name = item.name;
     l.shape = item.shape;
+    if (item.credits && item.credits.length) l.credits = item.credits;
     if (item.pts) setShape(l, moved(item.pts, x, y));
     else { l.rx = x; l.ry = y; l.rw = item.w; l.rh = item.h; }
     app.doc.layers.push(l);
@@ -1527,7 +1562,7 @@ $('stage').addEventListener('drop', (e) => {
   if (/\.psd$/i.test(f.name)) actions.loadTemplateFile(f);
   else if (app.mode === 'paint') actions.addImageFile(f, screenToDoc(...Object.values(local(e))));
 });
-for (const [id, fn] of [['file-image', (f) => actions.addImageFile(f)], ['file-font', (f) => actions.uploadFont(f)]]) {
+for (const [id, fn] of [['file-image', (f) => actions.addImageFile(f)], ['file-shape', (f) => actions.addShapeFile(f)], ['file-font', (f) => actions.uploadFont(f)]]) {
   $(id).addEventListener('change', (e) => {
     const f = e.target.files[0];
     e.target.value = '';
