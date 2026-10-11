@@ -26,7 +26,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { regionOutline, parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.78';
+export const VERSION = 'v0.68-pieces.79';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -1159,7 +1159,10 @@ const actions = {
   },
   // the pattern's other colours: its copies take turns with them, or pick between them when random
   addPatternColour() {
-    if (eachMotif((m, l) => ({ colors: [...(m.colors || []), nextMix(m, l)].slice(0, 6) }))) change();
+    if (!eachMotif((m, l) => ({ colors: [...(m.colors || []), nextMix(m, l)].slice(0, 6) }))) return;
+    const l = actions.selected(), n = l && l.motif ? (l.motif.colors || []).length : 0;
+    app.target = n ? n - 1 : null; // the new colour is the one being chosen: the Colour panel's next colour goes to it
+    change();
   },
   // k: which of the extra colours, or -1 for the first, whose place the next one then takes
   dropPatternColour(k) {
