@@ -117,12 +117,16 @@ test('a finish reads as three numbers and optional sparkle, and writes back to w
 test('sparkle sits on top of any finish: specks at size 1, chips above', () => {
   const matte = readFinish('matte', null);
   const fine = writeFinish({ ...matte, sparkle: { ...SPARKLE } });
-  assert.deepEqual(fine, { material: 'flake', params: { met: 0, rough: 230, clear: 60, density: 18, contrast: 100 } });
+  assert.deepEqual(fine, { material: 'flake', params: { met: 0, rough: 230, clear: 60, density: 18, contrast: 100, bright: 50 } });
   const coarse = writeFinish({ ...matte, sparkle: { amount: 30, size: 5, strength: 60 } });
-  assert.deepEqual(coarse, { material: 'glitter', params: { met: 0, rough: 230, clear: 60, density: 30, scale: 5, contrast: 60 } });
+  assert.deepEqual(coarse, { material: 'glitter', params: { met: 0, rough: 230, clear: 60, density: 30, scale: 5, contrast: 60, bright: 0 } });
   // and reads back as the same finish with the same sparkle
-  assert.deepEqual(readFinish(coarse.material, coarse.params), { ...matte, sparkle: { amount: 30, size: 5, strength: 60 } });
-  assert.deepEqual(readFinish(fine.material, fine.params).sparkle, { amount: 18, size: 1, strength: 100 });
+  assert.deepEqual(readFinish(coarse.material, coarse.params), { ...matte, sparkle: { amount: 30, size: 5, strength: 60, bright: 0 } });
+  assert.deepEqual(readFinish(fine.material, fine.params).sparkle, { amount: 18, size: 1, strength: 100, bright: 50 });
+  // sparkle from before it had a brightness: its flecks did not lighten the paint, and still do not
+  assert.equal(readFinish('flake', { met: 0, rough: 230, clear: 60, density: 18, contrast: 100 }).sparkle.bright, 0);
+  // the brightness is kept with a colour's finish rule
+  assert.equal(cleanFinishRules([{ color: '#ff0000', material: 'flake', params: { ...fine.params } }])[0].params.bright, 50);
 });
 
 test('labels: a preset, a preset with sparkle, tweaked numbers, an old finish', () => {

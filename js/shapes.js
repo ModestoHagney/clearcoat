@@ -368,3 +368,25 @@ export function fadeAt(p, from, to, style) {
   const t = style === 'radial' ? Math.hypot(p.x - from.x, p.y - from.y) / Math.sqrt(len2) : ((p.x - from.x) * dx + (p.y - from.y) * dy) / len2;
   return Math.max(0, Math.min(1, t));
 }
+
+// ---------- holes ----------
+
+// which pieces lie inside another piece of the same shape: a hole, or
+// something drawn inside a hole (an outline-style icon is a thin ring: its
+// outer edge, and its inner edge as a hole)
+const innerPieces = (pts) => {
+  const parts = pieces(pts), flat = parts.map(([a, b]) => flatten(pts.slice(a, b).map((p, k) => (k ? p : { ...p, m: undefined }))));
+  return parts.map(([a], k) => flat.some((other, j) => j !== k && pointInPolygon(other, pts[a].x, pts[a].y)));
+};
+export const hasInner = (pts) => innerPieces(pts).some(Boolean);
+// the shape filled in: only its outermost pieces, each one solid
+export function outerOnly(pts) {
+  const inner = innerPieces(pts), out = [];
+  pieces(pts).forEach(([a, b], k) => {
+    if (inner[k]) return;
+    const piece = pts.slice(a, b).map(p => (p.c ? { x: p.x, y: p.y, c: { ...p.c } } : { x: p.x, y: p.y }));
+    if (out.length) piece[0].m = true;
+    out.push(...piece);
+  });
+  return out;
+}

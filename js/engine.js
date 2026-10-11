@@ -94,11 +94,19 @@ export function specTexture(key, p) {
   const d = id.data;
   const rand = mulberry32(0xC0FFEE); // seeded — identical output every export
   const k = (p.contrast ?? 100) / 100;
+  // Sparkle also comes as `canvas.light`: the same flecks in white, each as
+  // see-through as it is weak. Laid over the paint (see sparkleLight) it
+  // lightens the colour under every fleck, so a fleck reads bright even with
+  // nothing to mirror. A fleck of full mirror metal with nothing bright to
+  // reflect is otherwise a dark speck.
+  const light = key === 'flake' || key === 'glitter' ? document.createElement('canvas') : null;
+  if (light) { light.width = light.height = SIZE; c.light = light; }
 
   if (key === 'flake') {
     // sparkle speckle: random pixels spike metallic and drop roughness
     const density = Math.max(0.01, (p.density ?? 18) / 100);
     const thr = 1 - density;
+    const lid = light.getContext('2d').createImageData(SIZE, SIZE), ld = lid.data;
     for (let i = 0; i < d.length; i += 4) {
       const f = rand();
       const s = (f > thr ? (f - thr) / density : 0) * k;
@@ -106,7 +114,10 @@ export function specTexture(key, p) {
       d[i + 1] = clamp255(p.rough * (1 - 0.85 * s));
       d[i + 2] = p.clear;
       d[i + 3] = 255;
+      ld[i] = ld[i + 1] = ld[i + 2] = 255;
+      ld[i + 3] = clamp255(255 * s);
     }
+    light.getContext('2d').putImageData(lid, 0, 0);
   } else if (key === 'glitter') {
     // coarse sparkle: multi-pixel chips (flake's loud cousin). Each chip
     // spikes metallic and carries its OWN roughness, so different chips
@@ -116,6 +127,7 @@ export function specTexture(key, p) {
     const size = Math.max(2, Math.round(p.scale ?? 4));
     const density = Math.max(1, Math.min(80, p.density ?? 30));
     const count = Math.round((SIZE * SIZE * (density / 100)) / (size * size));
+    const lctx = light.getContext('2d');
     for (let i = 0; i < count; i++) {
       const x = Math.floor(rand() * SIZE);
       const y = Math.floor(rand() * SIZE);
@@ -125,6 +137,8 @@ export function specTexture(key, p) {
       const s = Math.max(1, Math.round(size * (0.7 + rand() * 0.6)));
       ctx.fillStyle = `rgb(${met},${rough},${p.clear})`;
       ctx.fillRect(x, y, s, s);
+      lctx.fillStyle = `rgba(255,255,255,${(0.4 + 0.6 * flash).toFixed(3)})`;
+      lctx.fillRect(x, y, s, s);
     }
     texCache.set(cacheKey, c);
     return c; // drawn with fillRect — skip the ImageData path below
@@ -1264,7 +1278,19 @@ function paintBase(ctx, doc) {
     ? mixHex(doc.baseColor, bp.tint, bp.tintAmt / 100)
     : doc.baseColor;
   ctx.fillRect(0, 0, SIZE, SIZE);
+  const light = sparkleLight(doc.baseMaterial, doc.baseMatParams);
+  if (light) { ctx.save(); ctx.globalAlpha = light.amount; ctx.drawImage(light.canvas, 0, 0); ctx.restore(); }
 }
+
+// A sparkle finish whose flecks also lighten the paint (params.bright, 0 to
+// 100): → { canvas, amount } to lay over that paint, or null.
+function sparkleLight(material, params) {
+  const mat = MATERIALS[material];
+  if (!mat || (mat.tex !== 'flake' && mat.tex !== 'glitter')) return null;
+  const p = resolveParams(material, params), amount = Math.max(0, Math.min(1, (p.bright || 0) / 100));
+  return amount ? { canvas: specTexture(mat.tex, p).light, amount } : null;
+}
+let lightScratch = null; // made when first needed: most liveries never do
 
 // ---------- soft edges mixed in linear light ----------
 // A shape's edge is smoothed by mixing its colour with what is underneath in
@@ -1338,6 +1364,22 @@ function mixLinearInto(ctx, src, box) {
 // layer's own colour show through on every soft edge pixel — a pale rim
 // round tinted white shapes (lasso, + Piece and wand recolour layers).
 function paintLayerInto(ctx, layer) {
+  paintLayerPaint(ctx, layer);
+  const light = sparkleLight(layer.material, layer.matParams);
+  if (!light) return;
+  // the flecks, only where the layer is: its own pixels say where
+  if (!lightScratch) { lightScratch = document.createElement('canvas'); lightScratch.width = lightScratch.height = SIZE; }
+  const sctx = lightScratch.getContext('2d');
+  sctx.clearRect(0, 0, SIZE, SIZE);
+  drawLayer(sctx, layer, false);
+  sctx.save();
+  sctx.globalCompositeOperation = 'source-in';
+  sctx.globalAlpha = light.amount;
+  sctx.drawImage(light.canvas, 0, 0);
+  sctx.restore();
+  ctx.drawImage(lightScratch, 0, 0);
+}
+function paintLayerPaint(ctx, layer) {
   const p = layer.matParams;
   const amt = (p?.tintAmt || 0) / 100;
   const normal = (BLEND_MODES[layer.blend] || BLEND_MODES.normal).op === 'source-over';
@@ -1752,7 +1794,7 @@ export function cleanFinishRules(rules) {
       const out = { color: r.color.toLowerCase(), material: r.material };
       // the finish's own numbers, when it has been tweaked or carries sparkle
       const p = {};
-      for (const k of ['met', 'rough', 'clear', 'density', 'scale', 'contrast']) if (r.params && Number.isFinite(r.params[k])) p[k] = r.params[k];
+      for (const k of ['met', 'rough', 'clear', 'density', 'scale', 'contrast', 'bright']) if (r.params && Number.isFinite(r.params[k])) p[k] = r.params[k];
       if (Object.keys(p).length) out.params = p;
       return out;
     })

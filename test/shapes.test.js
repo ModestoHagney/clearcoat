@@ -247,3 +247,20 @@ test('a ring keeps its hole, also when stamped or merged with other shapes', () 
   const parts = ps(both).map(([i, j]) => area(flatten(both.slice(i, j).map(p => ({ ...p, m: undefined })))) > 0);
   assert.deepEqual(parts, [true, false, true, false, true]); // ring, hole, ring, hole, box
 });
+
+test('filling a shape in: its holes go, and so does anything inside them', () => {
+  const { hasInner, outerOnly } = shapesMod;
+  const ring = boxOutline('ring', 0, 0, 100, 100);
+  assert.ok(hasInner(ring));
+  const solid = outerOnly(ring);
+  assert.equal(shapesMod.pieces(solid).length, 1);
+  assert.equal(solid[0].m, undefined);
+  assert.ok(!hasInner(solid));
+  // two rings side by side, and a dot inside one ring's hole: both outers stay, the rest goes
+  const dot = boxOutline('ellipse', 45, 45, 10, 10); dot[0].m = true;
+  const far = moved(ring, 300, 0); far[0].m = true;
+  const both = outerOnly([...ring, ...dot, ...far]);
+  assert.deepEqual(shapesMod.pieces(both).map(([a, b]) => b - a), [8, 8]);
+  // shapes merely side by side have nothing inside each other
+  assert.ok(!hasInner(joined([boxOutline('rect', 0, 0, 10, 10), boxOutline('rect', 50, 0, 10, 10)])));
+});

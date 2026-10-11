@@ -3,8 +3,9 @@
 // this app's own outlines, so it is a shape like any other: it takes a colour,
 // repeats as a pattern, stamps, mirrors and can be reshaped.
 //
-// Only what an SVG fills becomes the shape. Lines that are only stroked have
-// no inside to fill, and several colours come in as one.
+// What an SVG fills becomes the shape, and so does the inside of a line that
+// closes on itself. A line left open has no inside to fill, and several
+// colours come in as one.
 
 import { parsePath, evenOddPieces, asOutline } from '../js/svgpath.js';
 import { bounds, joined, mapped } from '../js/shapes.js';
@@ -49,15 +50,19 @@ export function svgToShape(svg) {
     for (const el of live.querySelectorAll('path, rect, circle, ellipse, polygon')) {
       if (el.closest('defs, clipPath, mask, symbol, pattern, marker')) continue;
       const cs = getComputedStyle(el);
-      if (cs.fill === 'none' || cs.display === 'none') continue; // only stroked, or switched off
-      let pieces = parsePath(dataOf(el), size / 800);
+      if (cs.display === 'none') continue;
+      // Drawn as a line only: a line that closes on itself is taken as the
+      // edge of a shape and filled; one that does not has no inside to fill.
+      const lineOnly = cs.fill === 'none';
+      if (lineOnly && cs.stroke === 'none') continue; // draws nothing at all
+      let pieces = parsePath(dataOf(el), size / 800, { closedOnly: lineOnly });
       if (!pieces.length) continue;
       if (cs.fillRule === 'evenodd') pieces = evenOddPieces(pieces);
       const m = el.getCTM();
       const at = (p) => (m ? { x: m.a * p.x + m.c * p.y + m.e, y: m.b * p.x + m.d * p.y + m.f } : { x: p.x, y: p.y });
       parts.push(mapped(asOutline(pieces), at));
     }
-    if (!parts.length) throw new Error('Nothing in it is filled, so there is no shape to make. Line drawings come in as pictures instead.');
+    if (!parts.length) throw new Error('Nothing in it is filled or closes on itself, so there is no shape to make. It can still come in as a picture.');
     // ponytail: each part is turned as a whole so parts add up where they
     // overlap; a part that was meant to cut a hole in another part (rare:
     // holes are normally inside one path) comes in solid.

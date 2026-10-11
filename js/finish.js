@@ -19,14 +19,15 @@ import { MATERIALS, resolveParams, fadeStyleOf } from './engine.js';
 // texture, built round those same three numbers.
 export const FINISHES = ['gloss', 'satin', 'matte', 'metallic', 'pearl', 'chrome'];
 export const finishName = (key) => (MATERIALS[key] || MATERIALS.gloss).label;
-export const SPARKLE = { amount: 18, size: 1, strength: 100 }; // what ticking Sparkle starts with
+// bright: how much each fleck also lightens the paint under it (0 = a fleck is finish only, and reads dark unless it catches the light)
+export const SPARKLE = { amount: 18, size: 1, strength: 100, bright: 50 }; // what ticking Sparkle starts with
 
 // A finish as the panel shows it, read from a material and its params:
 // → { met, rough, clear, sparkle: null | { amount, size, strength } }
 export function readFinish(material, params) {
   const key = MATERIALS[material] ? material : 'gloss', p = resolveParams(key, params);
-  const sparkle = key === 'flake' ? { amount: p.density ?? 18, size: 1, strength: p.contrast ?? 100 }
-    : key === 'glitter' ? { amount: p.density ?? 30, size: Math.max(2, p.scale ?? 4), strength: p.contrast ?? 100 }
+  const sparkle = key === 'flake' ? { amount: p.density ?? 18, size: 1, strength: p.contrast ?? 100, bright: p.bright ?? 0 }
+    : key === 'glitter' ? { amount: p.density ?? 30, size: Math.max(2, p.scale ?? 4), strength: p.contrast ?? 100, bright: p.bright ?? 0 }
     : null;
   return { met: p.met, rough: p.rough, clear: p.clear, sparkle };
 }
@@ -40,9 +41,9 @@ export function writeFinish(f, hint = 'gloss') {
   const n = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.round(v)));
   const base = { met: n(f.met, 0, 255), rough: n(f.rough, 0, 255), clear: n(f.clear, 0, 255) };
   if (f.sparkle) {
-    const size = n(f.sparkle.size, 1, 12), amount = n(f.sparkle.amount, 1, 60), contrast = n(f.sparkle.strength, 0, 100);
-    return size <= 1 ? { material: 'flake', params: { ...base, density: amount, contrast } }
-      : { material: 'glitter', params: { ...base, density: amount, scale: size, contrast } };
+    const size = n(f.sparkle.size, 1, 12), amount = n(f.sparkle.amount, 1, 60), contrast = n(f.sparkle.strength, 0, 100), bright = n(f.sparkle.bright || 0, 0, 100);
+    return size <= 1 ? { material: 'flake', params: { ...base, density: amount, contrast, bright } }
+      : { material: 'glitter', params: { ...base, density: amount, scale: size, contrast, bright } };
   }
   const key = presetOf(base) || (FINISHES.includes(hint) ? hint : 'gloss');
   return { material: key, params: presetOf(base) ? null : base };

@@ -14,8 +14,10 @@ const same = (a, b, eps) => Math.abs(a.x - b.x) <= eps && Math.abs(a.y - b.y) <=
 
 // d: the path data. tol: how far a curve may stray from the original, in the
 // path's own units (a 24-unit icon wants far less than a 512-unit one).
+// closedOnly: leave out pieces that do not come back to where they began
+// (a line drawing's open strokes: there is no inside to fill).
 // → the pieces, each a list of points [{ x, y, c? }]
-export function parsePath(d, tol = 0.25) {
+export function parsePath(d, tol = 0.25, { closedOnly = false } = {}) {
   const s = String(d || '');
   let i = 0;
   const skip = () => { while (i < s.length && /[\s,]/.test(s[i])) i++; };
@@ -37,7 +39,7 @@ export function parsePath(d, tol = 0.25) {
   const out = [];
   let cur = null, p = { x: 0, y: 0 }, start = { x: 0, y: 0 }, lastCtl = null, lastCmd = '';
   const open = () => { if (!cur) { cur = [{ x: start.x, y: start.y }]; p = { ...start }; } }; // a piece carried on after Z starts where that one did
-  const shut = () => { if (cur) out.push(cur); cur = null; };
+  const shut = (byZ = false) => { if (cur) out.push({ pts: cur, byZ }); cur = null; };
   const line = (x, y) => { open(); cur.push({ x, y }); p = { x, y }; };
   const quad = (cx, cy, x, y) => { open(); cur[cur.length - 1].c = { x: cx, y: cy }; cur.push({ x, y }); p = { x, y }; };
   // a cubic as quadratics: one where that is close enough, else each half again
@@ -85,7 +87,7 @@ export function parsePath(d, tol = 0.25) {
     const rel = cmd === cmd.toLowerCase(), C = cmd.toUpperCase(), ox = rel ? p.x : 0, oy = rel ? p.y : 0;
     if (C === 'Z') {
       if (cur) p = { ...cur[0] };
-      shut();
+      shut(true);
       start = { ...p };
     } else if (C === 'M') {
       shut();
@@ -116,7 +118,7 @@ export function parsePath(d, tol = 0.25) {
   shut();
 
   const eps = tol / 100;
-  return out.map((piece) => {
+  return out.filter(({ pts, byZ }) => !closedOnly || byZ || (pts.length > 2 && same(pts[pts.length - 1], pts[0], eps))).map(({ pts: piece }) => {
     // points on top of the one before add nothing (a line of no length)
     let q = piece.filter((a, k) => k === 0 || a.c || piece[k - 1].c || !same(a, piece[k - 1], eps));
     // drawn back to where it began: that last point is the first one over again

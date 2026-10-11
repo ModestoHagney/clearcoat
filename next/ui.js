@@ -3,7 +3,7 @@
 // app state and calls back into `actions`; it holds no livery state itself.
 
 import { pieces, hue } from './map.js';
-import { SHAPES, PLAIN_SHAPES, roundedOf, plainOf, softened, boxOutline, aspect } from '../js/shapes.js';
+import { SHAPES, PLAIN_SHAPES, roundedOf, plainOf, softened, boxOutline, aspect, hasInner } from '../js/shapes.js';
 import { TEXT_FONTS, GOOGLE_FONTS, fadeStyleOf } from '../js/engine.js';
 import { FINISHES, finishName, finishLabel, finishList, layerColour, isArea, readFinish, presetOf, withPatterns } from '../js/finish.js';
 import { renderTile } from './preview.js';
@@ -334,7 +334,7 @@ export function initUI(app, actions, version) {
     const acts = l.locked ? '' :
       `<label class="switch" title="Paint it on the twin panel too, or across the centreline (Ctrl+M)">Mirrored<input id="f-mirrored" type="checkbox"${l.mirrored ? ' checked' : ''}></label>` +
       (l.mirrored && isPic ? `<label class="switch" title="Off: it reads the right way round on both sides. On: a true mirror image.">Reverse the other side<input id="f-mirrorFlip" type="checkbox"${l.mirrorFlip ? ' checked' : ''}></label>` : '') +
-      `<div class="acts">${trimButtons(l)}${l.mirrored ? '<button class="btn" data-act="separate" title="Make the mirrored side a layer of its own">Separate</button>' : ''}${inPieces ? '<button class="btn" data-act="split" title="Undo a merge: one shape for each piece again">Split</button>' : ''}${l.type === 'image' && l.color ? '<button class="btn" data-act="ownColours" title="Take the colour off again">Original colours</button>' : ''}</div>`;
+      `<div class="acts">${trimButtons(l)}${l.mirrored ? '<button class="btn" data-act="separate" title="Make the mirrored side a layer of its own">Separate</button>' : ''}${inPieces ? '<button class="btn" data-act="split" title="Undo a merge: one shape for each piece again">Split</button>' : ''}${inPieces && hasInner(l.pts) ? '<button class="btn" data-act="fillIn" title="Make it solid: its holes are filled">Fill in</button>' : ''}${l.type === 'image' && l.color ? '<button class="btn" data-act="ownColours" title="Take the colour off again">Original colours</button>' : ''}</div>`;
     const more = (!isText ? '' :
       field('Outline', `<span class="pair">${range('f-outlineWidth', 0, 30, l.outlineWidth || 0)}<input id="f-outlineColor" type="color" value="${esc(hexOf(l.outlineColor || '') || '#000000')}" aria-label="Outline colour"></span>`) +
       field('Spacing', range('f-letterSpacing', 0, 40, l.letterSpacing || 0)) +
@@ -407,7 +407,7 @@ export function initUI(app, actions, version) {
       field('Metallic', range('fn-met', 0, 255, f.met)) + field('Roughness', range('fn-rough', 0, 255, f.rough)) + field('Clearcoat', range('fn-clear', 0, 255, f.clear)) +
       (preset ? '' : '<div class="acts"><button class="btn" data-act="resetFinish" title="Put the three sliders back">Reset</button></div>') +
       `<label class="switch" title="Specks or chips that catch the light, over this finish">Sparkle<input id="fn-sparkle" type="checkbox"${f.sparkle ? ' checked' : ''}></label>` +
-      (!f.sparkle ? '' : field('Amount', range('fn-amount', 1, 60, f.sparkle.amount)) + field('Size', range('fn-size', 1, 12, f.sparkle.size)) + field('Strength', range('fn-strength', 0, 100, f.sparkle.strength))) +
+      (!f.sparkle ? '' : field('Amount', range('fn-amount', 1, 60, f.sparkle.amount)) + field('Size', range('fn-size', 1, 12, f.sparkle.size)) + field('Strength', range('fn-strength', 0, 100, f.sparkle.strength)) + `<label class="field" title="Each fleck also lightens the paint under it, so it shows bright even when it has nothing to mirror"><span>Brightness</span>${range('fn-bright', 0, 100, f.sparkle.bright)}</label>`) +
       (t.kind === 'area' && layer ? `<label class="switch" title="The same area on the twin panel too, or across the centreline">Mirrored<input id="f-mirrored" type="checkbox"${layer.mirrored ? ' checked' : ''}></label>` : '');
   }
 
@@ -489,7 +489,7 @@ export function initUI(app, actions, version) {
     const t = e.target;
     const layer = app.doc.layers.find((x) => x.id === app.sel);
     // Finish mode's sliders: the finish's numbers; the preview follows in place
-    const fn = /^fn-(met|rough|clear|amount|size|strength)$/.exec(t.id || '');
+    const fn = /^fn-(met|rough|clear|amount|size|strength|bright)$/.exec(t.id || '');
     if (fn) { actions.tweakFinish(fn[1], +t.value); drawTile(); return; }
     if (t.id === 'f-fade-to') { actions.setFade('to', t.value); return; }
     // the pattern's colour: a colour box, a hex box and an RGB box, kept in step like the Colour panel's

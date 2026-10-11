@@ -84,3 +84,10 @@ test('what cannot be read says so', () => {
   assert.deepEqual(parsePath(''), []);
   assert.deepEqual(parsePath('M0 0 L10 10'), []); // a single line encloses nothing
 });
+
+test('closed pieces only: what a line drawing can give a shape', () => {
+  const d = 'M0 0h10v10h-10z M20 0L30 10 M40 0h10v10h-10v-10 M60 0q5 5 10 0';
+  assert.equal(parsePath(d).length, 3);                          // everything, each open one closed (the bare line and the lone bend enclose too little to keep)
+  const closed = parsePath(d, 0.25, { closedOnly: true });
+  assert.deepEqual(closed.map(q => q[0].x), [0, 40]);            // closed by Z, or drawn back to its start
+});

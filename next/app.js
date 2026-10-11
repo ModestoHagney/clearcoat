@@ -19,7 +19,7 @@ import { loadTemplate } from '../js/template.js';
 import { saveToIracing, paintFilenames, validCustid, exportPaintCanvas, paintsDir } from '../js/iracing.js';
 import { initUI } from './ui.js';
 import { initTools, isShape, isBox, moveLayer, setShape, fadeEnds, hasFade, hasAim } from './tools.js';
-import { joined, boxOutline, pieces, SHAPES } from '../js/shapes.js';
+import { joined, boxOutline, pieces, SHAPES, hasInner, outerOnly } from '../js/shapes.js';
 import { searchIcons, iconShape, svgToShape } from './icons.js';
 import { createFillLayer } from '../js/engine.js';
 import { moved } from '../js/shapes.js';
@@ -31,7 +31,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.55';
+export const VERSION = 'v0.68-pieces.56';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -750,7 +750,7 @@ const actions = {
     if (!now) return;
     const f = readFinish(now.material, now.params);
     if (part === 'sparkle') f.sparkle = value ? { ...SPARKLE } : null;
-    else if (part === 'amount' || part === 'size' || part === 'strength') { if (!f.sparkle) return; f.sparkle[part] = value; }
+    else if (part === 'amount' || part === 'size' || part === 'strength' || part === 'bright') { if (!f.sparkle) return; f.sparkle[part] = value; }
     else f[part] = value;
     // it keeps the name of the finish it started from while its numbers are moved
     if (!actions.applyFinish(writeFinish(f, presetOf(readFinish(now.material, now.params)) || now.material))) return;
@@ -1153,6 +1153,13 @@ const actions = {
     app.doc.layers.splice(app.doc.layers.indexOf(l), 1, ...made);
     app.sel = made[made.length - 1].id;
     app.sels = made.map(x => x.id);
+    change({ now: true });
+  },
+  // an outline-style shape made solid: its holes, and anything inside them, go
+  fillIn() {
+    const ls = selectedLayers().filter(l => isShape(l) && hasInner(l.pts));
+    if (!ls.length || !canChange()) return;
+    for (const l of ls) setShape(l, outerOnly(l.pts));
     change({ now: true });
   },
   order(dir) { // +1 forward, -1 back

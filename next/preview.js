@@ -32,7 +32,14 @@ export function renderTile(canvas, material, params, colour) {
     sctx.fillRect(0, 0, W, Ht);
   }
   const spec = sctx.getImageData(0, 0, W, Ht).data;
-  const alb = [1, 3, 5].map(i => parseInt(colour.slice(i, i + 2), 16) / 255);
+  const base = [1, 3, 5].map(i => parseInt(colour.slice(i, i + 2), 16) / 255);
+  // Sparkle with Brightness: each fleck lightens the paint under it by this much (0 to 1), per pixel
+  let lit = null;
+  if (MATERIALS[key].tex && p.bright > 0 && specTexture(MATERIALS[key].tex, p).light) {
+    sctx.clearRect(0, 0, W, Ht);
+    sctx.drawImage(specTexture(MATERIALS[key].tex, p).light, 0, 0, W, Ht, 0, 0, W, Ht);
+    lit = sctx.getImageData(0, 0, W, Ht).data;
+  }
   const out = ctx.createImageData(W, Ht), d = out.data;
   const rad = Ht * 0.2; // corner radius
   for (let y = 0; y < Ht; y++) {
@@ -46,6 +53,7 @@ export function renderTile(canvas, material, params, colour) {
       const nx = (x + 0.5 - W / 2) / (W / 2) * 0.62, ny = (y + 0.5 - Ht / 2) / (Ht / 2) * 0.62;
       const nz = Math.sqrt(1 - nx * nx - ny * ny);
       const metallic = spec[i] / 255, roughness = spec[i + 1] / 255, clearcoat = spec[i + 2] / 255;
+      const lift = lit ? lit[i + 3] / 255 * p.bright / 100 : 0, alb = lift ? base.map(a => a + (1 - a) * lift) : base;
       const shininess = 4 + 252 * (1 - roughness) * (1 - roughness);
       const specCol = alb.map(a => 1 + (a - 1) * metallic);
       let r = 0, g = 0, b = 0;
