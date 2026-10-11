@@ -43,67 +43,61 @@ const I = { // 20x20 line icons
   dropper: '<path d="M4 16v-2.5l6.5-6.5 2.5 2.5L6.5 16z"/><path d="m9.5 6 4.5 4.5"/><path d="m12 7.5 2.2-2.2a1.6 1.6 0 0 1 2.3 2.3l-2.2 2.2"/>',
 };
 I.mpick = I.select;
+// an outline as SVG path data (a point marked `m` starts a separate piece)
+function pathData(pts, f = (v) => v) {
+  let start = 0;
+  return pts.map((a, i) => {
+    const head = !i || a.m ? ((start = i), `M${f(a.x)} ${f(a.y)}`) : '';
+    const last = i + 1 === pts.length || !!pts[i + 1].m, b = pts[last ? start : i + 1];
+    return head + (a.c ? `Q${f(a.c.x)} ${f(a.c.y)} ${f(b.x)} ${f(b.y)}` : `L${f(b.x)} ${f(b.y)}`) + (last ? 'Z' : '');
+  }).join('');
+}
 // every ready-made shape that has no icon drawn by hand gets one from its own outline
 for (const kind of Object.keys(SHAPES)) {
   if (I[kind]) continue;
   const a = aspect(kind), w = a > 1 ? 14 / a : 14, h = a > 1 ? 14 : 14 * a, x = 10 - w / 2, y = 10 - h / 2, f = (v) => +v.toFixed(2);
   // a rounded one is drawn rounder than it really is: at this size its true corners would not show
   const pts = plainOf(kind) ? softened(plainOf(kind), x, y, w, h, 2.3) : boxOutline(kind, x, y, w, h);
-  let start = 0;
-  I[kind] = `<path d="${pts.map((p, i) => {
-    const head = !i || p.m ? ((start = i), `M${f(p.x)} ${f(p.y)}`) : '';
-    const last = i + 1 === pts.length || !!pts[i + 1].m, q = pts[last ? start : i + 1];
-    return head + (p.c ? `Q${f(p.c.x)} ${f(p.c.y)} ${f(q.x)} ${f(q.y)}` : `L${f(q.x)} ${f(q.y)}`) + (last ? 'Z' : '');
-  }).join('')}"/>`;
+  I[kind] = `<path d="${pathData(pts, f)}"/>`;
 }
 const svg = (name) => `<svg viewBox="0 0 20 20">${I[name]}</svg>`;
 // a shape's own outline, drawn small: { pts, w, h } or a ready-made { shape, w, h }
 const shapeSvg = (it) => {
   const pad = Math.max(it.w, it.h) * 0.06, box = `${-pad} ${-pad} ${it.w + 2 * pad} ${it.h + 2 * pad}`;
   let d;
-  if (it.pts) { // a point marked `m` starts a separate piece
-    let start = 0;
-    d = it.pts.map((a, i) => {
-      const head = !i || a.m ? ((start = i), `M${a.x} ${a.y}`) : '';
-      const last = i + 1 === it.pts.length || !!it.pts[i + 1].m, b = it.pts[last ? start : i + 1];
-      return head + (a.c ? `Q${a.c.x} ${a.c.y} ${b.x} ${b.y}` : `L${b.x} ${b.y}`) + (last ? 'Z' : '');
-    }).join('');
-  }
+  if (it.pts) d = pathData(it.pts);
   else if (it.shape === 'ellipse') d = `M0 ${it.h / 2}A${it.w / 2} ${it.h / 2} 0 1 0 ${it.w} ${it.h / 2}A${it.w / 2} ${it.h / 2} 0 1 0 0 ${it.h / 2}Z`;
   else if (it.shape === 'triangle') d = `M${it.w / 2} 0L${it.w} ${it.h}L0 ${it.h}Z`;
   else d = `M0 0H${it.w}V${it.h}H0Z`;
   return `<svg viewBox="${box}" aria-hidden="true"><path d="${d}" fill="currentColor" fill-rule="nonzero"/></svg>`;
 };
 
-// [id, name, built yet?] — the strip shows the whole Paint set so the layout
-// is the final one; tools from later stages are dimmed.
+// [id, name]
 const TOOLS = [
-  ['select', 'Select (V)', true],
-  ['hand', 'Hand (H)', true],
-  ['pen', 'Pen (P)', true],
-  ['shape', 'Shape (U)', true],
-  ['band', 'Band (B)', true],
-  ['stamp', 'Stamp (S)', true],
-  ['text', 'Text (T)', true],
-  ['image', 'Library', true],
-  ['piece', 'Fill panel (G)', true],
+  ['select', 'Select (V)'],
+  ['hand', 'Hand (H)'],
+  ['pen', 'Pen (P)'],
+  ['shape', 'Shape (U)'],
+  ['band', 'Band (B)'],
+  ['stamp', 'Stamp (S)'],
+  ['text', 'Text (T)'],
+  ['image', 'Library'],
+  ['piece', 'Fill panel (G)'],
 ];
 // Finish mode: the same drawing tools, but what they draw is an area
 const FINISH_TOOLS = [
-  ['select', 'Pick what to finish (V)', true],
-  ['hand', 'Hand (H)', true],
-  ['pen', 'Draw an area (P)', true],
-  ['shape', 'Area from a shape (U)', true],
-  ['piece', 'A whole panel (G)', true],
+  ['select', 'Pick what to finish (V)'],
+  ['hand', 'Hand (H)'],
+  ['pen', 'Draw an area (P)'],
+  ['shape', 'Area from a shape (U)'],
+  ['piece', 'A whole panel (G)'],
 ];
 const MAP_TOOLS = [
-  ['mpick', 'Select a panel', true],
-  ['hand', 'Hand (H)', true],
-  ['mcentre', 'Centreline', true],
+  ['mpick', 'Select a panel'],
+  ['hand', 'Hand (H)'],
+  ['mcentre', 'Centreline'],
 ];
-const LATER = 'later stage';
 const PANELS = ['layers', 'props', 'colour'];
-const KINDS = SHAPES;
 // ponytail: the Hex and RGB boxes, and the buttons that switch them, are
 // hidden for now: Chrome's own colour pop-up has both. Set this to true to
 // bring them back (Colour panel and Pattern colour alike).
@@ -195,13 +189,13 @@ export function initUI(app, actions, version) {
       `<button data-mode="${id}" aria-pressed="${app.mode === id}">${name}</button>`).join('');
     // drawing a shape: text is a picture and there are no panels to fill, so those two tools are put away
     const strip = app.workshop ? TOOLS.filter(([id]) => id !== 'text' && id !== 'piece' && id !== 'hand') : app.mode === 'map' ? MAP_TOOLS : app.mode === 'finish' ? FINISH_TOOLS : TOOLS;
-    $('tools').innerHTML = strip.map(([id, name, ready]) =>
-      `<button class="tool" data-tool="${id}" data-tip="${ready ? name : `${name} · ${LATER}`}" aria-label="${name}" aria-pressed="${app.tool === id}"${ready ? '' : ' disabled'}>${svg(id === 'shape' ? app.shapeKind : id)}</button>`).join('');
+    $('tools').innerHTML = strip.map(([id, name]) =>
+      `<button class="tool" data-tool="${id}" data-tip="${name}" aria-label="${name}" aria-pressed="${app.tool === id}">${svg(id === 'shape' ? app.shapeKind : id)}</button>`).join('');
     // the armed tool's own choices sit right beside the strip
     const opts = $('toolopts');
     if (app.tool === 'shape') {
       // the plain shapes in a row, and under each one its round-cornered version (a gap where there is none)
-      const pick = (k, up) => (k ? `<button class="tool${up ? ' up' : ''}" data-kind="${k}" data-tip="${KINDS[k]}" aria-label="${KINDS[k]}" aria-pressed="${app.shapeKind === k}">${svg(k)}</button>` : '<span></span>');
+      const pick = (k, up) => (k ? `<button class="tool${up ? ' up' : ''}" data-kind="${k}" data-tip="${SHAPES[k]}" aria-label="${SHAPES[k]}" aria-pressed="${app.shapeKind === k}">${svg(k)}</button>` : '<span></span>');
       opts.innerHTML = PLAIN_SHAPES.map((k) => pick(k, true)).join('') + PLAIN_SHAPES.map((k) => pick(roundedOf(k), false)).join('');
       opts.style.gridTemplateColumns = `repeat(${PLAIN_SHAPES.length}, auto)`;
     } else if (app.tool === 'band') {
@@ -274,7 +268,7 @@ export function initUI(app, actions, version) {
     const cols = mo ? mo.colors || [] : [];
     // one small tile for each shape, one swatch for each colour, each with a × to take it out (the last colour left stays)
     const out = (attr, k, what) => `<button type="button" class="mx" ${attr}="${k}" title="Take this ${what} out" aria-label="Take ${what} ${k + 2} out of the pattern">${svg('close')}</button>`;
-    const tile = (sh, k) => `<span class="mwrap"><span class="mtile" title="${esc(sh.kind === 'own' ? sh.name : KINDS[sh.kind])}">${sh.kind === 'own' ? shapeSvg(sh) : svg(sh.kind)}</span>${out('data-patdrop', k, 'shape')}</span>`;
+    const tile = (sh, k) => `<span class="mwrap"><span class="mtile" title="${esc(sh.kind === 'own' ? sh.name : SHAPES[sh.kind])}">${sh.kind === 'own' ? shapeSvg(sh) : svg(sh.kind)}</span>${out('data-patdrop', k, 'shape')}</span>`;
     // Everything about a pattern folds away under one heading. Its shapes and
     // its colours are a row each: the copies take turns with them, or pick
     // between them when Random is on. The first shape added turns the pattern
@@ -313,8 +307,8 @@ export function initUI(app, actions, version) {
   const motifOptions = (current, kept) => {
     const own = actions.ownShapes();
     const rounds = PLAIN_SHAPES.map(roundedOf).filter(Boolean);
-    return PLAIN_SHAPES.map((k) => opt(k, KINDS[k], k === current)).join('') +
-      `<optgroup label="Rounded">${rounds.map((k) => opt(k, KINDS[k].replace(/^Rounded /, '').replace(/^./, (ch) => ch.toUpperCase()), k === current)).join('')}</optgroup>` +
+    return PLAIN_SHAPES.map((k) => opt(k, SHAPES[k], k === current)).join('') +
+      `<optgroup label="Rounded">${rounds.map((k) => opt(k, SHAPES[k].replace(/^Rounded /, '').replace(/^./, (ch) => ch.toUpperCase()), k === current)).join('')}</optgroup>` +
       (own.length || kept ? `<optgroup label="Your shapes">${own.map((it) => opt('own:' + it.id, it.name, 'own:' + it.id === current)).join('')}${kept && !own.some((it) => 'own:' + it.id === current) ? opt(current, kept, true) : ''}</optgroup>` : '');
   };
   // Colour lives in the Colour panel only. If that panel has been hidden, say

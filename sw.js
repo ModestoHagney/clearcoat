@@ -4,7 +4,7 @@
 // every deploy. The new VERSION names a new cache; the app sees the new
 // worker, saves, and reloads itself once to take it.
 
-const VERSION = 'v0.68-pieces.70';
+const VERSION = 'v0.68-pieces.71';
 const CACHE = 'clearcoat-' + VERSION;
 
 // The app's page and the icons. Every path here must exist in the repo, or
@@ -42,6 +42,19 @@ self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
 });
 
+// from the network, kept as it is fetched; the kept copy when there is no network
+async function fresh(req, opts) {
+  try {
+    const res = await fetch(req, opts);
+    if (res && res.ok) (await caches.open(CACHE)).put(req, res.clone());
+    return res;
+  } catch (err) {
+    const cached = await caches.match(req);
+    if (cached) return cached;
+    throw err;
+  }
+}
+
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return; // never intercept non-GET
@@ -63,33 +76,9 @@ self.addEventListener('fetch', (event) => {
     // the kept copy is used when there is no network.
     // ponytail: network first costs a round trip per file on every load;
     // precache the app and serve it cache-first if load time ever matters.
-    event.respondWith((async () => {
-      try {
-        const res = await fetch(req, { cache: 'no-cache' });
-        if (res && res.ok) (await caches.open(CACHE)).put(req, res.clone());
-        return res;
-      } catch (err) {
-        const cached = await caches.match(req);
-        if (cached) return cached;
-        throw err;
-      }
-    })());
+    event.respondWith(fresh(req, { cache: 'no-cache' }));
   } else {
-    // cross-origin (Google Fonts, the icon search): network with cache
-    // fallback, fresh when online, stale if offline; never precached
-    event.respondWith((async () => {
-      try {
-        const res = await fetch(req);
-        if (res && res.ok) {
-          const cache = await caches.open(CACHE);
-          cache.put(req, res.clone());
-        }
-        return res;
-      } catch (err) {
-        const cached = await caches.match(req);
-        if (cached) return cached;
-        throw err;
-      }
-    })());
+    // cross-origin (Google Fonts, the icon search): the same, never precached
+    event.respondWith(fresh(req));
   }
 });

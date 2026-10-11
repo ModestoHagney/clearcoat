@@ -10,28 +10,23 @@
 import {
   SIZE, GOOGLE_FONTS, createDoc, renderPaint, renderSpec, buildDragCache, renderPaintWithDrag,
   serializeDoc, deserializeDoc, regenerateText, layerCorners, newId,
-  createTextLayer, createImageLayer, loadImage, registerCustomFont,
+  createTextLayer, createImageLayer, createFillLayer, loadImage, registerCustomFont, paintLayers,
+  MATERIALS, fadeStyleOf, cleanCredits,
 } from '../js/engine.js';
 import { canvasToTGA } from '../js/tga.js';
 import * as persist from '../js/persist.js';
-import { regionOutline } from '../js/regions.js';
 import { loadTemplate } from '../js/template.js';
 import { saveToIracing, paintFilenames, validCustid, exportPaintCanvas, paintsDir } from '../js/iracing.js';
 import { initUI } from './ui.js';
 import { initTools, isShape, isBox, moveLayer, setShape, fadeEnds, hasFade, hasAim } from './tools.js';
-import { joined, boxOutline, pieces, SHAPES, hasInner, outerOnly, wrapped, bounds as shapeBounds, mapped as shapeMapped } from '../js/shapes.js';
+import { moved, joined, boxOutline, pieces, SHAPES, hasInner, outerOnly, wrapped, bounds as shapeBounds, mapped as shapeMapped } from '../js/shapes.js';
 import { searchIcons, iconShape, svgToShape } from './icons.js';
-import { createFillLayer } from '../js/engine.js';
-import { moved } from '../js/shapes.js';
-import { paintLayers } from '../js/engine.js';
-import { finishSpec } from '../js/finish.js';
-import { withFinishes, withPatterns, setRule, clearRule, ruleFor, layerColour, isArea, hasOwnFinish, readFinish, writeFinish, presetOf, FINISHES, SPARKLE } from '../js/finish.js';
-import { MATERIALS, fadeStyleOf, cleanCredits } from '../js/engine.js';
+import { finishSpec, withFinishes, withPatterns, setRule, clearRule, ruleFor, layerColour, isArea, hasOwnFinish, readFinish, writeFinish, presetOf, FINISHES, SPARKLE } from '../js/finish.js';
 import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
-import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
+import { regionOutline, parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.70';
+export const VERSION = 'v0.68-pieces.71';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -584,7 +579,7 @@ const TEXT_KEYS = new Set(['text', 'font', 'fontSize', 'textColor', 'outlineColo
 // they are never changed in place)
 function cloneLayer(l) {
   const c = { ...l, id: newId(), groupId: null }; // a copy does not join the original's group
-  for (const k of ['pts', 'clipAt']) if (Array.isArray(l[k])) c[k] = l[k].map(q => (q.c ? { ...q, c: { ...q.c } } : { ...q }));
+  for (const k of ['pts', 'clipAt']) if (Array.isArray(l[k])) c[k] = structuredClone(l[k]);
   if (Array.isArray(l.clip)) c.clip = l.clip.map(poly => (Array.isArray(poly) ? poly.map(q => ({ ...q })) : { ...poly }));
   for (const k of ['matParams', 'fx', 'fadeFrom', 'fadeTo']) if (l[k]) c[k] = { ...l[k] };
   return c;

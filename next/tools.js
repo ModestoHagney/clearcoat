@@ -33,7 +33,6 @@ export const isShape = (l) => !!l && l.type === 'fill' && l.shape === 'path' && 
 export const isPic = (l) => !!l && !!l.img && (l.type === 'image' || l.type === 'text');
 // a ready-made fill (circle, box, triangle…): sized by its box, not by points
 export const isBox = (l) => !!l && l.type === 'fill' && !isShape(l);
-export const READY = SHAPES;
 // the three the engine draws from a box; the rest are made as outlines, so they can turn and be reshaped
 const BOXED = new Set(['ellipse', 'rect', 'triangle']);
 
@@ -101,7 +100,6 @@ export function initTools(app, env) {
     const x0 = A.x - FRAME, y0 = A.y - FRAME, x1 = B.x + FRAME, y1 = B.y + FRAME, mid = (x0 + x1) / 2;
     return { corners: [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }], top: { x: mid, y: y0 }, turn: { x: mid, y: y0 - 24 } };
   }
-  const copyPts = (pts) => pts.map(q => (q.c ? { ...q, c: { ...q.c } } : { ...q }));
   // A shape with a great many points (an icon, a wrapped slot) would be a
   // fringe of handles at this zoom: its points are put away until there is
   // room for them on the screen, about 9 px apart. Zooming in brings them back.
@@ -186,7 +184,7 @@ export function initTools(app, env) {
   }
   function finishReady(even) {
     let box = evenBox(rubber.a, rubber.b, even);
-    const kind = app.shapeKind, name = READY[kind];
+    const kind = app.shapeKind, name = SHAPES[kind];
     if (box.w < 4 || box.h < 4) { const h = 300 * aspect(kind); box = { x: rubber.a.x - 150, y: rubber.a.y - h / 2, w: 300, h }; } // a plain click
     const layer = createFillLayer(app.colour);
     layer.name = name + ' ' + (app.doc.layers.filter(l => new RegExp('^' + name + ' \\d+$').test(l.name)).length + 1);
@@ -347,7 +345,7 @@ export function initTools(app, env) {
       if (fi !== -1) {
         // resized from the corner opposite the one taken; the handle sits a little off the corner, so that offset is kept
         const cs = corners(shape), c0 = cs[fi];
-        drag = { kind: 'resize', layer: shape, anchor: cs[(fi + 2) % 4], c0, off: { x: p.x - c0.x, y: p.y - c0.y }, pts0: copyPts(pts), fade0: shape.fadeFrom && shape.fadeTo ? [{ ...shape.fadeFrom }, { ...shape.fadeTo }] : null };
+        drag = { kind: 'resize', layer: shape, anchor: cs[(fi + 2) % 4], c0, off: { x: p.x - c0.x, y: p.y - c0.y }, pts0: structuredClone(pts), fade0: shape.fadeFrom && shape.fadeTo ? [{ ...shape.fadeFrom }, { ...shape.fadeTo }] : null };
         return;
       }
       const seg = segmentAt(pts, p.x, p.y, EDGE / app.view.zoom);
@@ -450,7 +448,7 @@ export function initTools(app, env) {
           l.shape = 'path'; l.flipH = l.flipV = false;
           setShape(l, pts);
         }
-        drag.pts0 = copyPts(l.pts);
+        drag.pts0 = structuredClone(l.pts);
       }
       let ang = Math.atan2(p.y - drag.c.y, p.x - drag.c.x) - drag.a0;
       if (e.shiftKey) ang = Math.round(ang / (Math.PI / 12)) * (Math.PI / 12); // 15° steps
