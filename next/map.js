@@ -5,7 +5,7 @@
 // corrected.
 
 import { SIZE, createImageLayer, loadImage } from '../js/engine.js';
-import { regionOutline, regionById, centerLine, snapToOutline, labelPoint } from '../js/regions.js';
+import { regionOutline, regionById, centerLine, snapToOutline, labelPoint, linkPoints, linkLength, matchPoint } from '../js/regions.js';
 import { pieceAt } from '../js/mirror.js';
 
 export const GUIDE = 'Panel guide'; // the layer that puts the panel colours on the car
@@ -23,8 +23,15 @@ function labelOf(r, later) {
   return p;
 }
 
-// The panel colours, names and centrelines as a full-sheet picture: what the
-// "Show on car" guide layer is made of.
+// Linked edges get the same run of colour bands down both sides, so on the car
+// the same colours should face each other across the join. Strong colours,
+// unlike each other, in an order that reads differently backwards: a link made
+// the wrong way round shows up.
+const BANDS = ['#ffffff', '#e6194b', '#ffe119', '#0082c8', '#101114', '#f58231'];
+const linkHue = (i) => `hsl(${(i * 137.5 + 40) % 360} 95% 62%)`;
+
+// The panel colours, names, linked edges and centrelines as a full-sheet
+// picture: what the "Show on car" guide layer is made of.
 export function guideCanvas(map) {
   const c = document.createElement('canvas');
   c.width = c.height = SIZE;
@@ -36,6 +43,22 @@ export function guideCanvas(map) {
     trace(regionOutline(r));
     ctx.fillStyle = hue(i); ctx.fill();
     ctx.strokeStyle = '#101114'; ctx.lineWidth = 3; ctx.stroke();
+  });
+  (map.links || []).forEach((link, i) => {
+    const n = Math.max(3, Math.min(16, Math.round(linkLength(map, link) / 48)));
+    for (const side of ['a', 'b']) {
+      const r = regionById(map, link[side].region);
+      if (!r) continue;
+      ctx.save();
+      trace(regionOutline(r)); ctx.clip(); // the band stays inside its own panel
+      ctx.lineCap = 'butt'; ctx.lineWidth = 44; // half falls outside the outline and is clipped away
+      for (let k = 0; k < n; k++) {
+        const pts = linkPoints(map, link, side, k / n, (k + 1) / n, 3);
+        ctx.beginPath(); pts.forEach((q, j) => (j ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)));
+        ctx.strokeStyle = BANDS[(k + i) % BANDS.length]; ctx.stroke();
+      }
+      ctx.restore();
+    }
   });
   for (const r of list) {
     const cl = centerLine(r);
@@ -78,7 +101,12 @@ export async function syncGuide(doc, on) {
 export function initMap(app, env) {
   const { screenToDoc, docToScreen, requestDraw } = env;
   let pending = null;   // centreline: the first corner clicked, { region, x, y }
-  let snap = null;      // centreline: where a click would land right now
+  let snap = null;      // centreline and link: where a click would land right now
+  // Link edges: which edges meet on the car. Four clicks make one: the two
+  // ends of the shared stretch on one panel, then the two spots they meet on
+  // the other, in the same order. Links live in the map (see regions.js).
+  let ends = [];        // the ends clicked so far for the link being made: { region, x, y }
+  let seam = null;      // near a linked edge: that spot and the one it meets, { at, partner }
 
   const map = () => app.doc.regionMap;
   const sel = () => (map() && app.piece ? regionById(map(), app.piece) : null);
@@ -94,10 +122,42 @@ export function initMap(app, env) {
     return best;
   }
   const centreTarget = () => (pending ? pending.region : app.centreFor);
+  // the second end of a stretch stays on the first end's panel; an end of a link already on that edge is landed on exactly
+  function linkSnap(p) {
+    const hit = edgeSnap(p, ends.length % 2 ? ends[ends.length - 1].region : null);
+    if (!hit) return null;
+    for (const l of map().links || []) for (const sd of [l.a, l.b]) {
+      if (sd.region !== hit.region) continue;
+      for (const end of [sd.from, sd.to]) if (Math.hypot(end.x - hit.x, end.y - hit.y) <= 10 / app.view.zoom) return { region: hit.region, x: end.x, y: end.y };
+    }
+    return hit;
+  }
+  const nameOf = (id) => (regionById(map(), id) || { name: id }).name;
+  function linkClick(p, remove) {
+    const m = map();
+    if (remove) {
+      const hit = matchPoint(m, p.x, p.y, 12 / app.view.zoom);
+      if (!hit) { env.say('No link there to remove'); return; }
+      m.links.splice(hit.index, 1);
+      seam = null;
+      env.mapChanged('Link removed');
+      return;
+    }
+    const n = ends.length, hit = linkSnap(p);
+    if (!hit) { env.say(n % 2 ? 'Click the other end on the same panel\'s edge' : 'Click closer to a panel\'s edge'); return; }
+    if (n % 2 && Math.hypot(hit.x - ends[n - 1].x, hit.y - ends[n - 1].y) < 2) { env.say('The two ends need to be apart'); return; }
+    ends.push(hit);
+    if (ends.length < 4) { requestDraw(); env.refreshChrome(); return; }
+    const [a1, a2, b1, b2] = ends, pt = (c) => ({ x: Math.round(c.x * 10) / 10, y: Math.round(c.y * 10) / 10 });
+    (m.links || (m.links = [])).push({ a: { region: a1.region, from: pt(a1), to: pt(a2) }, b: { region: b1.region, from: pt(b1), to: pt(b2) } });
+    ends = []; snap = null;
+    env.mapChanged(`Linked ${nameOf(a1.region)} and ${nameOf(b1.region)}`);
+  }
 
   function down(e, s) {
     if (!map()) return;
     const p = screenToDoc(s.x, s.y);
+    if (app.tool === 'mlink') { linkClick(p, e.altKey); return; }
     if (app.tool === 'mcentre') {
       const hit = edgeSnap(p, centreTarget());
       if (!hit) { env.say(pending ? 'Click the matching corner on the same panel' : 'Click closer to the panel\'s edge'); return; }
@@ -117,24 +177,40 @@ export function initMap(app, env) {
   }
 
   function move(e, s) {
-    if (app.tool !== 'mcentre' || !map()) return;
+    if (!map()) return;
+    if (app.tool === 'mlink') {
+      const p = screenToDoc(s.x, s.y);
+      snap = linkSnap(p);
+      const m = matchPoint(map(), p.x, p.y, 10 / app.view.zoom); // where this spot lands on the other panel
+      seam = m ? { at: m.at, partner: m.partner } : null;
+      requestDraw();
+      return;
+    }
+    if (app.tool !== 'mcentre') return;
     const hit = edgeSnap(screenToDoc(s.x, s.y), centreTarget());
     if ((hit && hit.x) !== (snap && snap.x) || (hit && hit.y) !== (snap && snap.y)) { snap = hit; requestDraw(); }
   }
 
   function key(e) {
+    if (app.tool === 'mlink' && e.key === 'Backspace') { // takes back the last click, or the last link made
+      if (ends.length) { ends.pop(); requestDraw(); env.refreshChrome(); }
+      else if (map() && (map().links || []).length) { map().links.pop(); seam = null; env.mapChanged('Last link removed'); }
+      return true;
+    }
     if (e.key !== 'Escape') return false;
     if (pending) { pending = null; requestDraw(); env.refreshChrome(); }
-    else if (app.tool === 'mcentre') env.setTool('mpick');
+    else if (ends.length) { ends = []; requestDraw(); env.refreshChrome(); }
+    else if (app.tool === 'mcentre' || app.tool === 'mlink') env.setTool('mpick');
     else env.pickPiece(null);
     return true;
   }
-  function cancel() { pending = snap = null; }
+  function cancel() { pending = snap = seam = null; ends = []; }
 
   const hint = () => {
     if (app.tool === 'hand') return 'Drag to move the sheet · wheel zooms · H or Esc puts it down';
     if (!map()) return 'Load a template to get a map';
     if (app.tool === 'mcentre') return pending ? 'Click the matching corner on the other side' : 'Click a corner, then its match on the other side';
+    if (app.tool === 'mlink') return ['Click one end of an edge that meets another panel · Alt+click removes a link', 'Click the other end, on the same panel', 'Now the spot on the other panel that meets end 1', 'And the spot that meets end 2'][ends.length] + (ends.length ? ' · Backspace takes one back' : '');
     return sel() ? 'Name it, pair it or set its centreline on the right' : 'Click a panel';
   };
 
@@ -189,6 +265,30 @@ export function initMap(app, env) {
       ctx.strokeStyle = accent; ctx.lineWidth = 3; ctx.stroke();
     }
     const dot = (q, r, fill) => { const a = S(q); ctx.beginPath(); ctx.arc(a.x, a.y, r, 0, Math.PI * 2); ctx.fillStyle = fill; ctx.fill(); ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.stroke(); };
+    // linked edges: both stretches of a link in one colour, a big dot on the ends that meet each other
+    ctx.lineCap = 'round';
+    (m.links || []).forEach((link, i) => {
+      for (const side of ['a', 'b']) {
+        const pts = linkPoints(m, link, side);
+        if (!pts.length) continue;
+        ctx.beginPath(); pts.forEach((q, k) => { const a = S(q); k ? ctx.lineTo(a.x, a.y) : ctx.moveTo(a.x, a.y); });
+        ctx.strokeStyle = '#101114'; ctx.lineWidth = 7; ctx.stroke();
+        ctx.strokeStyle = linkHue(i); ctx.lineWidth = 4; ctx.stroke();
+        dot(pts[0], 5, linkHue(i)); dot(pts[pts.length - 1], 3, linkHue(i));
+      }
+    });
+    ctx.lineCap = 'butt';
+    if (app.tool === 'mlink') {
+      if (seam) { // this spot, and where it meets the other panel
+        const a = S(seam.at), b = S(seam.partner);
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+        ctx.setLineDash([3, 5]); ctx.strokeStyle = '#101114'; ctx.lineWidth = 1.5; ctx.stroke(); ctx.setLineDash([]);
+        for (const q of [a, b]) { ctx.beginPath(); ctx.arc(q.x, q.y, 9, 0, Math.PI * 2); ctx.strokeStyle = '#101114'; ctx.lineWidth = 5; ctx.stroke(); ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.stroke(); }
+      }
+      if (snap) { const a = S(snap); ctx.beginPath(); ctx.arc(a.x, a.y, 8, 0, Math.PI * 2); ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 4; ctx.stroke(); ctx.strokeStyle = accent; ctx.lineWidth = 2; ctx.stroke(); }
+      ctx.font = '700 11px "IBM Plex Mono", monospace';
+      ends.forEach((c, k) => { dot(c, 8, accent); const a = S(c); ctx.fillStyle = '#ffffff'; ctx.fillText(String(k % 2 + 1), a.x, a.y + 0.5); }); // 1 meets 1, 2 meets 2
+    }
     if (pending) dot(pending, 6, accent);
     if (app.tool === 'mcentre' && snap) {
       const a = S(snap);
