@@ -43,7 +43,6 @@ const I = { // 20x20 line icons
   reset: '<path d="M4.5 10a5.5 5.5 0 1 0 1.8-4.1"/><path d="M4 3.5v3.4h3.4"/>',
   // an open hand
   hand: '<path d="M7.2 10.5V5.2a1.15 1.15 0 0 1 2.3 0V9.4m0-.4V3.9a1.15 1.15 0 0 1 2.3 0V9m0 .2V4.9a1.15 1.15 0 0 1 2.3 0v5m0-1.6a1.15 1.15 0 0 1 2.3 0v3.9c0 3-1.9 4.8-4.8 4.8h-.9c-1.9 0-3-.8-4.1-2.5l-2.2-3.4a1.15 1.15 0 0 1 1.9-1.3l.9 1.2"/>',
-  dropper: '<path d="M4 16v-2.5l6.5-6.5 2.5 2.5L6.5 16z"/><path d="m9.5 6 4.5 4.5"/><path d="m12 7.5 2.2-2.2a1.6 1.6 0 0 1 2.3 2.3l-2.2 2.2"/>',
 };
 I.mpick = I.select;
 // an outline as SVG path data (a point marked `m` starts a separate piece)
@@ -275,7 +274,7 @@ export function initUI(app, actions, version) {
         `<div class="field tiles"><span>Colours</span><span class="pair wrap"><span class="mwrap"><input class="mini" data-pat="pick" id="f-pat-color" type="color" value="${col}" title="The pattern's colour: click to change it" aria-label="Pattern colour">${cols.length ? out('data-patcdrop', -1, 'colour') : ''}</span>` +
           cols.map((c, k) => `<span class="mwrap"><input class="mini" data-patc="${k}" id="f-pat-c${k}" type="color" value="${esc(c)}" title="Click to change this colour" aria-label="Colour ${k + 2} of the pattern">${out('data-patcdrop', k, 'colour')}</span>`).join('') +
           (cols.length < 6 ? `<button type="button" class="icon" data-act="addPatternColour" title="Add another colour: they take turns, or mix when Random is on" aria-label="Add another colour to the pattern">+</button>` : '') +
-          `<button type="button" class="icon${app.picking === 'pattern' ? ' on' : ''}" data-act="pickPatternColour" title="Pick the first colour from the sheet" aria-label="Pick the pattern's first colour from the sheet">${svg('dropper')}</button></span></div>` +
+          '</span></div>' +
         field('Size', range('f-pat-size', 0, 1000, toSlider('size', mo.size))) +
         field('Spacing', range('f-pat-gap', 0, 1000, toSlider('gap', mo.gap))) +
         field('Stagger', range('f-pat-stagger', 0, 100, Math.round(mo.stagger))) +
@@ -454,7 +453,7 @@ export function initUI(app, actions, version) {
     const used = usedColours();
     return `<div class="sub">Saved with this livery</div><div class="chips">${saved}<button class="chip add" data-act="saveColour" title="Save the current colour">+ Save</button></div>` +
       (used.length ? `<div class="sub">In this livery</div><div class="dots">${used.map((c) => `<button class="dot" data-col="${c}" style="background:${c}" title="${c.toUpperCase()}" aria-label="${c}"></button>`).join('')}</div>` : '') +
-      `<div class="cur"><input data-colour="pick" id="c-pick" type="color" value="${esc(cur)}" title="Choose a colour" aria-label="Colour"><button class="icon${app.picking === true ? ' on' : ''}" data-act="pickColour" title="Pick a colour from the sheet (I)" aria-label="Pick a colour from the sheet">${svg('dropper')}</button></div>`;
+      `<div class="cur"><input data-colour="pick" id="c-pick" type="color" value="${esc(cur)}" title="Choose a colour" aria-label="Colour"></div>`;
   }
   function drawPanels() {
     const inMap = app.mode === 'map', inFinish = app.mode === 'finish';
@@ -581,7 +580,7 @@ export function initUI(app, actions, version) {
     if (id === 'f-pat-random') return actions.motifRandom(e.target.checked);
     if (id === 'f-pat-fadeOut') return actions.motifFade('fadeOut', e.target.checked);
     if (id === 'f-pat-shrink') return actions.motifFade('shrink', e.target.checked);
-    if (e.target.dataset.pat) return; // nothing is redrawn: that would swallow the click that took the focus away (the eyedropper, say)
+    if (e.target.dataset.pat) return; // nothing is redrawn: that would swallow the click that took the focus away
     if (id === 'f-fade-out') return actions.setFade('out', e.target.checked);
     if (id === 'f-italic') { actions.setProp('italic', e.target.checked); return; }
     if (id === 'f-mirrorFlip') { actions.setProp('mirrorFlip', e.target.checked); return; }
@@ -769,7 +768,7 @@ export function initUI(app, actions, version) {
   const KEYS = [
     ['Tools', [
       ['Select', ['V']], ['Hand', ['H']], ['Pen', ['P']], ['Shape', ['U']], ['Band', ['B']], ['Stamp', ['S']],
-      ['Text', ['T']], ['Fill panel', ['G']], ['Eyedropper', ['I']],
+      ['Text', ['T']], ['Fill panel', ['G']],
     ]],
     ['View', [
       ['Pan', ['Space', 'Drag'], ['Middle-drag']], ['Zoom', ['Scroll']], ['Zoom in', ['+']], ['Zoom out', ['−']], ['Fit to screen', ['F']],

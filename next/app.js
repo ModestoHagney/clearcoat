@@ -26,7 +26,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { regionOutline, parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.80';
+export const VERSION = 'v0.68-pieces.81';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -54,7 +54,6 @@ export const app = {
   shapeKind: 'ellipse',               // which ready-made shape the Shape tool draws
   bandWidth: 60,                      // px on the sheet
   stamp: { key: 'star', size: 120 },  // what the Stamp tool places: a shape's key (see motifOf) and its size on the sheet
-  picking: false,                     // the next click on the sheet picks a colour
   trimming: false,                    // clicks on the sheet choose the selected layer's panels
   piece: null,                        // Map mode: the selected panel's id
   centreFor: null,                    // Map mode: the panel a centreline is being set on, if fixed
@@ -542,18 +541,11 @@ const canChange = () => app.mode !== 'finish' || isArea(actions.selected());
 let spaceHeld = false; // Space is down: a drag moves the sheet
 let handFrom = 'select'; // the tool that was armed when the Hand was taken up
 const toolChanged = () => {
-  cv.classList.toggle('draw', (app.tool !== 'select' && app.tool !== 'mpick' && app.tool !== 'hand') || app.picking || app.trimming);
+  cv.classList.toggle('draw', (app.tool !== 'select' && app.tool !== 'mpick' && app.tool !== 'hand') || app.trimming);
   handCursor();
 };
 // the open hand: Space is held, or the Hand tool is armed (never in the draw-a-shape window, whose view is held still)
 const handCursor = () => cv.classList.toggle('pan', (spaceHeld || app.tool === 'hand') && !app.workshop);
-// the exact paint colour at a point on the sheet
-function sampleColour(p) {
-  const x = Math.round(p.x), y = Math.round(p.y);
-  if (x < 0 || y < 0 || x >= SIZE || y >= SIZE) return null;
-  const d = paint().getContext('2d').getImageData(x, y, 1, 1).data;
-  return '#' + [d[0], d[1], d[2]].map(v => v.toString(16).padStart(2, '0')).join('');
-}
 
 let library = { logos: [], shapes: [] };
 const saveLibrary = () => persist.saveBlob('next-library', library).catch(() => { /* quota: it still works this session */ });
@@ -648,7 +640,7 @@ function startShape() {
   app.doc.baseColor = '#ffffff';
   app.workshop = true;
   app.mode = 'paint'; app.tool = 'pen'; app.sel = null; app.sels = []; app.colour = '#101114';
-  app.picking = app.trimming = false;
+  app.trimming = false;
   document.body.classList.add('workshop');
   $('shapebox').hidden = false;
   resetHistory();
@@ -871,7 +863,7 @@ const actions = {
     app.tool = mode === 'map' ? 'mpick' : 'select';
     app.ftarget = null;
     if (mode !== 'finish' && isArea(actions.selected())) app.sel = null; // an area is Finish mode's to select
-    app.picking = app.trimming = false;
+    app.trimming = false;
     app.centreFor = null;
     toolChanged();
     requestDraw();
@@ -1100,7 +1092,7 @@ const actions = {
     if (!aside) {
       if (tools) tools.cancel();
       if (mapTools) mapTools.cancel();
-      app.picking = app.trimming = false;
+      app.trimming = false;
       if (id !== 'mcentre') app.centreFor = null;
     }
     app.tool = id;
@@ -1625,9 +1617,6 @@ const actions = {
     }
     change({ now: true });
   },
-  // picking: true = for the selection (or the next shape), 'pattern' = for the selected pattern
-  pickColour() { app.picking = !app.picking; toolChanged(); ui.refresh(); },
-  pickPatternColour() { app.picking = app.picking === 'pattern' ? false : 'pattern'; toolChanged(); ui.refresh(); },
 
   // the top bar's button: the other one of light and dark from what is showing now
   flipTheme() {
@@ -1760,7 +1749,6 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'b' && app.mode === 'paint') actions.setTool('band');
   else if (k === 'g') actions.setTool('piece');
   else if (k === 't' && app.mode === 'paint') actions.setTool('text');
-  else if (k === 'i' && app.mode === 'paint') actions.pickColour();
   else if (k === 'f') fit();
   else if (k === '+' || k === '=') actions.zoomBy(1.25);
   else if (k === '-') actions.zoomBy(0.8);
@@ -1879,14 +1867,6 @@ async function boot() {
       return (l) => l.id === t.id;
     },
     mirrorImage: (l) => (l.mirrored && app.doc.regionMap ? mirrorImage(app.doc.regionMap, l) : null),
-    picked(p) { // the eyedropper's click, or null when cancelled
-      const forPattern = app.picking === 'pattern';
-      app.picking = false;
-      toolChanged();
-      const hex = p && sampleColour(p);
-      if (hex && forPattern) { actions.tweakMotif('color', hex); ui.refresh(); }
-      else if (hex) actions.applyColour(hex); else ui.refresh();
-    },
   });
   mapTools = initMap(app, {
     screenToDoc, docToScreen, requestDraw,

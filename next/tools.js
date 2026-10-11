@@ -339,7 +339,6 @@ export function initTools(app, env) {
 
   function down(e, s) {
     const p = screenToDoc(s.x, s.y);
-    if (app.picking) { env.picked(p); return; }
     if (app.trimming) { trimAt(p); return; }
     if (app.tool === 'piece') { fillPanel(p); return; }
     if (app.tool === 'text') { env.addText(p); return; }
@@ -581,9 +580,8 @@ export function initTools(app, env) {
       }
     }
     if (app.trimming && (e.key === 'Escape' || e.key === 'Enter')) { env.endTrim(); return true; }
-    if (e.key === 'Escape' && (app.picking || ['shape', 'band', 'stamp', 'piece', 'text'].includes(app.tool))) {
-      if (app.picking) env.picked(null);
-      else if (band) { band = null; requestDraw(); }
+    if (e.key === 'Escape' && ['shape', 'band', 'stamp', 'piece', 'text'].includes(app.tool)) {
+      if (band) { band = null; requestDraw(); }
       else env.setTool('select');
       return true;
     }
@@ -594,7 +592,6 @@ export function initTools(app, env) {
 
   const hint = () => {
     if (app.tool === 'hand') return 'Drag to move the sheet · wheel zooms · H or Esc puts it down';
-    if (app.picking) return 'Click a colour on the sheet · Esc cancels';
     if (app.trimming) return 'Click panels to show it in · click again to take one out · Enter when done';
     if (app.mode === 'finish') {
       if (app.tool === 'piece') return 'Click a panel to give the whole panel a finish';
