@@ -4,7 +4,7 @@
 // every deploy. The new VERSION names a new cache; the app sees the new
 // worker, saves, and reloads itself once to take it.
 
-const VERSION = 'v0.68-pieces.69';
+const VERSION = 'v0.68-pieces.70';
 const CACHE = 'clearcoat-' + VERSION;
 
 // The app's page and the icons. Every path here must exist in the repo, or

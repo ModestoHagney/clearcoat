@@ -41,3 +41,11 @@ test('cleanPalette keeps only well-formed colours', () => {
     [{ id: 'a', name: 'A', color: '#abcdef' }]);
   assert.deepEqual(cleanPalette(undefined), []);
 });
+
+test('a flipped ready-made shape stays flipped through a save and load', async () => {
+  const doc = createDoc(), l = createFillLayer('#ff0000');
+  Object.assign(l, { shape: 'triangle', rx: 10, ry: 10, rw: 100, rh: 80, flipV: true });
+  doc.layers.push(l);
+  const back = await deserializeDoc(JSON.parse(JSON.stringify(serializeDoc(doc))));
+  assert.deepEqual([back.layers[0].flipH, back.layers[0].flipV], [false, true]);
+});

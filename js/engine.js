@@ -1985,6 +1985,7 @@ export async function deserializeDoc(data) {
           midPos: l.midPos ?? 0.5,
           gradAngle: l.gradAngle ?? 0,
           rx: l.rx ?? 0, ry: l.ry ?? 0, rw: l.rw ?? SIZE, rh: l.rh ?? SIZE,
+          flipH: !!l.flipH, flipV: !!l.flipV, // a ready-made shape separated from its mirror is flipped: it stays so
         });
         continue;
       }
