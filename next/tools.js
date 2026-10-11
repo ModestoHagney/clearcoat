@@ -502,6 +502,7 @@ export function initTools(app, env) {
     if (app.tool === 'select' && selBox()) return 'Drag a corner to resize · Shift keeps it even';
     if (app.tool === 'pen') return draft && draft.length ? 'Enter to finish · Backspace undoes a point · Shift holds 45°' : 'Click points to draw · Shift holds 45°';
     if (selShape()) return 'Drag a point · drag a dot to bend · click a line to add a point';
+    if (app.workshop) return 'Draw with the tools on the left · Ctrl+S saves the shape';
     return 'Space-drag to pan · wheel to zoom';
   };
 

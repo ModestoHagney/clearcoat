@@ -179,7 +179,9 @@ export function initUI(app, actions, version) {
     drawMenus();
     $('modes').innerHTML = [['map', 'Map'], ['paint', 'Paint'], ['finish', 'Finish']].map(([id, name]) =>
       `<button data-mode="${id}" aria-pressed="${app.mode === id}">${name}</button>`).join('');
-    $('tools').innerHTML = (app.mode === 'map' ? MAP_TOOLS : app.mode === 'finish' ? FINISH_TOOLS : TOOLS).map(([id, name, ready]) =>
+    // drawing a shape: text is a picture and there are no panels to fill, so those two tools are put away
+    const strip = app.workshop ? TOOLS.filter(([id]) => id !== 'text' && id !== 'piece') : app.mode === 'map' ? MAP_TOOLS : app.mode === 'finish' ? FINISH_TOOLS : TOOLS;
+    $('tools').innerHTML = strip.map(([id, name, ready]) =>
       `<button class="tool" data-tool="${id}" data-tip="${ready ? name : `${name} · ${LATER}`}" aria-label="${name}" aria-pressed="${app.tool === id}"${ready ? '' : ' disabled'}>${svg(id === 'shape' ? app.shapeKind : id)}</button>`).join('');
     // the armed tool's own choices sit right beside the strip
     const opts = $('toolopts');
@@ -705,8 +707,9 @@ export function initUI(app, actions, version) {
   // The library: my own pictures, my own shapes, and a search of the open icon
   // sets, whose finds come in as shapes. search(query) → the finds;
   // fetchIcon(find) → the shape made from one.
-  async function library(lib, { remove, search, fetchIcon }) {
-    let tab = lib.logos.length ? 'logos' : lib.shapes.length ? 'shapes' : 'search', picked = null;
+  // shapesOnly: pictures are left out (a shape is being drawn, and only shapes can join it)
+  async function library(lib, { remove, search, fetchIcon, shapesOnly = false }) {
+    let tab = shapesOnly ? (lib.shapes.length ? 'shapes' : 'search') : lib.logos.length ? 'logos' : lib.shapes.length ? 'shapes' : 'search', picked = null;
     let query = '', found = null, state = ''; // found: the last search's finds; state: '' | 'busy' | a message
     const tile = (kind, it, art, own) => `<span class="tilewrap"><button type="button" class="tile" data-lib="${kind}:${esc(it.id)}" title="${esc(it.name)}">${art}<span>${esc(it.name)}</span></button>${own ? `<button type="button" class="tilex" data-libx="${kind}:${esc(it.id)}" title="Remove from the library" aria-label="Remove ${esc(it.name)}">${svg('close')}</button>` : ''}</span>`;
     const results = () => (state === 'busy' ? '<div class="note">Searching…</div>'
@@ -715,9 +718,10 @@ export function initUI(app, actions, version) {
       : !found.length ? '<div class="note">Nothing found for that. Try another word.</div>'
       : `<div class="tiles">${found.map((it, k) => `<span class="tilewrap"><button type="button" class="tile" data-icon="${k}" title="${esc(it.name)} · ${esc(it.set)}${it.licence ? ' · ' + esc(it.licence) : ''}"><img alt="" loading="lazy" src="${esc(it.preview)}"><span>${esc(it.name)}</span></button></span>`).join('')}</div>`);
     const draw = () => {
-      const tabs = [['logos', `Your pictures${lib.logos.length ? ' · ' + lib.logos.length : ''}`], ['shapes', `Your shapes${lib.shapes.length ? ' · ' + lib.shapes.length : ''}`], ['search', 'Search icons']];
+      const tabs = [['logos', `Your pictures${lib.logos.length ? ' · ' + lib.logos.length : ''}`], ['shapes', `Your shapes${lib.shapes.length ? ' · ' + lib.shapes.length : ''}`], ['search', 'Search icons']].filter(([k]) => !shapesOnly || k !== 'logos');
       const side = tab === 'logos' ? '<button type="button" class="btn" data-lib="file:" style="margin-left:auto">Picture from a file…</button>'
-        : tab === 'shapes' ? '<button type="button" class="btn" data-lib="shapefile:" style="margin-left:auto" title="What the file fills becomes a shape: it takes a colour and works as a pattern or a stamp">Shape from an SVG file…</button>' : '';
+        : tab === 'shapes' ? (shapesOnly ? '' : '<button type="button" class="btn main" data-lib="draw:" style="margin-left:auto" title="A blank page and the drawing tools: what you draw is saved here as one shape">Draw a shape</button>') +
+          `<button type="button" class="btn" data-lib="shapefile:"${shapesOnly ? ' style="margin-left:auto"' : ''} title="What the file fills becomes a shape: it takes a colour and works as a pattern or a stamp">Shape from an SVG file…</button>` : '';
       const grid = tab === 'logos' ? lib.logos.map((it) => tile('logos', it, `<img alt="" src="${esc(it.src)}">`, true)).join('')
         : lib.shapes.map((it) => tile('shapes', it, shapeSvg(it), true)).join('');
       const empty = tab === 'logos' ? 'Pictures you bring in are kept here.' : 'Shapes you save, search for or bring in from a file are kept here.';
@@ -755,13 +759,13 @@ export function initUI(app, actions, version) {
       const [kind, id] = (t.dataset.libx || t.dataset.lib || '').split(':');
       if (t.dataset.libx) { remove(kind, id); lib[kind] = lib[kind].filter((x) => x.id !== id); draw(); return; }
       if (!kind) return;
-      picked = kind === 'file' || kind === 'shapefile' ? { kind } : { kind, item: lib[kind].find((x) => x.id === id) };
+      picked = kind === 'file' || kind === 'shapefile' || kind === 'draw' ? { kind } : { kind, item: lib[kind].find((x) => x.id === id) };
       dlg.close('ok');
     };
     await p;
     $('dlg-body').onclick = $('dlg-body').onkeydown = null;
     dlg.classList.remove('wide', 'lib');
-    return picked && (picked.kind === 'file' || picked.kind === 'shapefile' || picked.item) ? picked : null;
+    return picked && (picked.kind === 'file' || picked.kind === 'shapefile' || picked.kind === 'draw' || picked.item) ? picked : null;
   }
   // Merging layers that cannot simply become one shape: what should happen?
   // → 'shape' | '#rrggbb' (make them all this colour, then one shape) | 'group' | 'picture' | null

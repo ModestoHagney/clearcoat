@@ -19,7 +19,7 @@ import { loadTemplate } from '../js/template.js';
 import { saveToIracing, paintFilenames, validCustid, exportPaintCanvas, paintsDir } from '../js/iracing.js';
 import { initUI } from './ui.js';
 import { initTools, isShape, isBox, moveLayer, setShape, fadeEnds, hasFade, hasAim } from './tools.js';
-import { joined, boxOutline, pieces, SHAPES, hasInner, outerOnly } from '../js/shapes.js';
+import { joined, boxOutline, pieces, SHAPES, hasInner, outerOnly, bounds as shapeBounds, mapped as shapeMapped } from '../js/shapes.js';
 import { searchIcons, iconShape, svgToShape } from './icons.js';
 import { createFillLayer } from '../js/engine.js';
 import { moved } from '../js/shapes.js';
@@ -31,7 +31,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.56';
+export const VERSION = 'v0.68-pieces.57';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -137,9 +137,17 @@ const docToScreen = (dx, dy) => ({ x: (dx + app.view.x) * app.view.zoom, y: (dy 
 function fit() {
   const w = cv.clientWidth, h = cv.clientHeight;
   if (!w || !h) return;
-  app.view.zoom = Math.min(w / SIZE, h / SIZE) * 0.9;
+  // drawing a shape: room for its window's title bar above the sheet, and the frame is told where the sheet is
+  const top = app.workshop ? 66 : 0;
+  app.view.zoom = Math.min(w / SIZE, (h - top) / SIZE) * (app.workshop ? 0.84 : 0.9);
   app.view.x = (w / app.view.zoom - SIZE) / 2;
-  app.view.y = (h / app.view.zoom - SIZE) / 2;
+  app.view.y = (top + (h - top - SIZE * app.view.zoom) / 2) / app.view.zoom;
+  if (app.workshop) {
+    const st = $('stage').style;
+    st.setProperty('--sx', app.view.x * app.view.zoom + 'px');
+    st.setProperty('--sy', app.view.y * app.view.zoom + 'px');
+    st.setProperty('--ss', SIZE * app.view.zoom + 'px');
+  }
   requestDraw();
 }
 function setZoom(z, cx = cv.clientWidth / 2, cy = cv.clientHeight / 2) {
@@ -345,6 +353,7 @@ async function runSave() {
   clearTimeout(saveTimer);
   saveTimer = null;
   const data = serializeDoc(app.doc);
+  if (app.workshop) { capture(data); return; } // a shape being drawn: it has undo steps, but it is never saved as the livery nor sent to the car
   const json = JSON.stringify(data); // stringify before capture, which is free to intern
   capture(data);
   if (json !== lastJson) {
@@ -367,7 +376,7 @@ const LIVE_RETRIES = 5;
 let liveBusy = false, liveAgain = false, liveRetry = null;
 async function liveTick(attempt = 0) {
   clearTimeout(liveRetry);
-  if (!app.live) return;
+  if (!app.live || app.workshop) return; // a shape being drawn is not the livery
   if (liveBusy) { liveAgain = true; return; }
   liveBusy = true;
   const res = await saveToIracing(shown(), app.custid, { quiet: true });
@@ -556,8 +565,68 @@ function motifOf(key) {
   return { kind: 'own', id: it.id, name: it.name, w: it.w, h: it.h, ...(it.credits && it.credits.length ? { credits: it.credits } : {}), pts: (it.pts || boxOutline(it.shape, 0, 0, it.w, it.h)).map(q => (q.c ? { ...q, c: { ...q.c } } : { ...q })) };
 }
 
+// ---------- drawing a shape of my own ----------
+// The livery is put aside and a blank sheet takes its place, so every drawing
+// tool works on the new shape with nothing else in the way. The screen is
+// dressed as a window of its own (see body.workshop in app.css) and the view
+// is held still. Saving joins everything drawn into one shape for the library.
+let aside = null; // the livery, and how its screen was left, while a shape is drawn
+function startShape() {
+  if (aside) return;
+  tools.cancel(); mapTools.cancel();
+  if (saveTimer) runSave(); // the livery's last edit is saved first: runSave reads it before it waits for anything
+  aside = { doc: app.doc, view: { ...app.view }, sel: app.sel, sels: app.sels, mode: app.mode, colour: app.colour, undo: undoStack.splice(0), redo: redoStack.splice(0) };
+  app.doc = createDoc();
+  app.doc.name = 'shape';
+  app.doc.baseColor = '#ffffff';
+  app.workshop = true;
+  app.mode = 'paint'; app.tool = 'pen'; app.sel = null; app.sels = []; app.colour = '#101114';
+  app.picking = app.trimming = false;
+  document.body.classList.add('workshop');
+  $('shapebox').hidden = false;
+  resetHistory();
+  fit(); toolChanged();
+  dirty = true;
+  ui.refresh();
+}
+// keep: save what was drawn to the library (false: throw it away)
+async function endShape(keep) {
+  if (!aside) return;
+  tools.cancel();
+  let item = null;
+  if (keep) {
+    const drawn = app.doc.layers.filter(l => l.visible && l.type === 'fill' && !l.specOnly);
+    if (!drawn.length) { ui.say('Nothing is drawn yet', true); return; }
+    const name = await ui.askText({ title: 'Save the shape', label: 'Name', value: 'Shape ' + (library.shapes.length + 1), ok: 'Save' });
+    if (!name) return; // back to drawing
+    const all = joined(drawn.map(l => (isShape(l) ? l.pts : boxOutline(l.shape, l.rx, l.ry, l.rw, l.rh))));
+    const b = shapeBounds(all), k = 300 / Math.max(b.w, b.h, 1e-6), r = (v) => Math.round(v * 100) / 100; // 300 px along its longer side, as icons come in
+    const credits = cleanCredits(drawn.flatMap(l => l.credits || []));
+    item = keepShape({ name, shape: 'path', pts: shapeMapped(all, p => ({ x: r((p.x - b.x) * k), y: r((p.y - b.y) * k) })), w: r(b.w * k), h: r(b.h * k), ...(credits.length ? { credits } : {}) });
+  }
+  clearTimeout(saveTimer); saveTimer = null;
+  app.doc = aside.doc;
+  Object.assign(app.view, aside.view);
+  app.sel = aside.sel; app.sels = aside.sels; app.mode = aside.mode; app.colour = aside.colour; app.tool = app.mode === 'map' ? 'mpick' : 'select';
+  undoStack.splice(0, undoStack.length, ...aside.undo);
+  redoStack.splice(0, redoStack.length, ...aside.redo);
+  aside = null;
+  app.workshop = false;
+  document.body.classList.remove('workshop');
+  $('shapebox').hidden = true;
+  skipCapture = false;
+  syncUndo(); toolChanged();
+  dirty = true;
+  requestDraw();
+  ui.refresh();
+  if (item) ui.say(`${item.name} is in Your shapes`);
+}
+
 const actions = {
   undo, redo, fit,
+  drawShape: startShape,
+  saveDrawnShape: () => endShape(true),
+  cancelShape: () => endShape(false),
   zoomBy: (f) => setZoom(app.view.zoom * f),
   change,
 
@@ -1315,8 +1384,10 @@ const actions = {
     const pick = await ui.library(library, {
       remove(kind, id) { library[kind] = library[kind].filter(x => x.id !== id); saveLibrary(); },
       search: searchIcons, fetchIcon: iconShape,
+      shapesOnly: !!app.workshop, // drawing a shape: only shapes can become part of it
     });
     if (!pick) return;
+    if (pick.kind === 'draw') return startShape();
     if (pick.kind === 'file') return actions.pickImage();
     if (pick.kind === 'shapefile') return $('file-shape').click();
     if (pick.kind === 'logos') return actions.addImage(pick.item.src, pick.item.name);
@@ -1469,12 +1540,14 @@ const actions = {
 let spaceHeld = false, pan = null;
 cv.addEventListener('wheel', (e) => {
   e.preventDefault();
+  if (app.workshop) return; // the shape's window holds its view still
   const r = cv.getBoundingClientRect();
   setZoom(app.view.zoom * Math.exp(-e.deltaY * 0.0015), e.clientX - r.left, e.clientY - r.top);
 }, { passive: false });
 const local = (e) => { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
 cv.addEventListener('pointerdown', (e) => {
   if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur(); // keys go to the sheet now
+  if (app.workshop && (e.button === 1 || spaceHeld)) { e.preventDefault(); return; } // no panning there either
   if (e.button === 1 || (e.button === 0 && spaceHeld)) {
     e.preventDefault();
     pan = { x: e.clientX, y: e.clientY };
@@ -1516,7 +1589,8 @@ window.addEventListener('keydown', (e) => {
   if (!mod && onSheet().key(e)) { e.preventDefault(); return; }
   if (mod && k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
   if (mod && k === 'y') { e.preventDefault(); redo(); return; }
-  if (mod && k === 's') { e.preventDefault(); actions.save(); return; }
+  if (mod && k === 's') { e.preventDefault(); app.workshop ? endShape(true) : actions.save(); return; }
+  if (app.workshop && !mod && (k === 'f' || k === '+' || k === '=' || k === '-' || k === 'g' || k === 't')) return; // its view is held still, and it has no panels or text
   if (app.mode === 'map') { // the layer keys below belong to Paint
     if (mod) return;
     if (k === 'f') fit();
@@ -1593,7 +1667,7 @@ $('btn-live').addEventListener('click', actions.toggleLive);
 $('btn-zoom-in').addEventListener('click', () => actions.zoomBy(1.25));
 $('btn-zoom-out').addEventListener('click', () => actions.zoomBy(0.8));
 $('btn-fit').addEventListener('click', fit);
-new ResizeObserver(requestDraw).observe($('stage'));
+new ResizeObserver(() => (app.workshop ? fit() : requestDraw())).observe($('stage')); // the shape's window follows the stage
 
 // ---------- start ----------
 
