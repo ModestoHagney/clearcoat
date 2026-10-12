@@ -35,8 +35,9 @@ and Live need Chrome or Edge; everything else works in other browsers.
   `shapes.js`, `mirror.js`, `finish.js`, `svgpath.js`, `trace.js`, `regions.js`,
   `zones.js`, `template.js`, `psd.js`, `tga.js`, `iracing.js`, `persist.js`.
 - `test/` — `npm test`.
-- `sw.js` — the service worker. Bump `VERSION` there and in `next/app.js`
-  together on every deploy.
+- `version.js` — the version, in one place. Bump it on every deploy.
+- `sw.js` — the service worker. It names its cache after the version, which
+  is how a browser notices a new one.
 
 ## Credits
 

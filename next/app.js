@@ -27,7 +27,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { regionOutline, parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.93';
+export const VERSION = self.VERSION || 'unknown'; // from version.js, which the page loads first
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -2087,7 +2087,7 @@ if ('serviceWorker' in navigator) {
     flush().finally(() => location.reload());
   });
   const take = (w) => w && w.postMessage({ type: 'SKIP_WAITING' });
-  navigator.serviceWorker.register(new URL('../sw.js', import.meta.url)).then((reg) => { // from this file, not the page: the page may be at either address
+  navigator.serviceWorker.register(new URL('../sw.js', import.meta.url), { updateViaCache: 'none' }).then((reg) => { // none: version.js is asked for afresh too, or a bump could go unseen // from this file, not the page: the page may be at either address
     if (reg.waiting && navigator.serviceWorker.controller) take(reg.waiting);
     reg.addEventListener('updatefound', () => {
       const w = reg.installing;

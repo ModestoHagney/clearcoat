@@ -1,11 +1,10 @@
 // Overspray service worker: versioned cache, so the app opens offline.
 //
-// DEPLOY RITUAL: bump VERSION below together with VERSION in next/app.js on
-// every deploy. The new VERSION names a new cache; the app sees the new
-// worker, saves, and reloads itself once to take it.
+// On every deploy the version in version.js is bumped. It names a new cache
+// here; the app sees the new worker, saves, and reloads itself once to take it.
 
-const VERSION = 'v0.68-pieces.93';
-const CACHE = 'overspray-' + VERSION;
+importScripts('./version.js');
+const CACHE = 'overspray-' + self.VERSION;
 
 // The app's page and the icons. Every path here must exist in the repo, or
 // the worker fails to install. The rest of the app is not listed: it is
@@ -13,6 +12,7 @@ const CACHE = 'overspray-' + VERSION;
 const PRECACHE = [
   './',
   './index.html',
+  './version.js',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',
