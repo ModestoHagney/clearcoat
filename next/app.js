@@ -26,7 +26,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { regionOutline, parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.83';
+export const VERSION = 'v0.68-pieces.84';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -725,6 +725,8 @@ const actions = {
   },
 
   pickTemplate: () => $('file-template').click(),
+  // where the cars' template files are: Trading Paints lists them all, free, no login
+  getTemplate() { const tab = window.open('https://www.tradingpaints.com/cartemplates', '_blank'); if (tab) tab.opener = null; else ui.say('Allow pop-ups for this site, or open tradingpaints.com/cartemplates', true); },
   async loadTemplateFile(file) {
     ui.say('Reading template…');
     try {
