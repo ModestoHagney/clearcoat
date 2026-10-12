@@ -1,6 +1,6 @@
 // Persistence: IndexedDB autosave + File System Access directory handle storage.
 
-const DB_NAME = 'clearcoat';
+const DB_NAME = 'overspray';
 const DB_VERSION = 1;
 const STORE = 'kv';
 
@@ -107,7 +107,7 @@ export async function readFileFromFolder(dirHandle, filename) {
 
 export async function getBackupDir(dirHandle, create = false) {
   try {
-    return await dirHandle.getDirectoryHandle('clearcoat-backup', { create });
+    return await dirHandle.getDirectoryHandle('overspray-backup', { create });
   } catch {
     return null;
   }

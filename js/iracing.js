@@ -31,7 +31,7 @@ export function exportPaintCanvas(doc, canvas) {
 }
 
 // The car folders in the linked paints folder (the backups folder is not one).
-export const carFolders = async (root) => (await persist.listSubdirs(root)).filter(n => n !== 'clearcoat-backup');
+export const carFolders = async (root) => (await persist.listSubdirs(root)).filter(n => n !== 'overspray-backup');
 // Is this the paints folder itself, and not one car's folder inside it?
 // ponytail: told by having folders in it, or by its name when it is empty.
 export const isPaintsFolder = async (handle) => /^paints$/i.test(handle.name) || (await carFolders(handle)).length > 0;
@@ -69,7 +69,7 @@ export async function paintsDir(doc, { requestIfNeeded = false } = {}) {
 }
 
 // Snapshot whatever is in the folder already (e.g. a Trading Paints livery)
-// into clearcoat-backup/ — only if no snapshot exists yet, so repeated saves
+// into overspray-backup/ — only if no snapshot exists yet, so repeated saves
 // never overwrite the true original.
 async function backupOriginals(handle, names) {
   let backed = false;

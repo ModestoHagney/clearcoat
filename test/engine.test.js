@@ -67,7 +67,7 @@ test('createFillLayer initializes colorMid/midPos and serializeDoc keeps them', 
 
 test('deserializeDoc restores fill colorMid/midPos with defaults', async () => {
   const doc = await deserializeDoc({
-    format: 'clearcoat/1',
+    format: 'overspray/1',
     layers: [
       { type: 'fill', color: '#112233', fillType: 'linear', colorMid: '#abcdef', midPos: 0.7 },
       { type: 'fill', color: '#112233', fillType: 'linear' }, // pre-feature save
@@ -81,7 +81,7 @@ test('deserializeDoc restores fill colorMid/midPos with defaults', async () => {
 
 test('deserializeDoc keeps a shadow and fills in what it leaves out', async () => {
   const doc = await deserializeDoc({
-    format: 'clearcoat/1',
+    format: 'overspray/1',
     layers: [{ type: 'image', src: 'data:x', fx: { shadow: 12 } }, { type: 'image', src: 'data:x' }],
   });
   assert.deepEqual(doc.layers[0].fx, { shadow: 12, shadowDX: 8, shadowDY: 8, shadowColor: '#000000' });
@@ -97,7 +97,7 @@ test('resolveParams overlays matParams on material defaults', () => {
 
 test('deserializeDoc restores scaleY on image layers (stretch survived reload)', async () => {
   const doc = await deserializeDoc({
-    format: 'clearcoat/1',
+    format: 'overspray/1',
     layers: [
       { type: 'image', src: 'data:x', scale: 1, scaleY: 2.5 },
       { type: 'image', src: 'data:x', scale: 1 }, // uniform — stays null

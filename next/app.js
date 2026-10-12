@@ -26,7 +26,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { regionOutline, parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.82';
+export const VERSION = 'v0.68-pieces.83';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -803,7 +803,7 @@ const actions = {
     if (!await persist.getPaintsFolder().catch(() => null) && !await actions.linkFolder()) return false;
     if (!await actions.findCar(null, true)) return false;
     const res = await saveToIracing(shown(), app.custid);
-    if (res.ok) ui.say(res.backed ? `Saved ${res.paintName}. Your previous paint is kept in clearcoat-backup.` : `Saved ${res.paintName}`);
+    if (res.ok) ui.say(res.backed ? `Saved ${res.paintName}. Your previous paint is kept in overspray-backup.` : `Saved ${res.paintName}`);
     else ui.say(res.error, true);
     return res.ok;
   },

@@ -1,4 +1,4 @@
-// Clearcoat template intelligence — pure helpers that turn the hidden
+// Overspray template intelligence — pure helpers that turn the hidden
 // "Sponsor" / "Numbers" / "Mask" / decal layers of an official iRacing
 // template PSD into usable facts: sponsor + number zones (rectangles),
 // which zones are twins of each other, how a twin reads (mirrored or turned

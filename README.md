@@ -8,9 +8,7 @@ and is built on it. It keeps the original's plumbing (reading templates,
 drawing layers, writing the paint files, the iRacing folder link) under a
 screen of its own. The original screen and the features only it had are not
 in this repo any more; they are in the original repo and in this one's
-history. Some names inside still say clearcoat (the livery file format, the
-browser storage, the `clearcoat-backup` folder), so that saved work keeps
-opening.
+history.
 
 ## Running it
 

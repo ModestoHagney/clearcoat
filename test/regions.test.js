@@ -70,8 +70,8 @@ test('parseRegionMap rejects non-objects', () => {
 
 test('parseRegionMap rejects a wrong format string', () => {
   assert.throws(
-    () => parseRegionMap(rawMap({ format: 'clearcoat-regions/2' })),
-    /unknown format "clearcoat-regions\/2"/,
+    () => parseRegionMap(rawMap({ format: 'overspray-regions/2' })),
+    /unknown format "overspray-regions\/2"/,
   );
   assert.throws(() => parseRegionMap({ regions: [] }), /unknown format/);
 });

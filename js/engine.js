@@ -1,4 +1,4 @@
-// Clearcoat render engine — document model, paint compositing, spec map generation.
+// Overspray render engine — document model, paint compositing, spec map generation.
 
 import { parseRegionMap } from './regions.js';
 import { SHAPES, motifOutline, placing, cells, framed, unframed, fadeAt } from './shapes.js';
@@ -135,7 +135,7 @@ export function createDoc() {
     customFonts: [],            // { name, data (base64) } — uploaded fonts travel with the project
     googleFonts: [],            // names of Google fonts added by name, beyond the built-in list
     finishRules: [],            // { color, material, params? }: every shape or text of that colour gets that finish (see finish.js)
-    regionMap: null,            // parsed clearcoat-regions/1 map (see regions.js)
+    regionMap: null,            // parsed overspray-regions/1 map (see regions.js)
     palette: [],                // the livery's saved colours { id, name, color }; a layer's colorRef (or baseRef) points at one
     baseRef: null,              // palette id the base coat follows, if any
   };
@@ -883,7 +883,7 @@ export function layerCorners(layer) {
 
 export function serializeDoc(doc) {
   return {
-    format: 'clearcoat/1',
+    format: 'overspray/1',
     name: doc.name,
     target: doc.target,
     customNumber: !!doc.customNumber,

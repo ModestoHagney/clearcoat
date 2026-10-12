@@ -1,11 +1,11 @@
-// Clearcoat region maps — labeled areas over the 2048 UV sheet with mirror
+// Overspray region maps — labeled areas over the 2048 UV sheet with mirror
 // relationships ("Left Door mirrors Right Door"). Pure data helpers; all
 // coordinates are in 2048-sheet space. Every region has a rectangle (x, y, w,
 // h); one may also carry "points", an outline of its real shape, in which case
 // the rectangle is that outline's bounding box. A map may also carry "links":
 // pairs of edge stretches that meet on the car (see the seam links section).
 
-export const REGIONS_FORMAT = 'clearcoat-regions/1';
+export const REGIONS_FORMAT = 'overspray-regions/1';
 
 // how a mirror partner relates to its source panel:
 //   flip   — left/right reflection (hand-made maps; the default)

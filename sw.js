@@ -1,13 +1,11 @@
 // Overspray service worker: versioned cache, so the app opens offline.
-// (The caches keep the name the app had before, clearcoat-…, so that the
-// ones an older version left behind are still found and cleared.)
 //
 // DEPLOY RITUAL: bump VERSION below together with VERSION in next/app.js on
 // every deploy. The new VERSION names a new cache; the app sees the new
 // worker, saves, and reloads itself once to take it.
 
-const VERSION = 'v0.68-pieces.82';
-const CACHE = 'clearcoat-' + VERSION;
+const VERSION = 'v0.68-pieces.83';
+const CACHE = 'overspray-' + VERSION;
 
 // The app's page and the icons. Every path here must exist in the repo, or
 // the worker fails to install. The rest of the app is not listed: it is
@@ -33,7 +31,7 @@ self.addEventListener('activate', (event) => {
     const names = await caches.keys();
     await Promise.all(
       names
-        .filter((n) => n.startsWith('clearcoat-') && n !== CACHE)
+        .filter((n) => (n.startsWith('overspray-') || n.startsWith('clearcoat-')) && n !== CACHE) // clearcoat-: what the app was called before
         .map((n) => caches.delete(n))
     );
     await self.clients.claim();

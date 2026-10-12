@@ -12,7 +12,7 @@ const { parseRegionMap, setMirror } = await import('../js/regions.js');
 const box = (x, y, w, h) => [{ x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h }];
 function map() {
   const m = parseRegionMap({
-    format: 'clearcoat-regions/1', car: 'test',
+    format: 'overspray-regions/1', car: 'test',
     regions: [
       // lopsided on purpose: a plain rectangle fits every kind of mirror equally
       { id: 'left', name: 'Left', x: 0, y: 0, w: 400, h: 200, points: [{ x: 0, y: 0 }, { x: 400, y: 0 }, { x: 400, y: 200 }, { x: 100, y: 200 }, { x: 0, y: 100 }] },
@@ -115,7 +115,7 @@ test('a filled C-shaped panel mirrors onto its twin, though the middle of its bo
   // a C: the middle of its box is the gap, which belongs to another panel
   const c = (x, y) => [{ x, y }, { x: x + 300, y }, { x: x + 300, y: y + 60 }, { x: x + 60, y: y + 60 }, { x: x + 60, y: y + 240 }, { x: x + 300, y: y + 240 }, { x: x + 300, y: y + 300 }, { x, y: y + 300 }];
   const m = parseRegionMap({
-    format: 'clearcoat-regions/1', car: 'test',
+    format: 'overspray-regions/1', car: 'test',
     regions: [
       { id: 'c1', name: 'Arch left', x: 0, y: 0, w: 300, h: 300, points: c(0, 0) },
       { id: 'c2', name: 'Arch right', x: 1000, y: 0, w: 300, h: 300, points: c(1000, 0) },

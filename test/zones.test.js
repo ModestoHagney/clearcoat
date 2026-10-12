@@ -204,7 +204,7 @@ test('mirrorPointKind maps by relation; a map drops a mirror kind with no partne
   assert.deepEqual(mirrorPointKind(src, dst, 10, 10, 'same'), { x: 1010, y: 1010 });
 
   const map = parseRegionMap({
-    format: 'clearcoat-regions/1', car: 't',
+    format: 'overspray-regions/1', car: 't',
     regions: [
       { id: 'a', name: 'a', x: 0, y: 0, w: 100, h: 50, mirror: 'b', mirrorKind: 'rot180' },
       { id: 'b', name: 'b', x: 0, y: 1998, w: 100, h: 50, mirror: 'a', mirrorKind: 'rot180' },
@@ -214,7 +214,7 @@ test('mirrorPointKind maps by relation; a map drops a mirror kind with no partne
     ] });
   assert.equal(map.regions.find(r => r.id === 'e').mirrorKind, undefined);
   // unknown kinds are dropped, not thrown
-  const bad = parseRegionMap({ format: 'clearcoat-regions/1', car: 't', regions: [
+  const bad = parseRegionMap({ format: 'overspray-regions/1', car: 't', regions: [
     { id: 'a', name: 'a', x: 0, y: 0, w: 1, h: 1, mirror: 'b', mirrorKind: 'sideways', rot: 45, kind: 'hood' },
     { id: 'b', name: 'b', x: 0, y: 0, w: 1, h: 1, mirror: 'a' },
   ] });
