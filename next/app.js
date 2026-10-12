@@ -22,12 +22,12 @@ import { initTools, isShape, isBox, moveLayer, setShape, fadeEnds, hasFade, hasA
 import { moved, joined, boxOutline, pieces, SHAPES, hasInner, outerOnly, wrapped, bounds as shapeBounds, mapped as shapeMapped } from '../js/shapes.js';
 import { searchIcons, iconShape, svgToShape } from './icons.js';
 import { traceImage } from '../js/trace.js';
-import { finishSpec, withFinishes, withPatterns, setRule, clearRule, ruleFor, layerColour, isArea, hasOwnFinish, readFinish, writeFinish, presetOf, FINISHES, SPARKLE } from '../js/finish.js';
+import { finishSpec, finishList, withFinishes, withPatterns, setRule, clearRule, ruleFor, layerColour, isArea, hasOwnFinish, readFinish, writeFinish, presetOf, FINISHES, SPARKLE } from '../js/finish.js';
 import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { regionOutline, parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.90';
+export const VERSION = 'v0.68-pieces.91';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -916,6 +916,13 @@ const actions = {
     // it keeps the name of the finish it started from while its numbers are moved
     if (!actions.applyFinish(writeFinish(f, presetOf(readFinish(now.material, now.params)) || now.material))) return;
     change(part === 'sparkle' ? { now: true } : { panels: false });
+  },
+  // the finish something else in the livery has, taken over whole. from: 'colour:#rrggbb' | 'layer:id' | 'area:id'
+  copyFinish(from) {
+    const [kind, key] = from.split(/:(.*)/), src = finishList(app.doc).find(o => o.kind === kind && (kind === 'colour' ? o.colour : o.id) === key);
+    if (!src || !actions.applyFinish({ material: src.material, params: src.params ? structuredClone(src.params) : null })) return;
+    app.finishKind = presetOf(readFinish(src.material, src.params)) || src.material;
+    change({ now: true });
   },
   // the three sliders back to where the named finish has them; sparkle stays
   resetFinish() {

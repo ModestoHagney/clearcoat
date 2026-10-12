@@ -429,9 +429,14 @@ export function initUI(app, actions, version) {
     // a shape or text can be finished with its whole colour, or by itself
     const canScope = (t.kind === 'colour' && t.layerId) || (t.kind === 'layer' && layer && layerColour(layer));
     const scope = !canScope ? '' : `<div class="seg"><button data-scope="colour" aria-pressed="${t.kind === 'colour'}">All this colour</button><button data-scope="layer" aria-pressed="${t.kind === 'layer'}">Just this layer</button></div>`;
+    // the finish of anything else in the livery, taken over whole: no numbers to match by eye
+    const others = finishList(d).filter((o) => !(o.kind === t.kind && (o.kind === 'colour' ? o.colour === t.colour : o.id === t.id)));
+    const same = !others.length ? '' : field('Same as', `<select id="fn-same" title="Take the finish another colour or layer has, exactly">${opt('', 'Choose…', true)}${others.map((o) =>
+      opt(`${o.kind}:${o.kind === 'colour' ? o.colour : o.id}`, `${o.kind === 'colour' ? o.colour.toUpperCase() : o.name} · ${finishLabel(o.material, o.params)}`, false)).join('')}</select>`);
     return '<canvas id="f-tile" class="ftile" width="472" height="176" aria-hidden="true"></canvas>' +
       `<div class="ftarget">${label}<b id="f-label"></b></div>` + scope +
       `<div class="finishes">${FINISHES.map((k) => `<button data-finish="${k}" aria-pressed="${k === preset}">${finishName(k)}</button>`).join('')}</div>` +
+      same +
       field('Metallic', slider('fn-met', 0, 255, f.met)) + field('Roughness', slider('fn-rough', 0, 255, f.rough)) + field('Clearcoat', slider('fn-clear', 0, 255, f.clear)) +
       (preset ? '' : '<div class="acts"><button class="btn" data-act="resetFinish" title="Put the three sliders back">Reset</button></div>') +
       `<label class="switch" title="Specks or chips that catch the light, over this finish">Sparkle<input id="fn-sparkle" type="checkbox"${f.sparkle ? ' checked' : ''}></label>` +
@@ -643,6 +648,7 @@ export function initUI(app, actions, version) {
   panels.props.addEventListener('change', (e) => {
     const id = e.target.id;
     if (id === 'fn-sparkle') return actions.tweakFinish('sparkle', e.target.checked);
+    if (id === 'fn-same') { if (e.target.value) actions.copyFinish(e.target.value); return; }
     if (/^fn-/.test(id)) return refresh(); // a slider let go: Reset comes or goes, the list's name updates
     if (id === 'f-mirrored') return actions.mirror();
     if (id === 'f-font') return actions.setFont(e.target.value);
