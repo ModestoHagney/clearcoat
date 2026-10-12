@@ -27,7 +27,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { regionOutline, parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.87';
+export const VERSION = 'v0.68-pieces.88';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -522,6 +522,7 @@ function selectedLayers() {
   const ids = app.sels.length > 1 && app.sels.includes(app.sel) ? app.sels : app.sel && app.sel !== 'base' ? [app.sel] : [];
   return app.doc.layers.filter(l => ids.includes(l.id));
 }
+let anchor = null; // the layer clicked last in the Layers list: where a Shift+click's range starts
 // the ids picked up with this one: its group, or just itself
 function groupOf(id) {
   const l = app.doc.layers.find(x => x.id === id);
@@ -1739,7 +1740,19 @@ const actions = {
   },
 
   // add: Ctrl- or Shift-click — it joins the selection, or leaves it
+  // Shift+click in the Layers list: everything from the row clicked last to
+  // this one, both included, as a file list does it. The row clicked last
+  // stays the end the next Shift+click measures from.
+  selectRange(id) {
+    const L = app.doc.layers.filter(l => !isArea(l)), to = L.findIndex(l => l.id === id);
+    const from = L.findIndex(l => l.id === (anchor && L.some(l2 => l2.id === anchor) ? anchor : app.sel));
+    if (to === -1 || from === -1) return actions.select(id);
+    const kept = anchor && L.some(l => l.id === anchor) ? anchor : app.sel;
+    actions.selectMany(L.slice(Math.min(from, to), Math.max(from, to) + 1).map(l => l.id));
+    anchor = kept;
+  },
   select(id, add = false) {
+    anchor = id;
     const real = id !== 'base' && app.doc.layers.some(l => l.id === id);
     if (id !== 'base' && !real) { app.sel = null; app.sels = []; }
     else if (add && real && app.sel && app.sel !== 'base') {
