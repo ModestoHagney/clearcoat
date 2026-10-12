@@ -224,15 +224,21 @@ export function createTextLayer() {
   return layer;
 }
 
+// the font a text layer is drawn in, as the canvas wants it said. A weight is
+// only named when the layer has one: a font drawn in its ordinary weight
+// needs none.
+export const textFont = (layer, size = 160) => `${layer.italic ? 'italic ' : ''}${layer.fontWeight ? layer.fontWeight + ' ' : ''}${size}px "${layer.font || 'Arial Black'}"`;
+
 // re-rasterize after any text property change; the canvas is sized to the
 // text so the layer's center (x, y) stays put
 export function regenerateText(layer) {
   const lines = String(layer.text ?? '').split('\n');
   const size = Math.max(40, Math.min(400, layer.fontSize || 160));
   const outline = Math.max(0, Math.min(30, layer.outlineWidth || 0));
-  const fontStr = `${layer.italic ? 'italic ' : ''}${size}px "${layer.font || 'Arial Black'}"`;
+  const fontStr = textFont(layer, size);
   const spacing = `${Math.max(0, Math.min(40, layer.letterSpacing || 0))}px`;
-  const lineH = size * 1.2;
+  const lineH = size * Math.max(60, Math.min(300, layer.lineSpacing || 120)) / 100;
+  const align = layer.align === 'left' || layer.align === 'right' ? layer.align : 'center'; // lines of different lengths: which side they share
   const curve = Math.max(-180, Math.min(180, Number(layer.curve) || 0));
   const margin = Math.ceil(outline) + Math.ceil(size * 0.15); // outline + italic overhang
   const c = document.createElement('canvas');
@@ -247,16 +253,17 @@ export function regenerateText(layer) {
     // resizing reset the context — set everything again
     ctx.font = fontStr;
     if ('letterSpacing' in ctx) ctx.letterSpacing = spacing;
-    ctx.textAlign = 'center';
+    ctx.textAlign = align;
     ctx.textBaseline = 'middle';
     ctx.lineJoin = 'round';
     ctx.fillStyle = layer.textColor || '#ffffff';
     ctx.strokeStyle = layer.outlineColor || '#000000';
     ctx.lineWidth = outline * 2; // half the stroke falls outside the glyph
+    const x = align === 'left' ? margin : align === 'right' ? c.width - margin : c.width / 2;
     lines.forEach((line, i) => {
       const y = margin + lineH * (i + 0.5);
-      if (outline > 0) ctx.strokeText(line, c.width / 2, y);
-      ctx.fillText(line, c.width / 2, y);
+      if (outline > 0) ctx.strokeText(line, x, y);
+      ctx.fillText(line, x, y);
     });
   } else {
     // curved text — glyphs laid glyph-by-glyph along a circular arc whose
@@ -932,6 +939,7 @@ export function serializeDoc(doc) {
       text: l.text, font: l.font, fontSize: l.fontSize,
       textColor: l.textColor, outlineColor: l.outlineColor, outlineWidth: l.outlineWidth,
       italic: l.italic, letterSpacing: l.letterSpacing,
+      fontWeight: l.fontWeight || undefined, lineSpacing: l.lineSpacing || undefined, align: l.align || undefined,
       curve: l.curve || 0,
       x: l.x, y: l.y, scale: l.scale, scaleY: l.scaleY ?? null, rotation: l.rotation,
       flipH: l.flipH, flipV: l.flipV,
@@ -1085,6 +1093,8 @@ export async function deserializeDoc(data) {
           outlineColor: l.outlineColor || '#000000',
           outlineWidth: l.outlineWidth ?? 0,
           italic: !!l.italic, letterSpacing: l.letterSpacing ?? 0,
+          fontWeight: Number.isFinite(l.fontWeight) ? l.fontWeight : null, lineSpacing: Number.isFinite(l.lineSpacing) ? l.lineSpacing : null,
+          align: l.align === 'left' || l.align === 'right' ? l.align : null,
           curve: l.curve ?? 0,
           fx: normalizeFx(l.fx),
           x: l.x ?? SIZE / 2, y: l.y ?? SIZE / 2,

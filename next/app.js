@@ -9,7 +9,7 @@
 
 import {
   SIZE, GOOGLE_FONTS, createDoc, renderPaint, renderSpec, buildDragCache, renderPaintWithDrag,
-  serializeDoc, deserializeDoc, regenerateText, layerCorners, layerMatrix, newId,
+  serializeDoc, deserializeDoc, regenerateText, textFont, TEXT_FONTS, layerCorners, layerMatrix, newId,
   createTextLayer, createImageLayer, createFillLayer, loadImage, registerCustomFont, paintLayers,
   MATERIALS, fadeStyleOf, cleanCredits,
 } from '../js/engine.js';
@@ -27,7 +27,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { regionOutline, parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.91';
+export const VERSION = 'v0.68-pieces.92';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -457,31 +457,82 @@ async function liveTick(attempt = 0) {
 // before they can be re-drawn in it
 const fontLoads = new Map(), fontReady = new Set();
 const isWebFont = (f) => GOOGLE_FONTS.includes(f) || (app.doc.googleFonts || []).includes(f);
-// Puts a Google font on the page. → true once it can be drawn with, false if
-// Google has no such font (its names are case-sensitive) or it is unreachable.
-function loadWebFont(family) {
-  if (fontLoads.has(family)) return fontLoads.get(family);
+const cssUrl = (family, faces) => 'https://fonts.googleapis.com/css2?family=' + encodeURIComponent(family).replace(/%20/g, '+') + (faces ? ':' + faces : '') + '&display=swap';
+const addCss = (href) => new Promise((done) => {
+  const link = document.createElement('link');
+  link.rel = 'stylesheet'; link.href = href;
+  link.onload = () => done(true); link.onerror = () => { link.remove(); done(false); };
+  document.head.appendChild(link);
+});
+const WEIGHTS = [100, 200, 300, 400, 500, 600, 700, 800, 900];
+// What Google has of a font: { weights, italics } (the weights it comes in,
+// and those of them it has a real italic for). Google's service only sends
+// the weights it is asked for and refuses a request that names one the font
+// lacks, so each is tried: at most twenty small requests, once for a font,
+// then kept in this browser.
+let fontFaces = {};
+try { fontFaces = JSON.parse(localStorage.getItem('next-fontfaces') || '{}') || {}; } catch { /* asked for again */ }
+const facesAsked = new Map();
+function findFaces(family) {
+  if (fontFaces[family]) return Promise.resolve(fontFaces[family]);
+  if (facesAsked.has(family)) return facesAsked.get(family);
+  const has = async (faces) => { try { return (await fetch(cssUrl(family, faces))).ok; } catch { return null; } };
   const p = (async () => {
-    const link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = 'https://fonts.googleapis.com/css2?family=' + encodeURIComponent(family).replace(/%20/g, '+') + '&display=swap';
-    const found = await new Promise(r => { link.onload = () => r(true); link.onerror = () => r(false); document.head.appendChild(link); });
-    if (!found) { link.remove(); return false; }
-    try { await document.fonts.load(`160px "${family}"`); } catch { return false; }
-    return document.fonts.check(`160px "${family}"`);
+    let info;
+    if (await has('ital,wght@0,100..900;1,100..900')) info = { weights: WEIGHTS, italics: WEIGHTS, range: 'ital,wght@0,100..900;1,100..900' };
+    else if (await has('wght@100..900')) info = { weights: WEIGHTS, italics: [], range: 'wght@100..900' };
+    else {
+      const got = await Promise.all(WEIGHTS.map((w) => has('wght@' + w)));
+      if (got.every((g) => g === null)) return null; // not reachable: try again another time
+      const weights = WEIGHTS.filter((w, i) => got[i]);
+      const slant = await Promise.all(weights.map((w) => has('ital,wght@1,' + w)));
+      info = { weights, italics: weights.filter((w, i) => slant[i]) };
+    }
+    fontFaces[family] = info;
+    try { localStorage.setItem('next-fontfaces', JSON.stringify(fontFaces)); } catch { /* kept for this visit only */ }
+    return info;
   })();
-  fontLoads.set(family, p);
-  p.then((ok) => { if (ok) fontReady.add(family); else fontLoads.delete(family); }); // a miss may be retried later
+  facesAsked.set(family, p);
+  p.then((info) => { if (!info) facesAsked.delete(family); });
   return p;
 }
+// every face of a family in one stylesheet: the browser fetches a face's file only when something is drawn in it
+const allFaces = (info) => info.range || (info.italics.length
+  ? 'ital,wght@' + [...info.weights.map((w) => '0,' + w), ...info.italics.map((w) => '1,' + w)].join(';')
+  : 'wght@' + info.weights.join(';'));
+// Puts a Google font on the page, in the weight and slant a layer asks for.
+// → true once it can be drawn with, false if Google has no such font (its
+// names are case-sensitive) or it is unreachable.
+function loadWebFont(family, weight = null, italic = false) {
+  const key = `${family}|${weight || ''}|${italic ? 'i' : ''}`;
+  if (fontLoads.has(key)) return fontLoads.get(key);
+  const face = textFont({ font: family, fontWeight: weight, italic });
+  const p = (async () => {
+    if (!weight && !italic) { // the font as it comes: also how a name is checked
+      if (!await addCss(cssUrl(family))) return false;
+    } else {
+      const info = await findFaces(family);
+      if (!info || !info.weights.length) return false;
+      if (!fontLoads.has(family + '|all')) fontLoads.set(family + '|all', addCss(cssUrl(family, allFaces(info))));
+      if (!await fontLoads.get(family + '|all')) return false;
+    }
+    try { await document.fonts.load(face); } catch { return false; }
+    return document.fonts.check(face);
+  })();
+  fontLoads.set(key, p);
+  p.then((ok) => { if (ok) fontReady.add(key); else fontLoads.delete(key); }); // a miss may be retried later
+  return p;
+}
+// every text layer whose font is not on the page yet gets it, and is drawn again when it arrives
 function ensureDocFonts() {
-  const families = new Set(app.doc.layers.filter(l => l.type === 'text').map(l => l.font));
-  for (const family of families) {
-    if (!isWebFont(family) || fontReady.has(family)) continue;
-    loadWebFont(family).then((ok) => {
+  const wanted = new Map();
+  for (const l of app.doc.layers) if (l.type === 'text' && isWebFont(l.font)) wanted.set(`${l.font}|${l.fontWeight || ''}|${l.italic ? 'i' : ''}`, l);
+  for (const [key, like] of wanted) {
+    if (fontReady.has(key)) continue;
+    loadWebFont(like.font, like.fontWeight || null, !!like.italic).then((ok) => {
       if (!ok) return;
       let touched = false;
-      for (const l of app.doc.layers) if (l.type === 'text' && l.font === family) { regenerateText(l); touched = true; }
+      for (const l of app.doc.layers) if (l.type === 'text' && `${l.font}|${l.fontWeight || ''}|${l.italic ? 'i' : ''}` === key) { regenerateText(l); touched = true; }
       if (touched) { dirty = true; requestDraw(); }
     });
   }
@@ -567,7 +618,7 @@ function keepShape(made) {
 }
 
 // settings of a text layer that change what its picture looks like
-const TEXT_KEYS = new Set(['text', 'font', 'fontSize', 'textColor', 'outlineColor', 'outlineWidth', 'italic', 'letterSpacing', 'curve']);
+const TEXT_KEYS = new Set(['text', 'font', 'fontSize', 'textColor', 'outlineColor', 'outlineWidth', 'italic', 'letterSpacing', 'curve', 'fontWeight', 'lineSpacing', 'align']);
 
 // a copy that shares nothing editable with the original (pictures are shared:
 // they are never changed in place)
@@ -1456,8 +1507,18 @@ const actions = {
     if (l.type === 'text' && TEXT_KEYS.has(key)) {
       if (key === 'text') l.name = String(value).split('\n')[0].trim().slice(0, 24) || 'Text';
       regenerateText(l);
+      if (key === 'fontWeight' || key === 'italic') ensureDocFonts(); // that face of the font may still have to be fetched
     }
     change({ panels: false });
+  },
+  // The weights a font can be drawn in, for the Weight list: [] while that is
+  // not known yet (the panel is drawn again when it is) or when there is only one.
+  fontWeights(family) {
+    if (TEXT_FONTS.includes(family)) return [400, 700]; // the computer's own fonts: the browser makes the bold
+    if (!isWebFont(family)) return [];                  // an uploaded file is one weight
+    if (fontFaces[family]) return fontFaces[family].weights.length > 1 ? fontFaces[family].weights : [];
+    findFaces(family).then((info) => { const l = actions.selected(); if (info && info.weights.length > 1 && l && l.type === 'text' && l.font === family) ui.refresh(); });
+    return [];
   },
   setFont(name) {
     if (name === '__upload') { $('file-font').click(); ui.refresh(); return; }
@@ -1466,6 +1527,7 @@ const actions = {
     app.font = name;
     if (!l || l.type !== 'text') return;
     l.font = name;
+    l.fontWeight = null; // the new font as it comes; its own weights are offered once they are known
     regenerateText(l);
     ensureDocFonts(); // a Google font arrives a moment later and the text is redrawn in it
     change({ now: true });

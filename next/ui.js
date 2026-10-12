@@ -101,6 +101,7 @@ const MAP_TOOLS = [
   ['mlink', 'Link edges'],
 ];
 const PANELS = ['layers', 'props', 'colour'];
+const WEIGHT_NAMES = { 100: 'Thin', 200: 'Extra light', 300: 'Light', 400: 'Regular', 500: 'Medium', 600: 'Semi bold', 700: 'Bold', 800: 'Extra bold', 900: 'Black' };
 // A pattern's Size and Spacing sliders are finer at the low end, where a
 // pixel matters most: the slider runs 0 to 1000 and the value goes with its
 // square. [least, most] in px on the sheet.
@@ -354,9 +355,13 @@ export function initUI(app, actions, version) {
     // a shape's fill can fade to a second colour, or to nothing
     const pattern = l.type !== 'fill' || l.specOnly ? '' : patternHtml(l);
     const fade = l.type !== 'fill' ? '' : fadeHtml(l);
+    const weights = isText ? actions.fontWeights(l.font) : [];
+    const weight = weights.length < 2 ? '' : field('Weight', `<select id="f-fontWeight">${weights.map((w) => opt(w, WEIGHT_NAMES[w], w === (l.fontWeight || 400))).join('')}</select>`);
+    const lined = isText && String(l.text || '').includes('\n'); // settings that only mean something with several lines
     const main = !isText ? colour + fade + pattern :
       field('Text', `<textarea id="f-text" rows="2" spellcheck="false" title="Enter starts a new line">${esc(l.text)}</textarea>`) +
       field('Font', `<select id="f-font">${fonts.map((f) => opt(f, f, f === l.font)).join('')}${opt('__google', 'Google font by name…', false)}${opt('__upload', 'Upload a font file…', false)}</select>`) +
+      weight +
       colour +
       field('Size', slider('f-fontSize', 40, 400, l.fontSize || 160));
     const inPieces = Array.isArray(l.pts) && l.pts.some((q) => q.m);
@@ -368,6 +373,8 @@ export function initUI(app, actions, version) {
       field('Outline', `<span class="pair">${slider('f-outlineWidth', 0, 30, l.outlineWidth || 0)}<input id="f-outlineColor" type="color" value="${esc(hexOf(l.outlineColor || '') || '#000000')}" aria-label="Outline colour"></span>`) +
       field('Spacing', slider('f-letterSpacing', 0, 40, l.letterSpacing || 0)) +
       field('Curve', slider('f-curve', -180, 180, l.curve || 0)) +
+      (!lined ? '' : field('Line spacing', slider('f-lineSpacing', 60, 300, l.lineSpacing || 120)) +
+        field('Lines', `<select id="f-align">${[['left', 'Left'], ['center', 'Centred'], ['right', 'Right']].map(([v, n]) => opt(v, n, v === (l.align || 'center'))).join('')}</select>`)) +
       `<label class="switch">Italic<input id="f-italic" type="checkbox"${l.italic ? ' checked' : ''}></label>`) +
       (!isPic ? '' :
       field('Turn', slider('f-rotation', -180, 180, Math.round(l.rotation || 0))) +
@@ -558,7 +565,7 @@ export function initUI(app, actions, version) {
     const pat = /^f-pat-(size|gap|stagger|turn|rSize|rPos|rTurn)$/.exec(t.id || '');
     if (pat) { actions.tweakMotif(pat[1], t.dataset.exact !== undefined ? +t.dataset.exact : CURVED[pat[1]] ? fromSlider(pat[1], +t.value) : +t.value); return; }
     // plain settings: the control's id names the layer setting it sets
-    const m = /^f-(fx-)?(fontSize|outlineWidth|outlineColor|letterSpacing|curve|rotation|shadow|shadowColor|shadowDX|shadowDY|text)$/.exec(t.id || '');
+    const m = /^f-(fx-)?(fontSize|outlineWidth|outlineColor|letterSpacing|lineSpacing|curve|rotation|shadow|shadowColor|shadowDX|shadowDY|text)$/.exec(t.id || '');
     if (m && layer) {
       const v = t.type === 'range' ? +t.value : t.value;
       actions.setProp((m[1] ? 'fx.' : '') + m[2], v);
@@ -652,6 +659,8 @@ export function initUI(app, actions, version) {
     if (/^fn-/.test(id)) return refresh(); // a slider let go: Reset comes or goes, the list's name updates
     if (id === 'f-mirrored') return actions.mirror();
     if (id === 'f-font') return actions.setFont(e.target.value);
+    if (id === 'f-fontWeight') { actions.setProp('fontWeight', +e.target.value === 400 ? null : +e.target.value); return; }
+    if (id === 'f-align') { actions.setProp('align', e.target.value === 'center' ? null : e.target.value); return; }
     if (id === 'f-fade') return actions.setFade('on', e.target.checked);
     if (id === 'f-pat-add') { if (e.target.value) actions.addMotifShape(e.target.value); return; }
     if (id === 'f-pat-only') return actions.tweakMotif('only', e.target.checked);
