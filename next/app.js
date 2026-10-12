@@ -27,7 +27,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { regionOutline, parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.92';
+export const VERSION = 'v0.68-pieces.93';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -1726,7 +1726,7 @@ const actions = {
   // it, in a group where the picture was. The picture's background is left out.
   makeShapes() {
     const l = actions.selected();
-    if (!l || l.type !== 'image' || !l.img || !canChange()) return;
+    if (!l || (l.type !== 'image' && l.type !== 'text') || !l.img || !canChange()) return; // text is a picture of its letters
     const iw = l.img.naturalWidth || l.img.width, ih = l.img.naturalHeight || l.img.height;
     const k = Math.min(1, TRACE_PX / Math.max(iw, ih)), w = Math.max(1, Math.round(iw * k)), h = Math.max(1, Math.round(ih * k));
     const c = document.createElement('canvas'); c.width = w; c.height = h;
