@@ -32,7 +32,7 @@ and Live need Chrome or Edge; everything else works in other browsers.
   `picker.js` (the colour picker), `preview.js` (the finish preview).
 - `js/` — everything with no page in it, so it runs under `node --test`:
   `engine.js` (the livery, painting it, the finish map, saving and loading),
-  `shapes.js`, `mirror.js`, `finish.js`, `svgpath.js`, `regions.js`,
+  `shapes.js`, `mirror.js`, `finish.js`, `svgpath.js`, `trace.js`, `regions.js`,
   `zones.js`, `template.js`, `psd.js`, `tga.js`, `iracing.js`, `persist.js`.
 - `test/` — `npm test`.
 - `sw.js` — the service worker. Bump `VERSION` there and in `next/app.js`

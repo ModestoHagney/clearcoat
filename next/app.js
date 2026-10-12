@@ -9,7 +9,7 @@
 
 import {
   SIZE, GOOGLE_FONTS, createDoc, renderPaint, renderSpec, buildDragCache, renderPaintWithDrag,
-  serializeDoc, deserializeDoc, regenerateText, layerCorners, newId,
+  serializeDoc, deserializeDoc, regenerateText, layerCorners, layerMatrix, newId,
   createTextLayer, createImageLayer, createFillLayer, loadImage, registerCustomFont, paintLayers,
   MATERIALS, fadeStyleOf, cleanCredits,
 } from '../js/engine.js';
@@ -21,12 +21,13 @@ import { initUI } from './ui.js';
 import { initTools, isShape, isBox, moveLayer, setShape, fadeEnds, hasFade, hasAim } from './tools.js';
 import { moved, joined, boxOutline, pieces, SHAPES, hasInner, outerOnly, wrapped, bounds as shapeBounds, mapped as shapeMapped } from '../js/shapes.js';
 import { searchIcons, iconShape, svgToShape } from './icons.js';
+import { traceImage } from '../js/trace.js';
 import { finishSpec, withFinishes, withPatterns, setRule, clearRule, ruleFor, layerColour, isArea, hasOwnFinish, readFinish, writeFinish, presetOf, FINISHES, SPARKLE } from '../js/finish.js';
 import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { regionOutline, parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.84';
+export const VERSION = 'v0.68-pieces.85';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -430,6 +431,7 @@ async function runSave() {
 // file open while it reads it. So a failed one is tried again a few times
 // before Live is shown as paused; otherwise that change would never reach the
 // car until the next edit.
+const TRACE_PX = 1400; // Make shapes reads a picture no larger than this along its longer side: enough for a logo, and quick
 const LIVE_RETRIES = 5;
 let liveBusy = false, liveAgain = false, liveRetry = null;
 async function liveTick(attempt = 0) {
@@ -1581,6 +1583,39 @@ const actions = {
     change({ panels: !typed });
   },
   setColour: (hex) => actions.applyColour(hex, { typed: true }),
+  // A flat-colour picture (a logo, say) becomes shapes: one for each colour in
+  // it, in a group where the picture was. The picture's background is left out.
+  makeShapes() {
+    const l = actions.selected();
+    if (!l || l.type !== 'image' || !l.img || !canChange()) return;
+    const iw = l.img.naturalWidth || l.img.width, ih = l.img.naturalHeight || l.img.height;
+    const k = Math.min(1, TRACE_PX / Math.max(iw, ih)), w = Math.max(1, Math.round(iw * k)), h = Math.max(1, Math.round(ih * k));
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    const g = c.getContext('2d', { willReadFrequently: true });
+    g.drawImage(l.img, 0, 0, w, h);
+    let found;
+    try { found = traceImage(g.getImageData(0, 0, w, h).data, w, h); } catch { ui.say('That picture cannot be read. Bring it in again as a file from your computer.', true); return; }
+    if (!found.length) { ui.say('No flat colours found in that picture, so there are no shapes to make', true); return; }
+    // from the picture's own pixels to where it lies on the sheet
+    const m = layerMatrix(l), r = (v) => Math.round(v * 100) / 100;
+    const at = (q) => { const p = m.transformPoint(new DOMPoint(q.x / k - iw / 2, q.y / k - ih / 2)); return { x: r(p.x), y: r(p.y) }; };
+    const gid = 'g' + newId();
+    const made = found.map(({ color, pts }, i) => {
+      const s = createFillLayer(l.color || color || app.colour); // a mask's cut-out has no colour of its own: it takes the current one
+      s.name = found.length > 1 ? `${l.name} ${i + 1}` : l.name;
+      s.shape = 'path'; s.opacity = l.opacity;
+      setShape(s, shapeMapped(pts, at));
+      if (l.clip) { s.clip = structuredClone(l.clip); s.clipAt = l.clipAt ? structuredClone(l.clipAt) : null; } // it stays trimmed to the same panels
+      s.mirrored = !!l.mirrored;
+      if (found.length > 1) s.groupId = gid;
+      return s;
+    });
+    if (found.length > 1) app.doc.groups = [...(app.doc.groups || []), { id: gid, name: l.name, collapsed: false }];
+    app.doc.layers.splice(app.doc.layers.indexOf(l), 1, ...made);
+    app.sel = made[made.length - 1].id; app.sels = made.length > 1 ? made.map(s => s.id) : [];
+    change({ now: true });
+    ui.say(made.length > 1 ? `${made.length} shapes made, one for each colour, in a group` : 'Made into a shape');
+  },
   // a coloured picture back to its own colours
   ownColours() {
     for (const l of selectedLayers()) if (l.type === 'image') { l.color = undefined; l.colorRef = null; }
