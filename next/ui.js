@@ -807,7 +807,7 @@ export function initUI(app, actions, version) {
       ['Panel colours on car', ['C']],
     ]],
     ['Selection', [
-      ['Select all', ['Ctrl', 'A']], ['Deselect', ['Esc']], ['Add to selection', ['Ctrl', 'Click'], ['Shift', 'Click']], ['Select a range in Layers', ['Shift', 'Click']], ['Marquee select', ['Drag']],
+      ['Select all', ['Ctrl', 'A']], ['Deselect', ['Esc']], ['Add to selection', ['Ctrl', 'Click'], ['Shift', 'Click']], ['Select a range in Layers', ['Shift', 'Click']], ['Select one layer of a group', ['Double-click']], ['Marquee select', ['Drag']],
     ]],
     ['Edit', [
       ['Undo', ['Ctrl', 'Z']], ['Redo', ['Ctrl', 'Y'], ['Ctrl', 'Shift', 'Z']],
@@ -894,7 +894,8 @@ export function initUI(app, actions, version) {
     }
     if (t.dataset.layer) { // Shift: the whole run from the row clicked last to this one; Ctrl: add or take out this one
       if (e.shiftKey && t.dataset.layer !== 'base' && panels.layers.contains(t)) return actions.selectRange(t.dataset.layer);
-      return actions.select(t.dataset.layer, e.ctrlKey || e.metaKey || e.shiftKey);
+      // a layer's own row is that layer alone, even in a group; the group's row is the group
+      return actions.select(t.dataset.layer, e.ctrlKey || e.metaKey || e.shiftKey, !t.dataset.group && panels.layers.contains(t));
     }
     if (t.dataset.p) {
       const p = t.closest('.panel'), key = p.dataset.panel;

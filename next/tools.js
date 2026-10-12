@@ -152,6 +152,7 @@ export function initTools(app, env) {
     setShape(l, mapped(d.pts0, f));
     if (d.fade0) { l.fadeFrom = f(d.fade0[0]); l.fadeTo = f(d.fade0[1]); }
   }
+  let lastPress = { id: null, at: 0 }; // the layer last pressed on the sheet, and when: two close together are a double click
   let rubber = null;   // ready-made shape being dragged out: { a, b } doc points
   let band = null;     // band being placed: { a, b, pressed }
   let hover = null;    // the panel under the pointer, while a panel is being picked
@@ -415,6 +416,10 @@ export function initTools(app, env) {
       return;
     }
     if (adding) { env.select(hit.id, true); return; } // joins the selection, or leaves it
+    // a double click goes inside a group: this layer alone (pointer presses carry no click count, so it is kept here)
+    const twice = lastPress.id === hit.id && performance.now() - lastPress.at < 450;
+    lastPress = twice ? { id: null, at: 0 } : { id: hit.id, at: performance.now() };
+    if (twice && hit.groupId) { env.select(hit.id, false, true); return; }
     if (env.selectedLayers().some(l => l.id === hit.id)) { // one of several: they all move
       drag = { kind: 'move', layer: hit, start: s, last: p, went: false };
       return;
@@ -603,7 +608,7 @@ export function initTools(app, env) {
     if (app.tool === 'piece') return 'Click a panel to fill it';
     if (app.tool === 'text') return 'Click where the text goes';
     if (app.tool === 'select' && selFade()) return fadeMates().length > 1 ? 'Drag the two dots to aim the fade for all of them · Shift holds 45°' : 'Drag the two dots to aim the fade · Shift holds 45°';
-    if (app.tool === 'select' && env.selectedLayers().length > 1) return `${env.selectedLayers().length} layers · drag to move them · the round handle turns them · Ctrl+G groups`;
+    if (app.tool === 'select' && env.selectedLayers().length > 1) return `${env.selectedLayers().length} layers · drag to move them · the round handle turns them · ${env.selectedLayers().every(l => l.groupId && l.groupId === env.selectedLayers()[0].groupId) ? 'double-click one to pick it alone' : 'Ctrl+G groups'}`;
     if (app.tool === 'select' && selPic()) return 'Drag a corner to resize · the round handle turns it · Shift turns in steps';
     if (app.tool === 'shape') return 'Drag to draw · Shift keeps it even';
     if (app.tool === 'stamp') return 'Click to place one · Split makes them separate';
