@@ -157,6 +157,11 @@ input[type="color"].mini { width: 24px; height: 24px; }
 .field textarea { resize: vertical; font: inherit; line-height: 1.35; }
 .field input[type="text"], .field textarea, .field select, dialog input[type="text"], dialog select { width: 100%; min-width: 0; padding: 4px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--bar); }
 .field input[type="range"] { width: 100%; min-width: 0; accent-color: var(--accent); }
+.slide { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+.slide input[type="range"] { flex: 1; }
+.nbox { width: 42px; flex: none; padding: 2px 4px; border: 1px solid var(--line); border-radius: 5px; background: var(--bar); color: var(--fg); font: 11px var(--mono); text-align: right; appearance: textfield; -moz-appearance: textfield; }
+.nbox::-webkit-inner-spin-button, .nbox::-webkit-outer-spin-button { appearance: none; margin: 0; }
+.nbox:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 input[type="color"] { width: 38px; height: 26px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: none; flex: none; cursor: pointer; }
 .sub { padding: 8px 6px 2px; font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
 .chips, .dots { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 6px; align-items: center; }

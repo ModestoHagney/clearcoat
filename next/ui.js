@@ -107,6 +107,14 @@ const PANELS = ['layers', 'props', 'colour'];
 const CURVED = { size: [10, 400], gap: [0, 200] };
 const toSlider = (k, v) => Math.round(1000 * Math.sqrt(Math.max(0, Math.min(1, (v - CURVED[k][0]) / (CURVED[k][1] - CURVED[k][0])))));
 const fromSlider = (k, s) => Math.round(CURVED[k][0] + (CURVED[k][1] - CURVED[k][0]) * (s / 1000) ** 2);
+// A slider with its value beside it, in a box that can be read, typed in, or
+// nudged with the arrow keys. curve: one of CURVED's sliders, whose box shows
+// the real value and not where the slider stands.
+const slider = (id, min, max, v, curve) => {
+  const [lo, hi, val] = curve ? [...CURVED[curve], fromSlider(curve, v)] : [min, max, Math.round(v)];
+  return `<span class="slide"><input id="${id}" type="range" min="${min}" max="${max}" value="${Math.round(v)}">` +
+    `<input class="nbox" data-for="${id}"${curve ? ` data-curve="${curve}"` : ''} type="number" min="${lo}" max="${hi}" step="1" value="${val}" aria-label="Exact value"></span>`;
+};
 const hexOf = (v) => (/^#?[0-9a-f]{6}$/i.test(String(v).trim()) ? '#' + String(v).trim().replace('#', '').toLowerCase() : null);
 
 export function initUI(app, actions, version) {
@@ -275,7 +283,6 @@ export function initUI(app, actions, version) {
   // `l`: the shape whose settings show (the first, when several are selected).
   function patternHtml(l) {
     const mo = l.motif, more = mo ? mo.more || [] : [];
-    const range = (id, min, max, v) => `<input id="${id}" type="range" min="${min}" max="${max}" value="${v}">`;
     const col = mo ? esc(hexOf(mo.color || '') || hexOf(l.color || '') || '#ffffff') : '';
     const cols = mo ? mo.colors || [] : [];
     // one small tile for each shape, one swatch for each colour, each with a × to take it out (the last colour left stays)
@@ -293,15 +300,15 @@ export function initUI(app, actions, version) {
           cols.map((c, k) => `<span class="mwrap"><input class="mini" data-patc="${k}" id="f-pat-c${k}" type="color" value="${esc(c)}" title="Click to change this colour" aria-label="Colour ${k + 2} of the pattern">${out('data-patcdrop', k, 'colour')}</span>`).join('') +
           (cols.length < 6 ? `<button type="button" class="icon" data-act="addPatternColour" title="Add another colour: they take turns, or mix when Random is on" aria-label="Add another colour to the pattern">+</button>` : '') +
           '</span></div>' +
-        field('Size', range('f-pat-size', 0, 1000, toSlider('size', mo.size))) +
-        field('Spacing', range('f-pat-gap', 0, 1000, toSlider('gap', mo.gap))) +
-        field('Stagger', range('f-pat-stagger', 0, 100, Math.round(mo.stagger))) +
-        field('Turn', range('f-pat-turn', -180, 180, Math.round(mo.turn))) +
+        field('Size', slider('f-pat-size', 0, 1000, toSlider('size', mo.size), 'size')) +
+        field('Spacing', slider('f-pat-gap', 0, 1000, toSlider('gap', mo.gap), 'gap')) +
+        field('Stagger', slider('f-pat-stagger', 0, 100, Math.round(mo.stagger))) +
+        field('Turn', slider('f-pat-turn', -180, 180, Math.round(mo.turn))) +
         `<label class="switch" title="Each copy differs a little. The roll is kept with the livery.">Random<input id="f-pat-random" type="checkbox"${mo.random ? ' checked' : ''}></label>` +
         (!mo.random ? '' : `<div class="nest">` +
-          field('Size', range('f-pat-rSize', 0, 100, Math.round(mo.rSize || 0))) +
-          field('Position', range('f-pat-rPos', 0, 100, Math.round(mo.rPos || 0))) +
-          field('Turn', range('f-pat-rTurn', 0, 100, Math.round(mo.rTurn || 0))) +
+          field('Size', slider('f-pat-rSize', 0, 100, Math.round(mo.rSize || 0))) +
+          field('Position', slider('f-pat-rPos', 0, 100, Math.round(mo.rPos || 0))) +
+          field('Turn', slider('f-pat-rTurn', 0, 100, Math.round(mo.rTurn || 0))) +
           `<div class="acts"><button class="btn" data-act="reshuffle" title="Roll again">Reshuffle</button></div>` +
         `</div>`) +
         `<label class="switch" title="The copies get fainter along the fade line, down to nothing">Fade out<input id="f-pat-fadeOut" type="checkbox"${mo.fadeOut ? ' checked' : ''}></label>` +
@@ -341,7 +348,6 @@ export function initUI(app, actions, version) {
     if (!l) return '<div class="note">Nothing selected</div>';
     const colour = l.type === 'fill' || l.type === 'text' || l.type === 'image' ? colourNote() : '';
     const isText = l.type === 'text', isPic = isText || l.type === 'image';
-    const range = (id, min, max, v) => `<input id="${id}" type="range" min="${min}" max="${max}" value="${v}">`;
     const fx = l.fx || {};
     const fonts = [...new Set([...TEXT_FONTS, ...GOOGLE_FONTS, ...(app.doc.googleFonts || []), ...(app.doc.customFonts || []).map((f) => f.name)])];
     // what you reach for first, then the switch and buttons, then the rest folded away
@@ -352,22 +358,22 @@ export function initUI(app, actions, version) {
       field('Text', `<textarea id="f-text" rows="2" spellcheck="false" title="Enter starts a new line">${esc(l.text)}</textarea>`) +
       field('Font', `<select id="f-font">${fonts.map((f) => opt(f, f, f === l.font)).join('')}${opt('__google', 'Google font by name…', false)}${opt('__upload', 'Upload a font file…', false)}</select>`) +
       colour +
-      field('Size', range('f-fontSize', 40, 400, l.fontSize || 160));
+      field('Size', slider('f-fontSize', 40, 400, l.fontSize || 160));
     const inPieces = Array.isArray(l.pts) && l.pts.some((q) => q.m);
     const acts = l.locked ? '' :
       `<label class="switch" title="Paint it on the twin panel too, or across the centreline (Ctrl+M)">Mirrored<input id="f-mirrored" type="checkbox"${l.mirrored ? ' checked' : ''}></label>` +
       (l.mirrored && isPic ? `<label class="switch" title="Off: it reads the right way round on both sides. On: a true mirror image.">Reverse the other side<input id="f-mirrorFlip" type="checkbox"${l.mirrorFlip ? ' checked' : ''}></label>` : '') +
       `<div class="acts">${trimButtons(l)}${l.mirrored ? '<button class="btn" data-act="separate" title="Make the mirrored side a layer of its own">Separate</button>' : ''}${inPieces ? '<button class="btn" data-act="split" title="Undo a merge: one shape for each piece again">Split</button>' : ''}${inPieces && hasInner(l.pts) ? '<button class="btn" data-act="fillIn" title="Make it solid: its holes are filled">Fill in</button>' : ''}${l.type === 'image' ? '<button class="btn" data-act="makeShapes" title="For a flat-colour picture such as a logo: one shape for each colour in it, with the background left out. Each shape then takes a colour like any other.">Make shapes</button>' : ''}${l.type === 'image' && l.color ? '<button class="btn" data-act="ownColours" title="Take the colour off again">Original colours</button>' : ''}</div>`;
     const more = (!isText ? '' :
-      field('Outline', `<span class="pair">${range('f-outlineWidth', 0, 30, l.outlineWidth || 0)}<input id="f-outlineColor" type="color" value="${esc(hexOf(l.outlineColor || '') || '#000000')}" aria-label="Outline colour"></span>`) +
-      field('Spacing', range('f-letterSpacing', 0, 40, l.letterSpacing || 0)) +
-      field('Curve', range('f-curve', -180, 180, l.curve || 0)) +
+      field('Outline', `<span class="pair">${slider('f-outlineWidth', 0, 30, l.outlineWidth || 0)}<input id="f-outlineColor" type="color" value="${esc(hexOf(l.outlineColor || '') || '#000000')}" aria-label="Outline colour"></span>`) +
+      field('Spacing', slider('f-letterSpacing', 0, 40, l.letterSpacing || 0)) +
+      field('Curve', slider('f-curve', -180, 180, l.curve || 0)) +
       `<label class="switch">Italic<input id="f-italic" type="checkbox"${l.italic ? ' checked' : ''}></label>`) +
       (!isPic ? '' :
-      field('Turn', range('f-rotation', -180, 180, Math.round(l.rotation || 0))) +
-      field('Shadow', `<span class="pair">${range('f-fx-shadow', 0, 60, fx.shadow || 0)}<input id="f-fx-shadowColor" type="color" value="${esc(hexOf(fx.shadowColor || '') || '#000000')}" aria-label="Shadow colour"></span>`) +
-      field('Shadow at', `<span class="pair">${range('f-fx-shadowDX', -60, 60, fx.shadowDX ?? 8)}${range('f-fx-shadowDY', -60, 60, fx.shadowDY ?? 8)}</span>`)) +
-      field('Opacity', `<input id="f-opacity" type="range" min="0" max="100" value="${Math.round((l.opacity ?? 1) * 100)}">`) +
+      field('Turn', slider('f-rotation', -180, 180, Math.round(l.rotation || 0))) +
+      field('Shadow', `<span class="pair">${slider('f-fx-shadow', 0, 60, fx.shadow || 0)}<input id="f-fx-shadowColor" type="color" value="${esc(hexOf(fx.shadowColor || '') || '#000000')}" aria-label="Shadow colour"></span>`) +
+      field('Shadow at', `<span class="pair">${slider('f-fx-shadowDX', -60, 60, fx.shadowDX ?? 8)}${slider('f-fx-shadowDY', -60, 60, fx.shadowDY ?? 8)}</span>`)) +
+      field('Opacity', slider('f-opacity', 0, 100, (l.opacity ?? 1) * 100)) +
       field('Name', `<input id="f-name" type="text" value="${esc(l.name)}">`);
     return main + acts + `<details class="more" id="f-more"${moreOpen ? ' open' : ''}><summary>More</summary>${more}</details>`;
   }
@@ -423,14 +429,13 @@ export function initUI(app, actions, version) {
     // a shape or text can be finished with its whole colour, or by itself
     const canScope = (t.kind === 'colour' && t.layerId) || (t.kind === 'layer' && layer && layerColour(layer));
     const scope = !canScope ? '' : `<div class="seg"><button data-scope="colour" aria-pressed="${t.kind === 'colour'}">All this colour</button><button data-scope="layer" aria-pressed="${t.kind === 'layer'}">Just this layer</button></div>`;
-    const range = (id, min, max, v) => `<input id="${id}" type="range" min="${min}" max="${max}" value="${Math.round(v)}">`;
     return '<canvas id="f-tile" class="ftile" width="472" height="176" aria-hidden="true"></canvas>' +
       `<div class="ftarget">${label}<b id="f-label"></b></div>` + scope +
       `<div class="finishes">${FINISHES.map((k) => `<button data-finish="${k}" aria-pressed="${k === preset}">${finishName(k)}</button>`).join('')}</div>` +
-      field('Metallic', range('fn-met', 0, 255, f.met)) + field('Roughness', range('fn-rough', 0, 255, f.rough)) + field('Clearcoat', range('fn-clear', 0, 255, f.clear)) +
+      field('Metallic', slider('fn-met', 0, 255, f.met)) + field('Roughness', slider('fn-rough', 0, 255, f.rough)) + field('Clearcoat', slider('fn-clear', 0, 255, f.clear)) +
       (preset ? '' : '<div class="acts"><button class="btn" data-act="resetFinish" title="Put the three sliders back">Reset</button></div>') +
       `<label class="switch" title="Specks or chips that catch the light, over this finish">Sparkle<input id="fn-sparkle" type="checkbox"${f.sparkle ? ' checked' : ''}></label>` +
-      (!f.sparkle ? '' : field('Amount', range('fn-amount', 1, 60, f.sparkle.amount)) + field('Size', range('fn-size', 1, 12, f.sparkle.size)) + field('Strength', range('fn-strength', 0, 100, f.sparkle.strength)) + `<label class="field" title="Each fleck also lightens the paint under it, so it shows bright even when it has nothing to mirror"><span>Brightness</span>${range('fn-bright', 0, 100, f.sparkle.bright)}</label>`) +
+      (!f.sparkle ? '' : field('Amount', slider('fn-amount', 1, 60, f.sparkle.amount)) + field('Size', slider('fn-size', 1, 12, f.sparkle.size)) + field('Strength', slider('fn-strength', 0, 100, f.sparkle.strength)) + `<label class="field" title="Each fleck also lightens the paint under it, so it shows bright even when it has nothing to mirror"><span>Brightness</span>${slider('fn-bright', 0, 100, f.sparkle.bright)}</label>`) +
       (t.kind === 'area' && layer ? `<label class="switch" title="The same area on the twin panel too, or across the centreline">Mirrored<input id="f-mirrored" type="checkbox"${layer.mirrored ? ' checked' : ''}></label>` : '');
   }
 
@@ -488,6 +493,42 @@ export function initUI(app, actions, version) {
   const refreshChrome = () => drawChrome();
   const refresh = () => { drawChrome(); drawPanels(); };
 
+  // A slider and the box beside it are one control. A value typed in the box
+  // moves the slider and is announced as the slider's own change, so nothing
+  // else needs to know about the box; a dragged slider fills the box in.
+  document.addEventListener('input', (e) => {
+    const t = e.target;
+    if (t.classList && t.classList.contains('nbox')) {
+      const s = $(t.dataset.for), v = Math.max(+t.min, Math.min(+t.max, +t.value));
+      if (!s || t.value === '' || !Number.isFinite(v)) return; // half-typed
+      if (t.dataset.curve) { s.value = toSlider(t.dataset.curve, v); s.dataset.exact = v; } else s.value = v;
+      s.dispatchEvent(new Event('input', { bubbles: true }));
+    } else if (t.type === 'range' && e.isTrusted) {
+      const box = t.parentNode.querySelector('.nbox');
+      delete t.dataset.exact;
+      if (box) box.value = box.dataset.curve ? fromSlider(box.dataset.curve, +t.value) : t.value;
+    }
+  }, true);
+  // A box that is done with says so as its slider's 'change'. That waits until
+  // the boxes are left altogether: some panels are rebuilt on it, which would
+  // take the next box from under a click that goes straight from one to another.
+  const isBox = (el) => !!(el && el.classList && el.classList.contains('nbox'));
+  let owed = null;
+  const settleBoxes = () => {
+    if (isBox(document.activeElement) || !owed) return;
+    const s = owed; owed = null;
+    if (s.isConnected) s.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+  document.addEventListener('change', (e) => {
+    const t = e.target, s = isBox(t) && $(t.dataset.for);
+    if (!s) return;
+    t.value = t.dataset.curve ? (s.dataset.exact ?? fromSlider(t.dataset.curve, +s.value)) : s.value; // what it came to, held within its range
+    owed = s;
+    setTimeout(settleBoxes, 0);
+  }, true);
+  document.addEventListener('focusout', (e) => { if (isBox(e.target)) setTimeout(settleBoxes, 0); }, true);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && isBox(e.target)) { e.preventDefault(); e.target.blur(); } }, true); // Enter: done with the box
+
   // controls inside Properties: these must not rebuild the panel they sit in
   // the Colour panel's colour box
   document.addEventListener('input', (e) => {
@@ -510,7 +551,7 @@ export function initUI(app, actions, version) {
     if (t.dataset.pat) { actions.tweakMotif('color', t.value); return; } // the pattern's colour
     if (t.dataset.patc !== undefined) { actions.patternColour(+t.dataset.patc, t.value); return; }
     const pat = /^f-pat-(size|gap|stagger|turn|rSize|rPos|rTurn)$/.exec(t.id || '');
-    if (pat) { actions.tweakMotif(pat[1], CURVED[pat[1]] ? fromSlider(pat[1], +t.value) : +t.value); return; }
+    if (pat) { actions.tweakMotif(pat[1], t.dataset.exact !== undefined ? +t.dataset.exact : CURVED[pat[1]] ? fromSlider(pat[1], +t.value) : +t.value); return; }
     // plain settings: the control's id names the layer setting it sets
     const m = /^f-(fx-)?(fontSize|outlineWidth|outlineColor|letterSpacing|curve|rotation|shadow|shadowColor|shadowDX|shadowDY|text)$/.exec(t.id || '');
     if (m && layer) {
