@@ -137,7 +137,7 @@ export function initUI(app, actions, version) {
     ['Copy', 'Ctrl+C', 'copy', { off: !hasLayer() }], ['Paste', 'Ctrl+V', 'paste', { off: !app.clipboard }], ['Duplicate', 'Ctrl+D', 'duplicate', { off: !hasLayer() }], 0,
     ['Bring to front', 'Ctrl+Shift+]', 'front', { off: !hasLayer() }], ['Bring forward', 'Ctrl+]', 'forward', { off: !hasLayer() }],
     ['Send backward', 'Ctrl+[', 'backward', { off: !hasLayer() }], ['Send to back', 'Ctrl+Shift+[', 'back', { off: !hasLayer() }], 0,
-    ['Save to library', '', 'saveShape', { off: (actions.selected() || {}).type !== 'fill' }],
+    ['Save to library', '', 'saveShape', { off: (actions.selected() || {}).type !== 'fill' && actions.selectedLayers().length < 2 }],
     ...shapeItems(), 0,
     ['Mirrored', 'Ctrl+M', 'mirror', { off: !hasLayer(), tick: !!(actions.selected() || {}).mirrored }], ['Trim to panels', '', 'trim', { off: !hasLayer() }], 0,
     ['Delete', 'Del', 'remove', { off: !hasLayer() }],
@@ -689,13 +689,14 @@ export function initUI(app, actions, version) {
       : !found.length ? '<div class="note">Nothing found for that. Try another word.</div>'
       : `<div class="tiles">${found.map((it, k) => `<span class="tilewrap"><button type="button" class="tile" data-icon="${k}" title="${esc(it.name)} · ${esc(it.set)}${it.licence ? ' · ' + esc(it.licence) : ''}"><img alt="" loading="lazy" src="${esc(it.preview)}"><span>${esc(it.name)}</span></button></span>`).join('')}</div>`);
     const draw = () => {
-      const tabs = [['logos', `Your pictures${lib.logos.length ? ' · ' + lib.logos.length : ''}`], ['shapes', `Your shapes${lib.shapes.length ? ' · ' + lib.shapes.length : ''}`], ['search', 'Search icons']].filter(([k]) => !shapesOnly || k !== 'logos');
+      const sets = shapesOnly ? [] : lib.sets || []; // several layers saved as one: not something a shape can be drawn from
+      const tabs = [['logos', `Your pictures${lib.logos.length ? ' · ' + lib.logos.length : ''}`], ['shapes', `Your shapes${lib.shapes.length + sets.length ? ' · ' + (lib.shapes.length + sets.length) : ''}`], ['search', 'Search icons']].filter(([k]) => !shapesOnly || k !== 'logos');
       const side = tab === 'logos' ? '<button type="button" class="btn" data-lib="file:" style="margin-left:auto">Picture from a file…</button>'
         : tab === 'shapes' ? (shapesOnly ? '' : '<button type="button" class="btn main" data-lib="draw:" style="margin-left:auto" title="A blank page and the drawing tools: what you draw is saved here as one shape">Draw a shape</button>') +
           `<button type="button" class="btn" data-lib="shapefile:"${shapesOnly ? ' style="margin-left:auto"' : ''} title="What the file fills becomes a shape: it takes a colour and works as a pattern or a stamp">Shape from an SVG file…</button>` : '';
       const grid = tab === 'logos' ? lib.logos.map((it) => tile('logos', it, `<img alt="" src="${esc(it.src)}">`, true)).join('')
-        : lib.shapes.map((it) => tile('shapes', it, shapeSvg(it), true)).join('');
-      const empty = tab === 'logos' ? 'Pictures you bring in are kept here.' : 'Shapes you save, search for or bring in from a file are kept here.';
+        : sets.map((it) => tile('sets', it, `<img alt="" src="${esc(it.thumb)}">`, true)).join('') + lib.shapes.map((it) => tile('shapes', it, shapeSvg(it), true)).join('');
+      const empty = tab === 'logos' ? 'Pictures you bring in are kept here.' : 'Shapes you save, search for or bring in from a file are kept here. Select several layers and use Edit › Save to library to keep them as one.';
       $('dlg-body').innerHTML = `<div class="tabs">${tabs.map(([k, name]) => `<button type="button" data-libtab="${k}" aria-pressed="${k === tab}">${name}</button>`).join('')}${side}</div>` +
         (tab === 'search'
           ? `<input id="lib-q" type="text" placeholder="Search icons" value="${esc(query)}" spellcheck="false" autocomplete="off" aria-label="Search icons"><div id="lib-found">${results()}</div>` +

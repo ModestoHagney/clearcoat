@@ -27,7 +27,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { regionOutline, parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.85';
+export const VERSION = 'v0.68-pieces.86';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -549,7 +549,7 @@ const toolChanged = () => {
 // the open hand: Space is held, or the Hand tool is armed (never in the draw-a-shape window, whose view is held still)
 const handCursor = () => cv.classList.toggle('pan', (spaceHeld || app.tool === 'hand') && !app.workshop);
 
-let library = { logos: [], shapes: [] };
+let library = { logos: [], shapes: [], sets: [] }; // sets: several layers kept as one thing (a badge in three colours, a logo with its lettering)
 const saveLibrary = () => persist.saveBlob('next-library', library).catch(() => { /* quota: it still works this session */ });
 // A shape brought in from outside (an icon, an SVG file) is kept in the
 // library, so it is there for patterns and stamps too. One already kept (the
@@ -1517,6 +1517,7 @@ const actions = {
     if (pick.kind === 'shapefile') return $('file-shape').click();
     if (pick.kind === 'logos') return actions.addImage(pick.item.src, pick.item.name);
     if (pick.kind === 'shapes') return actions.addShape(pick.item);
+    if (pick.kind === 'sets') return actions.addSet(pick.item);
     if (pick.kind === 'icon') return actions.addShape(keepShape(pick.item));
   },
   // a shape from an SVG file: kept in the library, and put on the sheet
@@ -1534,7 +1535,45 @@ const actions = {
     for (const l of app.doc.layers) all.push(...(l.credits || []), ...(l.motif ? [l.motif, ...(l.motif.more || [])].flatMap(m => m.credits || []) : []));
     return cleanCredits(all);
   },
+  // Several layers kept in the library as one thing. They are kept as a
+  // livery keeps them (see serializeDoc), with a small picture to show in the
+  // library, and without what belongs to the place they were made: their
+  // trim, their Mirrored switch, and which saved colour they followed.
+  async saveSet() {
+    const ls = selectedLayers();
+    if (ls.length < 2) return;
+    const g = ls[0].groupId && ls.every(l => l.groupId === ls[0].groupId) ? (app.doc.groups || []).find(x => x.id === ls[0].groupId) : null;
+    const name = await ui.askText({ title: 'Save to the library', label: 'Name', value: g && g.name !== 'Group' ? g.name : ls[0].name, ok: 'Save' });
+    if (!name) return;
+    const cs = ls.flatMap(l => layerCorners(l)), xs = cs.map(q => q.x), ys = cs.map(q => q.y);
+    const x = Math.min(...xs), y = Math.min(...ys), w = Math.max(1, Math.max(...xs) - x), h = Math.max(1, Math.max(...ys) - y);
+    const layers = serializeDoc({ ...app.doc, layers: ls }).layers.map(l => ({ ...l, clip: undefined, clipAt: undefined, mirrored: false, colorRef: null, groupId: null }));
+    // its picture: the layers alone, as they are painted, at library size
+    const sheet = paintLayers(withTints(withPatterns({ ...app.doc, layers: ls })).layers, { linearEdges: true });
+    const k = 160 / Math.max(w, h), t = document.createElement('canvas');
+    t.width = Math.max(1, Math.round(w * k)); t.height = Math.max(1, Math.round(h * k));
+    const tg = t.getContext('2d'); tg.imageSmoothingQuality = 'high'; tg.drawImage(sheet, x, y, w, h, 0, 0, t.width, t.height);
+    library.sets.unshift({ id: 't' + newId(), name, x, y, w, h, layers, thumb: t.toDataURL('image/png') });
+    saveLibrary();
+    ui.say(`${name} saved to the library, under Your shapes`);
+  },
+  // …and put on the sheet again: in the middle of the view, as a group of its own
+  async addSet(item) {
+    let made;
+    try { made = (await deserializeDoc({ format: 'overspray/1', layers: item.layers })).layers; } catch { made = []; }
+    if (!made.length) { ui.say('That library item could not be read', true); return; }
+    const mid = screenToDoc(cv.clientWidth / 2, cv.clientHeight / 2), dx = Math.round(mid.x - (item.x + item.w / 2)), dy = Math.round(mid.y - (item.y + item.h / 2));
+    const gid = 'g' + newId();
+    for (const l of made) { l.id = newId(); l.groupId = gid; moveLayer(l, dx, dy); }
+    app.doc.groups = [...(app.doc.groups || []), { id: gid, name: item.name, collapsed: false }];
+    app.doc.layers.push(...made);
+    ensureDocFonts();
+    actions.setTool('select');
+    app.sel = made[made.length - 1].id; app.sels = made.length > 1 ? made.map(l => l.id) : [];
+    change({ now: true });
+  },
   saveShape() {
+    if (selectedLayers().length > 1) return actions.saveSet();
     const l = actions.selected();
     if (!l || l.type !== 'fill') return;
     const item = { id: 's' + newId(), name: l.name, shape: l.shape, w: l.rw, h: l.rh };
@@ -1861,7 +1900,7 @@ async function boot() {
   dirty = true;
   try {
     const lib = await persist.loadBlob('next-library');
-    if (lib) library = { logos: Array.isArray(lib.logos) ? lib.logos : [], shapes: Array.isArray(lib.shapes) ? lib.shapes : [] };
+    if (lib) library = { logos: Array.isArray(lib.logos) ? lib.logos : [], shapes: Array.isArray(lib.shapes) ? lib.shapes : [], sets: Array.isArray(lib.sets) ? lib.sets : [] };
   } catch { /* an empty library */ }
   ui = initUI(app, actions, VERSION);
   tools = initTools(app, {
