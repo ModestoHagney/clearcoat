@@ -27,7 +27,7 @@ import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { regionOutline, parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
-export const VERSION = 'v0.68-pieces.86';
+export const VERSION = 'v0.68-pieces.87';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('view');
@@ -1230,7 +1230,7 @@ const actions = {
     const ls = selectedLayers();
     if (ls.length < 2 || app.mode !== 'paint') return;
     const id = 'g' + newId();
-    app.doc.groups = [...(app.doc.groups || []), { id, name: 'Group', collapsed: false }];
+    app.doc.groups = [...(app.doc.groups || []), { id, name: 'Group', collapsed: true }]; // one row in the Layers list until it is opened
     for (const l of ls) l.groupId = id;
     pruneGroups();
     change({ now: true });
@@ -1374,13 +1374,43 @@ const actions = {
   back: () => actions.orderEnd(-1),
   // dragged in the Layers list: put layer `id` just in front of `targetId`
   // (above it in the list), or just behind it; 'base' means the very back
-  reorder(id, targetId, inFront) {
-    const L = app.doc.layers, from = L.findIndex(l => l.id === id);
-    if (from === -1 || id === targetId) return;
-    const [l] = L.splice(from, 1);
-    const at = targetId === 'base' ? -1 : L.findIndex(x => x.id === targetId);
-    L.splice(targetId === 'base' ? 0 : at === -1 ? L.length : at + (inFront ? 1 : 0), 0, l);
-    app.sel = id;
+  // whole: every layer of id's group goes, in the order they were in
+  reorder(id, targetId, inFront, whole = false) {
+    const L = app.doc.layers, moving = new Set(whole ? groupOf(id) : [id]);
+    if (!L.some(l => l.id === id) || moving.has(targetId)) return;
+    const taken = L.filter(l => moving.has(l.id)), rest = L.filter(l => !moving.has(l.id));
+    const at = targetId === 'base' ? -1 : rest.findIndex(x => x.id === targetId);
+    rest.splice(targetId === 'base' ? 0 : at === -1 ? rest.length : at + (inFront ? 1 : 0), 0, ...taken);
+    app.doc.layers = rest;
+    if (whole) { app.sel = id; app.sels = taken.length > 1 ? taken.map(l => l.id) : []; } else { app.sel = id; }
+    change({ now: true });
+  },
+  // a group as one row in the Layers list, or as a row for each of its layers
+  foldGroup(gid) {
+    const g = (app.doc.groups || []).find(x => x.id === gid);
+    if (!g) return;
+    g.collapsed = !g.collapsed;
+    change({ now: true });
+  },
+  async renameGroup(gid) {
+    const g = (app.doc.groups || []).find(x => x.id === gid);
+    const name = g && await ui.askText({ title: 'Rename the group', label: 'Name', value: g.name, ok: 'Rename' });
+    if (!name) return;
+    g.name = name;
+    change({ now: true });
+  },
+  showGroup(gid) {
+    const ms = app.doc.layers.filter(l => l.groupId === gid), on = !ms.some(l => l.visible);
+    for (const l of ms) l.visible = on;
+    change();
+  },
+  removeGroup(gid) {
+    if (app.mode !== 'paint') return;
+    const gone = new Set(app.doc.layers.filter(l => l.groupId === gid).map(l => l.id));
+    app.doc.layers = app.doc.layers.filter(l => !gone.has(l.id));
+    if (gone.has(app.sel)) app.sel = null;
+    app.sels = app.sels.filter(x => !gone.has(x));
+    pruneGroups();
     change({ now: true });
   },
   forward: () => actions.order(+1),
@@ -1565,7 +1595,7 @@ const actions = {
     const mid = screenToDoc(cv.clientWidth / 2, cv.clientHeight / 2), dx = Math.round(mid.x - (item.x + item.w / 2)), dy = Math.round(mid.y - (item.y + item.h / 2));
     const gid = 'g' + newId();
     for (const l of made) { l.id = newId(); l.groupId = gid; moveLayer(l, dx, dy); }
-    app.doc.groups = [...(app.doc.groups || []), { id: gid, name: item.name, collapsed: false }];
+    app.doc.groups = [...(app.doc.groups || []), { id: gid, name: item.name, collapsed: true }];
     app.doc.layers.push(...made);
     ensureDocFonts();
     actions.setTool('select');
@@ -1649,7 +1679,7 @@ const actions = {
       if (found.length > 1) s.groupId = gid;
       return s;
     });
-    if (found.length > 1) app.doc.groups = [...(app.doc.groups || []), { id: gid, name: l.name, collapsed: false }];
+    if (found.length > 1) app.doc.groups = [...(app.doc.groups || []), { id: gid, name: l.name, collapsed: true }];
     app.doc.layers.splice(app.doc.layers.indexOf(l), 1, ...made);
     app.sel = made[made.length - 1].id; app.sels = made.length > 1 ? made.map(s => s.id) : [];
     change({ now: true });

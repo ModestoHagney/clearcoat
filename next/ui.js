@@ -233,8 +233,26 @@ export function initUI(app, actions, version) {
   function layersHtml() {
     const d = app.doc;
     const picked = new Set(actions.selectedLayers().map((l) => l.id));
-    const rows = [...d.layers].reverse().filter((l) => !isArea(l)).map((l) => // an area is Finish mode's, and shows there
-      `<div class="row${picked.has(l.id) ? ' sel' : ''}${l.groupId ? ' grouped' : ''}" data-layer="${esc(l.id)}" draggable="true"${l.groupId ? ` style="--g:${groupHue(l.groupId)}" title="In a group"` : ''}><span class="sw" style="${swatch(l)}"></span><span class="name">${esc(l.name)}</span>${l.mirrored ? '<span class="tags"><i title="Mirrored">⇄</i></span>' : ''}<button class="rowx" data-del="${esc(l.id)}" title="Delete" aria-label="Delete ${esc(l.name)}">${svg('close')}</button><button class="eye${l.visible ? '' : ' off'}" data-eye="${esc(l.id)}" title="Show or hide" aria-label="Show or hide ${esc(l.name)}">${svg('eye')}</button></div>`);
+    const groups = new Map((d.groups || []).map((g) => [g.id, g]));
+    const shown = [...d.layers].reverse().filter((l) => !isArea(l)); // an area is Finish mode's, and shows there
+    const one = (l) => `<div class="row${picked.has(l.id) ? ' sel' : ''}${l.groupId ? ' grouped' : ''}" data-layer="${esc(l.id)}" draggable="true"${l.groupId ? ` style="--g:${groupHue(l.groupId)}" title="In a group"` : ''}><span class="sw" style="${swatch(l)}"></span><span class="name">${esc(l.name)}</span>${l.mirrored ? '<span class="tags"><i title="Mirrored">⇄</i></span>' : ''}<button class="rowx" data-del="${esc(l.id)}" title="Delete" aria-label="Delete ${esc(l.name)}">${svg('close')}</button><button class="eye${l.visible ? '' : ' off'}" data-eye="${esc(l.id)}" title="Show or hide" aria-label="Show or hide ${esc(l.name)}">${svg('eye')}</button></div>`;
+    // A group is one row when it is folded: its name, its colours in the swatch,
+    // and how many layers it holds. Unfolded, that row heads its layers.
+    const head = (g, ms) => {
+      const cols = [...new Set(ms.map((l) => layerColour(l)).filter(Boolean))].slice(0, 4), n = cols.length;
+      const sw = n ? `background:linear-gradient(90deg, ${cols.map((c, i) => `${esc(c)} ${i / n * 100}% ${(i + 1) / n * 100}%`).join(', ')})` : swatch(ms[0]);
+      const seen = ms.some((l) => l.visible), open = !g.collapsed;
+      return `<div class="row grouped ghead${ms.some((l) => picked.has(l.id)) ? ' sel' : ''}" data-layer="${esc(ms[0].id)}" data-group="${esc(g.id)}" data-last="${esc(ms[ms.length - 1].id)}" draggable="true" style="--g:${groupHue(g.id)}" title="A group of ${ms.length} layers. Double-click its name to rename it.">` +
+        `<button class="twist" data-fold="${esc(g.id)}" aria-expanded="${open}" title="${open ? 'Fold it to one row' : 'Show its layers'}" aria-label="${open ? 'Fold' : 'Unfold'} ${esc(g.name)}">${open ? '▾' : '▸'}</button>` +
+        `<span class="sw" style="${sw}"></span><span class="name">${esc(g.name)}</span><span class="count">${ms.length}</span>` +
+        `<button class="rowx" data-delg="${esc(g.id)}" title="Delete the group and its layers" aria-label="Delete ${esc(g.name)}">${svg('close')}</button><button class="eye${seen ? '' : ' off'}" data-eyeg="${esc(g.id)}" title="Show or hide" aria-label="Show or hide ${esc(g.name)}">${svg('eye')}</button></div>`;
+    };
+    const rows = [], headed = new Set();
+    for (const l of shown) {
+      const g = l.groupId && groups.get(l.groupId);
+      if (g && !headed.has(g.id)) { headed.add(g.id); rows.push(head(g, shown.filter((x) => x.groupId === g.id))); }
+      if (!g || !g.collapsed) rows.push(one(l));
+    }
     rows.push(`<div class="row${app.sel === 'base' ? ' sel' : ''}" data-layer="base"><span class="sw" style="background:${esc(d.baseColor)}"></span><span class="name">Base coat</span></div>`);
     return rows.join('');
   }
@@ -516,6 +534,7 @@ export function initUI(app, actions, version) {
   // Layers list: drag a row up or down to change what is in front of what.
   // The top of the list is the front of the sheet.
   let dragId = null;
+  let dragWhole = false; // the row being dragged is a group's own: all its layers move
   const dropMark = (row, cls) => { for (const r of panels.layers.querySelectorAll('.drop-above, .drop-below')) r.classList.remove('drop-above', 'drop-below'); if (row && cls) row.classList.add(cls); };
   const dropSpot = (e) => {
     const row = e.target.closest('.row[data-layer]');
@@ -526,7 +545,7 @@ export function initUI(app, actions, version) {
   panels.layers.addEventListener('dragstart', (e) => {
     const row = e.target.closest('.row[data-layer][draggable]');
     if (!row || app.mode === 'map') { e.preventDefault(); return; }
-    dragId = row.dataset.layer;
+    dragId = row.dataset.layer; dragWhole = !!row.dataset.group;
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', dragId);
   });
@@ -542,8 +561,20 @@ export function initUI(app, actions, version) {
     if (!spot) return;
     e.preventDefault();
     // above a row in the list = in front of that layer on the sheet
-    actions.reorder(dragId, spot.row.dataset.layer, spot.above);
+    // (a group's own row stands for all its layers: they go together, and what is dropped below it lands behind its last one)
+    actions.reorder(dragId, spot.above ? spot.row.dataset.layer : spot.row.dataset.last || spot.row.dataset.layer, spot.above, dragWhole);
   });
+  // A double click on a group's name renames it. The first click selects the
+  // group, which redraws the list, so the browser's own dblclick never arrives
+  // (its target is gone): two clicks on the same group's name, close together, are counted here.
+  let headClick = { id: null, at: 0 };
+  panels.layers.addEventListener('click', (e) => {
+    const row = e.target.closest('.ghead');
+    if (!row || !e.target.closest('.name')) return;
+    const twice = headClick.id === row.dataset.group && performance.now() - headClick.at < 450;
+    headClick = twice ? { id: null, at: 0 } : { id: row.dataset.group, at: performance.now() };
+    if (twice) actions.renameGroup(row.dataset.group);
+  }, true);
   panels.layers.addEventListener('dragend', () => { dragId = null; dropMark(null); });
 
   // Every colour box opens the app's own colour pop-up (see picker.js), which
@@ -853,6 +884,9 @@ export function initUI(app, actions, version) {
     if (t.dataset.col) return actions.applyColour(t.dataset.col);
     if (t.dataset.kind) return actions.setShapeKind(t.dataset.kind);
     if (t.dataset.del) return actions.removeLayer(t.dataset.del);
+    if (t.dataset.fold) return actions.foldGroup(t.dataset.fold);
+    if (t.dataset.delg) return actions.removeGroup(t.dataset.delg);
+    if (t.dataset.eyeg) return actions.showGroup(t.dataset.eyeg);
     if (t.dataset.eye) {
       const l = app.doc.layers.find((x) => x.id === t.dataset.eye);
       if (l) { l.visible = !l.visible; actions.change(); }
