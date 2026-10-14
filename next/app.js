@@ -42,7 +42,7 @@ export const app = {
   sels: [],                           // every selected layer's id when there are several (it includes sel)
   // the template's own linework already draws every piece's border, so the
   // computed piece outlines start off here; they are Map mode's to show
-  show: { layers: true, props: true, colour: true, outlines: false, lines: true, mesh: true },
+  show: { layers: true, props: true, outlines: false, lines: true, mesh: true },
   custid: '',
   live: false,
   liveBad: false,                     // the last live save failed
@@ -298,7 +298,7 @@ function draw() {
   $('empty').hidden = !!(doc.template || doc.layers.length);
   showPos();
 }
-// the selection's top-left corner on the sheet, in the boxes by the zoom
+// the selection's top-left corner on the sheet, for the position boxes
 function selCorner() {
   const ls = app.mode === 'map' ? [] : selectedLayers();
   try {
@@ -306,13 +306,20 @@ function selCorner() {
     return cs.length ? { x: Math.round(Math.min(...cs.map(q => q.x))), y: Math.round(Math.min(...cs.map(q => q.y))) } : null;
   } catch { return null; } // a layer with no picture yet has no box
 }
+// Two sets of boxes: in Properties' Place, and by the zoom for when
+// Properties is not showing (Finish mode, drawing a shape, the panel hidden).
 function showPos() {
-  const at = selCorner();
-  $('pos').hidden = !at;
+  const at = selCorner(), inPlace = !!$('f-pos-x') && !$('f-pos-x').closest('[hidden]');
+  $('pos').hidden = !at || inPlace;
   if (!at) return;
-  for (const k of ['x', 'y']) if (document.activeElement !== $('pos-' + k)) $('pos-' + k).value = at[k]; // not under the user's typing
+  for (const id of ['pos-x', 'pos-y', 'f-pos-x', 'f-pos-y']) {
+    const box = $(id);
+    if (box && document.activeElement !== box) box.value = at[id.slice(-1)]; // not under the user's typing
+  }
 }
-for (const k of ['x', 'y']) $('pos-' + k).addEventListener('change', (e) => {
+document.addEventListener('change', (e) => {
+  const k = /^(?:f-)?pos-([xy])$/.exec(e.target.id || '')?.[1];
+  if (!k) return;
   const at = selCorner(), v = Math.round(+e.target.value);
   if (!at || !Number.isFinite(v) || !e.target.value.trim()) return showPos();
   actions.nudge(k === 'x' ? v - at.x : 0, k === 'y' ? v - at.y : 0);
@@ -1710,6 +1717,7 @@ const actions = {
   // ---- colour ----
   // what the colour controls are showing: the selection's colour, else the
   // colour the next shape will get
+  selCorner,
   currentColour() {
     const l = actions.selected();
     if (app.sel === 'base') return app.doc.baseColor;
@@ -1993,6 +2001,22 @@ $('btn-zoom-out').addEventListener('click', () => actions.zoomBy(0.8));
 $('btn-fit').addEventListener('click', fit);
 new ResizeObserver(() => (app.workshop ? fit() : requestDraw())).observe($('stage')); // the shape's window follows the stage
 
+// ---------- view choices ----------
+// What is shown, where the sheet sits and where the cards are: kept in this
+// browser over a reload. Nothing here is the livery, which the autosave keeps.
+function saveView() {
+  if (!ui) return;
+  const view = aside ? aside.view : app.view; // drawing a shape: the livery's view, not the shape window's
+  try { localStorage.setItem('next-view', JSON.stringify({ show: app.show, mapShow: app.mapShow, view, panels: ui.layout() })); } catch { /* not kept this time */ }
+}
+function loadView() {
+  try { return JSON.parse(localStorage.getItem('next-view')) || {}; } catch { return {}; }
+}
+// only the choices this version has, so one taken out does not come back
+const takeBools = (into, from) => { for (const k in into) if (typeof (from || {})[k] === 'boolean') into[k] = from[k]; };
+addEventListener('pagehide', saveView);
+document.addEventListener('visibilitychange', () => { if (document.hidden) saveView(); });
+
 // ---------- start ----------
 
 async function boot() {
@@ -2026,7 +2050,11 @@ async function boot() {
     const lib = await persist.loadBlob('next-library');
     if (lib) library = { logos: Array.isArray(lib.logos) ? lib.logos : [], shapes: Array.isArray(lib.shapes) ? lib.shapes : [], sets: Array.isArray(lib.sets) ? lib.sets : [] };
   } catch { /* an empty library */ }
+  const saved = loadView();
+  takeBools(app.show, saved.show);
+  takeBools(app.mapShow, saved.mapShow);
   ui = initUI(app, actions, VERSION);
+  ui.setLayout(saved.panels);
   tools = initTools(app, {
     screenToDoc, docToScreen, change, requestDraw,
     select: actions.select, setTool: actions.setTool, toolChanged,
@@ -2075,6 +2103,8 @@ async function boot() {
   });
   ensureDocFonts();
   fit();
+  const v = saved.view || {};
+  if (Number.isFinite(v.x) && Number.isFinite(v.y) && v.zoom >= 0.05 && v.zoom <= 8) Object.assign(app.view, { x: v.x, y: v.y, zoom: v.zoom }); // F fits it again
   resetHistory();
   ui.refresh();
   requestDraw();
