@@ -1,7 +1,7 @@
 // Overspray render engine — document model, paint compositing, spec map generation.
 
 import { parseRegionMap } from './regions.js';
-import { SHAPES, motifOutline, placing, cells, framed, unframed, fadeAt, flatten } from './shapes.js';
+import { SHAPES, motifOutline, placing, placed, cells, framed, unframed, fadeAt, flatten, contains } from './shapes.js';
 
 export const SIZE = 2048;
 
@@ -515,22 +515,32 @@ export function cleanMotif(m) {
 
 export const isRegionLayer = (l) => l.type === 'fill';
 
-// ---------- Repeat: copies of a layer in a line or a grid ----------
-// layer.repeat = { way: across | down | grid, count, rows, fill, gapX, gapY, angle }.
+// ---------- Repeat: copies of a layer in a line, a grid, or scattered ----------
+// layer.repeat = { way: across | down | grid | scatter, count, rows, fill,
+// gapX, gapY, angle, space, colors, shapes, mix, rSize, rTurn, seed, fadeOut, shrink }.
 // The layer itself is the first copy; the rest step on from it along its own
 // axes (so a turned layer repeats the way it is turned), tilted by angle.
-// A step is the item's own size, so copies sit snug, plus the gap. Copies are
-// drawn from the layer each time, so they follow every change to it.
-const REPEAT_WAYS = ['across', 'down', 'grid'];
+// A step is the item's own size, so copies sit snug, plus the gap. Scattered
+// copies land anywhere on its trimmed panels (or the sheet), `space` apart.
+// Copies are drawn from the layer each time, so they follow every change to it.
+const REPEAT_WAYS = ['across', 'down', 'grid', 'scatter'];
 const REPEAT_MAX = 4000; // copies drawn at most, however small the step
 export function cleanRepeat(r) {
   if (!r || typeof r !== 'object') return null;
+  const colors = (Array.isArray(r.colors) ? r.colors : []).filter(c => /^#[0-9a-f]{6}$/i.test(c || '')).slice(0, 6).map(c => c.toLowerCase());
+  const shapes = (Array.isArray(r.shapes) ? r.shapes : []).map(cleanMotifShape).filter(Boolean).slice(0, 6);
   return {
     way: REPEAT_WAYS.includes(r.way) ? r.way : 'across',
-    count: num(r.count, 1, 200, 5) | 0, rows: num(r.rows, 1, 200, 3) | 0, // copies across, and down
+    count: num(r.count, 1, 500, 5) | 0, rows: num(r.rows, 1, 200, 3) | 0, // copies across (or scattered), and down
     fill: !!r.fill, // as many as reach the edge of the sheet (Trim keeps them to a panel)
     gapX: num(r.gapX, -2048, 2048, 0), gapY: num(r.gapY, -2048, 2048, 0),
     angle: num(r.angle, -180, 180, 0), // tilt from the layer's own turn, in degrees
+    space: num(r.space, 0, 2048, 0), // scattered: room kept between copies; 0 lets them overlap
+    colors, shapes, // more colours, and (for a shape) more outlines, for the copies to take
+    mix: r.mix === 'random' ? 'random' : 'turn', // in turn, or each by its roll
+    rSize: num(r.rSize, 0, 100, 0), rTurn: num(r.rTurn, 0, 100, 0), // how much each copy's size and turn vary
+    seed: Number.isFinite(+r.seed) ? +r.seed | 0 : 1,
+    fadeOut: !!r.fadeOut, shrink: !!r.shrink, // the copies fade, or get smaller, the further they are from the layer
   };
 }
 // where a picture's own pixels are, as fractions of it: text and logos carry
@@ -555,10 +565,10 @@ function inkBox(img) {
   inks.set(img, box);
   return box;
 }
-// → where each copy goes, as { x, y } offsets on the sheet; the first is the layer itself
+// → { cx, cy, W, H, list }: the layer's middle and size, and where each copy
+// goes as { x, y } offsets on the sheet; the first is the layer itself
 export function repeatOffsets(layer) {
   const r = layer.repeat;
-  if (!r) return [{ x: 0, y: 0 }];
   // the item's own axes on the sheet, and its size along them
   let ex, ey, W, H, cx, cy;
   if (isRegionLayer(layer)) {
@@ -585,6 +595,7 @@ export function repeatOffsets(layer) {
     W = (ink.x1 - ink.x0) * layer.img.width * la; H = (ink.y1 - ink.y0) * layer.img.height * lb;
     cx = layer.x; cy = layer.y;
   }
+  if (r.way === 'scatter') return { cx, cy, W, H, list: scattered(layer, r, cx, cy, (W + H) / 2) };
   const t = r.angle * Math.PI / 180, c = Math.cos(t), s = Math.sin(t);
   // one step in the direction (dc, ds) of the item's axes: as far as the box reaches that way, plus the gap
   const step = (dc, ds, gap) => {
@@ -605,19 +616,96 @@ export function repeatOffsets(layer) {
       out.push({ x, y });
     }
   }
-  return out;
+  return { cx, cy, W, H, list: out };
 }
-// the layer and its copies
-function drawCopies(ctx, layer) {
-  if (!layer.repeat) return drawLayerContent(ctx, layer);
-  for (const o of repeatOffsets(layer)) {
-    ctx.save();
-    ctx.translate(o.x, o.y);
-    drawLayerContent(ctx, layer);
-    ctx.restore();
+// Scattered: the layer, then copies dropped at random (by the seed) on its
+// trimmed panels, or anywhere on the sheet, each at least `space` clear of
+// the others. Darts that land too close are thrown again, up to a limit, so
+// a crowded panel gets fewer than asked for.
+function scattered(layer, r, cx, cy, size) {
+  const wins = clipPolys(layer);
+  let x0 = 0, y0 = 0, x1 = SIZE, y1 = SIZE;
+  if (wins.length) {
+    const all = wins.flat();
+    x0 = Math.min(...all.map(q => q.x)); y0 = Math.min(...all.map(q => q.y));
+    x1 = Math.max(...all.map(q => q.x)); y1 = Math.max(...all.map(q => q.y));
   }
+  const rand = mulberry32(r.seed);
+  // ponytail: copies are kept apart as if round, by their mean size; outlines can still touch at the corners
+  const apart = r.space > 0 ? size + r.space : 0;
+  const pts = [{ x: cx, y: cy }];
+  for (let tries = 0; pts.length < r.count && tries < r.count * 30; tries++) {
+    const x = x0 + rand() * (x1 - x0), y = y0 + rand() * (y1 - y0);
+    if (wins.length && !wins.some(w => contains(w, x, y))) continue;
+    if (apart && pts.some(q => (q.x - x) ** 2 + (q.y - y) ** 2 < apart * apart)) continue; // ponytail: checks every copy, fine to a few hundred
+    pts.push({ x, y });
+  }
+  return pts.map(q => ({ x: q.x - cx, y: q.y - cy }));
 }
-
+// The layer as one copy draws it: in another of the colours, or (a shape)
+// as another of the outlines, set on its middle at its size.
+const recoloured = new WeakMap(); // a picture → Map(colour → it in that colour)
+function lookOf(layer, colour, shape, cx, cy, size) {
+  let v = layer;
+  if (shape) v = { ...v, shape: 'path', pts: placed(shape, cx, cy, size, layer.turn || 0) };
+  if (colour && layer.type === 'fill') v = { ...v, color: colour };
+  else if (colour) {
+    const byColour = recoloured.get(layer.img) || new Map();
+    recoloured.set(layer.img, byColour);
+    if (!byColour.has(colour)) {
+      if (layer.type === 'text') { const t = { ...layer, textColor: colour }; regenerateText(t); byColour.set(colour, t.img); }
+      else { // a picture: its outline filled with the colour
+        const c = document.createElement('canvas');
+        c.width = layer.img.width; c.height = layer.img.height;
+        const g = c.getContext('2d');
+        g.drawImage(layer.img, 0, 0);
+        g.globalCompositeOperation = 'source-in';
+        g.fillStyle = colour;
+        g.fillRect(0, 0, c.width, c.height);
+        byColour.set(colour, c);
+      }
+    }
+    v = { ...v, img: byColour.get(colour) };
+  }
+  return v;
+}
+// the layer and its copies, each varied as its settings say
+function drawCopies(ctx, layer) {
+  const r = layer.repeat;
+  if (!r) return drawLayerContent(ctx, layer);
+  const { cx, cy, W, H, list } = repeatOffsets(layer);
+  let far = 1;
+  for (const o of list) far = Math.max(far, Math.hypot(o.x, o.y));
+  const nc = 1 + r.colors.length, ns = isRegionLayer(layer) ? 1 + r.shapes.length : 1;
+  const looks = new Map();
+  const look = (c, s) => {
+    const key = c * 8 + s;
+    if (!looks.has(key)) looks.set(key, lookOf(layer, c ? r.colors[c - 1] : null, s ? r.shapes[s - 1] : null, cx, cy, Math.max(W, H)));
+    return looks.get(key);
+  };
+  const alpha = ctx.globalAlpha;
+  list.forEach((o, k) => {
+    // the layer itself (k 0) is drawn as it is; each copy by its own roll
+    const roll = mulberry32((r.seed ^ Math.imul(k + 1, 0x9E3779B1)) | 0);
+    const pick = (n) => (!k ? 0 : r.mix === 'random' ? Math.floor(roll() * n) : k % n);
+    const c = pick(nc), s = pick(ns);
+    let size = 1, turn = 0;
+    if (k && r.rSize) size += (roll() * 2 - 1) * 0.75 * r.rSize / 100;
+    if (k && r.rTurn) turn = (roll() * 2 - 1) * Math.PI * r.rTurn / 100;
+    const t = Math.hypot(o.x, o.y) / far; // 0 at the layer, 1 at the furthest copy
+    if (r.shrink) size *= 1 - t;
+    const a = r.fadeOut ? 1 - t : 1;
+    if (size <= 0.01 || a <= 0.01) return;
+    ctx.save();
+    ctx.globalAlpha = alpha * a;
+    ctx.translate(cx + o.x, cy + o.y);
+    if (turn) ctx.rotate(turn);
+    if (size !== 1) ctx.scale(size, size);
+    ctx.translate(-cx, -cy);
+    drawLayerContent(ctx, look(c, s));
+    ctx.restore();
+  });
+}
 
 // ---------- compositing ----------
 

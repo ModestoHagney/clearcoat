@@ -319,21 +319,43 @@ export function initUI(app, actions, version) {
         `<label class="switch" title="Leave out the shape's own paint, so what is underneath shows between the pattern">Pattern only<input id="f-pat-only" type="checkbox"${mo.only ? ' checked' : ''}></label>`) +
       `</details>`;
   }
-  // Repeat: the layer copied in a line or a grid, from where it is. `l`: the
-  // layer whose settings show (the first, when several are selected).
+  // Repeat: the layer copied in a line, a grid, or scattered, from where it
+  // is. `l`: the layer whose settings show (the first, when several are selected).
   function repeatHtml(l) {
-    const r = l.repeat, grid = r && r.way === 'grid';
-    const across = r && r.way !== 'down', down = r && r.way !== 'across';
+    const r = l.repeat, way = r && r.way, grid = way === 'grid', scatter = way === 'scatter';
+    const across = way === 'across' || grid, down = way === 'down' || grid;
+    const out = (attr, k, what) => `<button type="button" class="mx" ${attr}="${k}" title="Take this ${what} out" aria-label="Take ${what} ${k + 2} out">${svg('close')}</button>`;
+    const tile = (sh, k) => `<span class="mwrap"><span class="mtile" title="${esc(sh.kind === 'own' ? sh.name : SHAPES[sh.kind])}">${sh.kind === 'own' ? shapeSvg(sh) : svg(sh.kind)}</span>${out('data-repsdrop', k, 'shape')}</span>`;
+    const several = r && (r.colors.length || r.shapes.length);
     return `<details class="more fold" id="f-repfold"${repOpen ? ' open' : ''}><summary>Repeat</summary>` +
-      `<label class="switch" title="Copies of this layer in a line or a grid, starting from where it is. They follow every change to it.">Repeat<input id="f-rep-on" type="checkbox"${r ? ' checked' : ''}></label>` +
+      `<label class="switch" title="Copies of this layer in a line, a grid, or scattered, starting from where it is. They follow every change to it.">Repeat<input id="f-rep-on" type="checkbox"${r ? ' checked' : ''}></label>` +
       (!r ? '' :
-        field('Way', `<select id="f-rep-way">${[['across', 'Across'], ['down', 'Down'], ['grid', 'Grid']].map(([v, n]) => opt(v, n, v === r.way)).join('')}</select>`) +
-        `<label class="switch" title="As many as reach the edge of the sheet. Trim it to keep them to a panel.">To the edge<input id="f-rep-fill" type="checkbox"${r.fill ? ' checked' : ''}></label>` +
-        (r.fill ? '' : (across ? field(grid ? 'Across' : 'Copies', slider('f-rep-count', 1, 100, r.count)) : '') +
-          (down ? field(grid ? 'Down' : 'Copies', slider('f-rep-rows', 1, 100, r.rows)) : '')) +
-        (across ? field(grid ? 'Gap across' : 'Gap', slider('f-rep-gapX', -200, 400, r.gapX)) : '') +
-        (down ? field(grid ? 'Gap down' : 'Gap', slider('f-rep-gapY', -200, 400, r.gapY)) : '') +
-        field('Angle', slider('f-rep-angle', -180, 180, r.angle))) +
+        field('Way', `<select id="f-rep-way">${[['across', 'Across'], ['down', 'Down'], ['grid', 'Grid'], ['scatter', 'Scatter']].map(([v, n]) => opt(v, n, v === way)).join('')}</select>`) +
+        (scatter ?
+          `<div class="note">Scattered over the panels it is trimmed to, or the whole sheet</div>` +
+          field('Amount', slider('f-rep-count', 1, 500, r.count)) +
+          field('Space', slider('f-rep-space', 0, 400, r.space)) :
+          `<label class="switch" title="As many as reach the edge of the sheet. Trim it to keep them to a panel.">To the edge<input id="f-rep-fill" type="checkbox"${r.fill ? ' checked' : ''}></label>` +
+          (r.fill ? '' : (across ? field(grid ? 'Across' : 'Copies', slider('f-rep-count', 1, 100, r.count)) : '') +
+            (down ? field(grid ? 'Down' : 'Copies', slider('f-rep-rows', 1, 100, r.rows)) : '')) +
+          (across ? field(grid ? 'Gap across' : 'Gap', slider('f-rep-gapX', -200, 400, r.gapX)) : '') +
+          (down ? field(grid ? 'Gap down' : 'Gap', slider('f-rep-gapY', -200, 400, r.gapY)) : '') +
+          field('Angle', slider('f-rep-angle', -180, 180, r.angle))) +
+        // more colours, and for a shape more outlines: the copies take turns with the layer's own, or pick by their roll
+        `<div class="field tiles"><span>Colours</span><span class="pair wrap">` +
+          r.colors.map((c, k) => `<span class="mwrap"><input class="mini" data-repc="${k}" id="f-rep-c${k}" type="color" value="${esc(c)}" title="Click to change this colour" aria-label="Copy colour ${k + 2}">${out('data-repcdrop', k, 'colour')}</span>`).join('') +
+          (r.colors.length < 6 ? `<button type="button" class="icon" data-act="addRepeatColour" title="Add a colour for the copies to take, along with the layer's own" aria-label="Add a colour for the copies">+</button>` : '') +
+        '</span></div>' +
+        (l.type !== 'fill' ? '' :
+          `<div class="field tiles"><span>Shapes</span><span class="pair wrap">${r.shapes.map(tile).join('')}` +
+          (r.shapes.length < 6 ? `<span class="plusbox" title="Add a shape for the copies to take, along with this one"><span class="icon" aria-hidden="true">+</span><select id="f-rep-addshape" aria-label="Add a shape for the copies">${opt('', 'Add a shape…', true)}${motifOptions('', null)}</select></span>` : '') +
+          '</span></div>') +
+        (!several ? '' : field('Mix', `<select id="f-rep-mix">${opt('turn', 'In turn', r.mix === 'turn')}${opt('random', 'Random', r.mix === 'random')}</select>`)) +
+        field('Random size', slider('f-rep-rSize', 0, 100, r.rSize)) +
+        field('Random turn', slider('f-rep-rTurn', 0, 100, r.rTurn)) +
+        (scatter || r.rSize || r.rTurn || (several && r.mix === 'random') ? '<div class="acts"><button class="btn" data-act="repeatReroll" title="Roll again">Re-roll</button></div>' : '') +
+        `<label class="switch" title="The copies get fainter the further they are from the layer">Fade out<input id="f-rep-fadeOut" type="checkbox"${r.fadeOut ? ' checked' : ''}></label>` +
+        `<label class="switch" title="The copies get smaller the further they are from the layer">Shrink<input id="f-rep-shrink" type="checkbox"${r.shrink ? ' checked' : ''}></label>`) +
       `</details>`;
   }
   // what a pattern can repeat or a stamp place: the ready-made shapes, then
@@ -584,7 +606,8 @@ export function initUI(app, actions, version) {
     if (t.dataset.patc !== undefined) { actions.patternColour(+t.dataset.patc, t.value); return; }
     const pat = /^f-pat-(size|gap|stagger|turn|rSize|rPos|rTurn)$/.exec(t.id || '');
     if (pat) { actions.tweakMotif(pat[1], t.dataset.exact !== undefined ? +t.dataset.exact : CURVED[pat[1]] ? fromSlider(pat[1], +t.value) : +t.value); return; }
-    const rep = /^f-rep-(count|rows|gapX|gapY|angle)$/.exec(t.id || '');
+    if (t.dataset.repc !== undefined) { actions.repeatColour(+t.dataset.repc, t.value); return; }
+    const rep = /^f-rep-(count|rows|gapX|gapY|angle|space|rSize|rTurn)$/.exec(t.id || '');
     if (rep) { actions.setRepeat({ [rep[1]]: +t.value }, false); return; }
     // plain settings: the control's id names the layer setting it sets
     const m = /^f-(fx-)?(fontSize|outlineWidth|outlineColor|letterSpacing|lineSpacing|curve|rotation|shadow|shadowColor|shadowDX|shadowDY|text)$/.exec(t.id || '');
@@ -693,6 +716,10 @@ export function initUI(app, actions, version) {
     if (id === 'f-rep-on') return actions.setRepeat(e.target.checked ? {} : null);
     if (id === 'f-rep-way') return actions.setRepeat({ way: e.target.value });
     if (id === 'f-rep-fill') return actions.setRepeat({ fill: e.target.checked });
+    if (id === 'f-rep-mix') return actions.setRepeat({ mix: e.target.value });
+    if (id === 'f-rep-fadeOut' || id === 'f-rep-shrink') return actions.setRepeat({ [id.slice(6)]: e.target.checked });
+    if (id === 'f-rep-addshape') { if (e.target.value) actions.addRepeatShape(e.target.value); return; }
+    if (e.target.dataset.repc !== undefined) return; // nothing is redrawn: that would swallow the click that took the focus away
     if (id === 'f-pat-add') { if (e.target.value) actions.addMotifShape(e.target.value); return; }
     if (id === 'f-pat-only') return actions.tweakMotif('only', e.target.checked);
     if (id === 'f-pat-random') return actions.motifRandom(e.target.checked);
@@ -964,6 +991,8 @@ export function initUI(app, actions, version) {
     if (t.dataset.fade) return actions.setFade('style', t.dataset.fade);
     if (t.dataset.patdrop !== undefined) return actions.dropMotifShape(+t.dataset.patdrop);
     if (t.dataset.patcdrop !== undefined) return actions.dropPatternColour(+t.dataset.patcdrop);
+    if (t.dataset.repsdrop !== undefined) return actions.dropRepeatShape(+t.dataset.repsdrop);
+    if (t.dataset.repcdrop !== undefined) return actions.dropRepeatColour(+t.dataset.repcdrop);
     if (t.dataset.piece) return actions.pickPiece(t.dataset.piece);
     if (t.dataset.tool === 'image') return actions.openLibrary(); // nothing to arm: it opens the library
     if (t.dataset.tool) return actions.setTool(t.dataset.tool);
