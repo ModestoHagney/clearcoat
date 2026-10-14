@@ -153,3 +153,22 @@ test('a Continues layer is trimmed to its panel and carried over each linked edg
   assert.equal(l.clip, undefined); // the layer itself is untouched
   assert.match(seamsOf(m, shape(box(10, 10, 50, 50))).error, /no linked edges/);
 });
+
+test('trimmed to several linked panels, copies carry on from each, taking only that panel\'s copies', () => {
+  const m = map();
+  m.links = [{ a: { region: 'lone', from: { x: 1700, y: 0 }, to: { x: 1700, y: 100 } }, b: { region: 'roof', from: { x: 1000, y: 0 }, to: { x: 1400, y: 0 } } }];
+  const l = shape(box(1650, 20, 30, 30));
+  l.repeat = { way: 'scatter', count: 20 };
+  l.clip = [box(1600, 0, 100, 100), box(1000, 0, 400, 400)];
+  l.clipAt = [{ x: 1650, y: 50 }, { x: 1200, y: 200 }];
+  l.continues = 'lone';
+  assert.deepEqual(seamsOf(m, l).homes.map(r => r.id), ['lone', 'roof']);
+  const out = withSeams({ regionMap: m, layers: [l] }).layers;
+  assert.equal(out.length, 3); // the layer, Lone's copies onto the roof, the roof's onto Lone
+  assert.ok(out[1].carry.from && out[2].carry.from);
+  assert.ok(out[1].carry.from.every(q => q.x > 1590)); // Lone's copies only
+  // without Repeat it stays on its one panel: no copies to sort
+  delete l.repeat;
+  assert.deepEqual(seamsOf(m, l).homes.map(r => r.id), ['lone']);
+  assert.equal(withSeams({ regionMap: m, layers: [l] }).layers[1].carry.from, null);
+});

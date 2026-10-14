@@ -632,8 +632,9 @@ function drawCopies(ctx, layer) {
     if (!looks.has(key)) looks.set(key, lookOf(layer, c ? r.colors[c - 1] : null, s ? r.shapes[s - 1] : null, cx, cy, Math.max(W, H)));
     return looks.get(key);
   };
-  const alpha = ctx.globalAlpha;
+  const alpha = ctx.globalAlpha, from = layer.carry && layer.carry.from; // carried from one panel: only the copies on it
   list.forEach((o, k) => {
+    if (from && !contains(from, cx + o.x, cy + o.y)) return;
     // the layer itself (k 0) is drawn as it is; each copy by its own roll
     const roll = mulberry32((r.seed ^ Math.imul(k + 1, 0x9E3779B1)) | 0);
     const pick = (n) => (!k ? 0 : r.mix === 'random' ? Math.floor(roll() * n) : k % n);
