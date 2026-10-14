@@ -42,7 +42,7 @@ export const app = {
   sels: [],                           // every selected layer's id when there are several (it includes sel)
   // the template's own linework already draws every piece's border, so the
   // computed piece outlines start off here; they are Map mode's to show
-  show: { layers: true, props: true, colour: true, outlines: false, lines: true, mesh: true },
+  show: { layers: true, props: true, outlines: false, lines: true, mesh: true },
   custid: '',
   live: false,
   liveBad: false,                     // the last live save failed
@@ -298,7 +298,7 @@ function draw() {
   $('empty').hidden = !!(doc.template || doc.layers.length);
   showPos();
 }
-// the selection's top-left corner on the sheet, in the boxes by the zoom
+// the selection's top-left corner on the sheet, for the position boxes
 function selCorner() {
   const ls = app.mode === 'map' ? [] : selectedLayers();
   try {
@@ -306,13 +306,20 @@ function selCorner() {
     return cs.length ? { x: Math.round(Math.min(...cs.map(q => q.x))), y: Math.round(Math.min(...cs.map(q => q.y))) } : null;
   } catch { return null; } // a layer with no picture yet has no box
 }
+// Two sets of boxes: in Properties' Place, and by the zoom for when
+// Properties is not showing (Finish mode, drawing a shape, the panel hidden).
 function showPos() {
-  const at = selCorner();
-  $('pos').hidden = !at;
+  const at = selCorner(), inPlace = !!$('f-pos-x') && !$('f-pos-x').closest('[hidden]');
+  $('pos').hidden = !at || inPlace;
   if (!at) return;
-  for (const k of ['x', 'y']) if (document.activeElement !== $('pos-' + k)) $('pos-' + k).value = at[k]; // not under the user's typing
+  for (const id of ['pos-x', 'pos-y', 'f-pos-x', 'f-pos-y']) {
+    const box = $(id);
+    if (box && document.activeElement !== box) box.value = at[id.slice(-1)]; // not under the user's typing
+  }
 }
-for (const k of ['x', 'y']) $('pos-' + k).addEventListener('change', (e) => {
+document.addEventListener('change', (e) => {
+  const k = /^(?:f-)?pos-([xy])$/.exec(e.target.id || '')?.[1];
+  if (!k) return;
   const at = selCorner(), v = Math.round(+e.target.value);
   if (!at || !Number.isFinite(v) || !e.target.value.trim()) return showPos();
   actions.nudge(k === 'x' ? v - at.x : 0, k === 'y' ? v - at.y : 0);
@@ -1697,6 +1704,7 @@ const actions = {
   // ---- colour ----
   // what the colour controls are showing: the selection's colour, else the
   // colour the next shape will get
+  selCorner,
   currentColour() {
     const l = actions.selected();
     if (app.sel === 'base') return app.doc.baseColor;

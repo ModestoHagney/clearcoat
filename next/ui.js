@@ -100,7 +100,7 @@ const MAP_TOOLS = [
   ['mcentre', 'Centreline'],
   ['mlink', 'Link edges'],
 ];
-const PANELS = ['layers', 'props', 'colour'];
+const PANELS = ['layers', 'props'];
 const WEIGHT_NAMES = { 100: 'Thin', 200: 'Extra light', 300: 'Light', 400: 'Regular', 500: 'Medium', 600: 'Semi bold', 700: 'Bold', 800: 'Extra bold', 900: 'Black' };
 // A slider with its value beside it, in a box that can be read, typed in, or
 // nudged with the arrow keys.
@@ -119,6 +119,16 @@ export function initUI(app, actions, version) {
     panels[key] = p;
     $('dock').append(p);
   }
+  // the Layers list is made taller or shorter by its bottom edge
+  panels.layers.insertAdjacentHTML('beforeend', '<div class="grip" title="Drag to make the list taller or shorter" aria-hidden="true"></div>');
+  panels.layers.lastChild.addEventListener('pointerdown', (e) => {
+    const body = panels.layers.querySelector('.body'), y0 = e.clientY, h0 = body.offsetHeight;
+    const most = $('stage').clientHeight - 200; // Properties keeps some room
+    const move = (ev) => { body.style.maxHeight = Math.max(60, Math.min(most, h0 + ev.clientY - y0)) + 'px'; };
+    e.target.setPointerCapture(e.pointerId);
+    e.target.addEventListener('pointermove', move);
+    e.target.addEventListener('pointerup', () => e.target.removeEventListener('pointermove', move), { once: true });
+  });
 
   // ---------- menus ----------
   // [label, shortcut, action, { off, tick }]
@@ -156,7 +166,7 @@ export function initUI(app, actions, version) {
       ['Ungroup', 'Ctrl+Shift+G', 'ungroup', { off: !actions.selectedLayers().some((l) => l.groupId) }],
     ],
     View: [
-      ['Layers', '', 'show:layers', { tick: app.show.layers }], ['Properties', '', 'show:props', { tick: app.show.props }], ['Colour', '', 'show:colour', { tick: app.show.colour }], 0,
+      ['Layers', '', 'show:layers', { tick: app.show.layers }], ['Properties', '', 'show:props', { tick: app.show.props }], 0,
       ['Panel colours on car', 'C', 'toggleGuide', { tick: actions.guideOn() }], ['Panel outlines', '', 'show:outlines', { tick: app.show.outlines }], ['Template lines', '', 'show:lines', { tick: app.show.lines }], ['Mesh', '', 'show:mesh', { tick: app.show.mesh }], 0,
       ['Light', '', 'theme:light', { tick: app.theme === 'light' }], ['Dark', '', 'theme:dark', { tick: app.theme === 'dark' }], ['Match system', '', 'theme:system', { tick: app.theme === 'system' }], 0,
       ['Fit to screen', 'F', 'fit'],
@@ -216,7 +226,7 @@ export function initUI(app, actions, version) {
     live.classList.toggle('bad', paused);
     live.innerHTML = `<i></i>${paused ? 'Live paused' : 'Live'}`;
     live.title = paused ? 'Click to reconnect to the iRacing paints folder' : 'Send every change to the car in iRacing';
-    for (const key of PANELS) panels[key].hidden = !app.show[key] || (key === 'colour' && app.mode !== 'paint');
+    for (const key of PANELS) panels[key].hidden = !app.show[key];
 
     $('dock').hidden = ![...$('dock').children].some((p) => !p.hidden);
   }
@@ -284,7 +294,7 @@ export function initUI(app, actions, version) {
     const ownShape = !r || l.type !== 'fill' ? '' : l.shape === 'path' && Array.isArray(l.pts)
       ? shapeSvg({ pts: l.pts.map((q) => ({ x: q.x - l.rx, y: q.y - l.ry, ...(q.c ? { c: { x: q.c.x - l.rx, y: q.c.y - l.ry } } : {}), ...(q.m ? { m: true } : {}) })), w: l.rw, h: l.rh })
       : SHAPES[l.shape] ? svg(l.shape) : shapeSvg({ shape: l.shape, w: l.rw, h: l.rh });
-    return `<details class="more fold" id="f-repfold"${repOpen ? ' open' : ''}><summary>Repeat</summary>` +
+    return `<details class="more fold" id="f-repfold" name="pfold"${openFold === 'f-repfold' ? ' open' : ''}><summary>Repeat</summary>` +
       `<label class="switch" title="Copies of this layer in a line, a grid, or scattered, starting from where it is. They follow every change to it.">Repeat<input id="f-rep-on" type="checkbox"${r ? ' checked' : ''}></label>` +
       (!r ? '' :
         field('Way', `<select id="f-rep-way">${[['across', 'Across'], ['down', 'Down'], ['grid', 'Grid'], ['scatter', 'Scatter']].map(([v, n]) => opt(v, n, v === way)).join('')}</select>`) +
@@ -326,47 +336,61 @@ export function initUI(app, actions, version) {
       `<optgroup label="Rounded">${rounds.map((k) => opt(k, SHAPES[k].replace(/^Rounded /, '').replace(/^./, (ch) => ch.toUpperCase()), k === current)).join('')}</optgroup>` +
       (own.length || kept ? `<optgroup label="Your shapes">${own.map((it) => opt('own:' + it.id, it.name, 'own:' + it.id === current)).join('')}${kept && !own.some((it) => 'own:' + it.id === current) ? opt(current, kept, true) : ''}</optgroup>` : '');
   };
-  // Colour lives in the Colour panel only. If that panel has been hidden, say
-  // where it went, since nothing here sets a colour any more.
-  const colourNote = () => (app.show.colour ? '' : '<div class="acts"><button class="btn" data-act="show:colour">Show the Colour panel</button></div>');
+  // The top of Properties: the colour, big, and the name beside it; then the
+  // livery's colours to pick from. `name`: the markup that goes beside the colour.
+  function colourHead(name) {
+    const d = app.doc, sel = actions.selected(), used = usedColours();
+    const linked = app.sel === 'base' ? d.baseRef : sel ? sel.colorRef : null;
+    const saved = d.palette.map((c) => `<span class="chipwrap"><button class="chip${c.id === linked ? ' on' : ''}" data-pal="${esc(c.id)}"><i style="background:${esc(c.color)}"></i>${esc(c.name)}</button><button class="chipedit" data-edit="${esc(c.id)}" title="Rename or change" aria-label="Edit ${esc(c.name)}">${svg('edit')}</button></span>`).join('');
+    return `<div class="phead"><input data-colour="pick" id="c-pick" type="color" value="${esc(actions.currentColour())}" title="Choose a colour" aria-label="Colour">${name}</div>` +
+      `<div class="chips">${used.map((c) => `<button class="dot" data-col="${c}" style="background:${c}" title="${c.toUpperCase()}" aria-label="${c}"></button>`).join('')}${saved}<button class="chip add" data-act="saveColour" title="Save the current colour with this livery">+ Save</button></div>`;
+  }
+  // Place, Look and Repeat fold away, and only one is open at a time (the
+  // browser closes the others: they share a name). An empty one is left out.
+  const fold = (id, title, body) => (!body ? '' : `<details class="more fold" id="${id}" name="pfold"${openFold === id ? ' open' : ''}><summary>${title}</summary>${body}</details>`);
+  // where the selection's top-left corner is on the sheet, typed to move it there
+  const posBoxes = () => {
+    const at = actions.selCorner();
+    return !at ? '' : `<div class="field" title="Where its top-left corner is on the sheet, in pixels. Type a number to move it there."><span>Position</span><span class="pair"><label class="inline">X<input id="f-pos-x" class="num" type="number" step="1" value="${at.x}"></label><label class="inline">Y<input id="f-pos-y" class="num" type="number" step="1" value="${at.y}"></label></span></div>`;
+  };
+  const mirroredSwitch = (on) => `<label class="switch" title="Paint it on the twin panel too, or across the centreline (Ctrl+M)">Mirrored<input id="f-mirrored" type="checkbox"${on ? ' checked' : ''}></label>`;
   function propsHtml() {
-    if (app.sel === 'base') return colourNote() || '<div class="note">Its colour is in the Colour panel</div>';
+    if (app.sel === 'base') return colourHead('<span class="pname">Base coat</span>');
     const many = actions.selectedLayers();
     if (many.length > 1) { // several: what can be done to them together
       const grouped = many.some((x) => x.groupId);
       const fills = many.filter((x) => x.type === 'fill' && !x.specOnly);
-      return `<div class="note">${many.length} layers selected</div>` + colourNote() +
-        (fills.length ? fadeHtml(fills.find((x) => x.fillType === 'linear' || x.fillType === 'radial') || fills[0]) : '') +
+      return colourHead(`<span class="pname">${many.length} layers</span>`) +
+        fold('f-place', 'Place', posBoxes() + mirroredSwitch(many.some((x) => x.mirrored))) +
+        fold('f-look', 'Look', fills.length ? fadeHtml(fills.find((x) => x.fillType === 'linear' || x.fillType === 'radial') || fills[0]) : '') +
         repeatHtml(many.find((x) => x.repeat) || many[0]) +
-        `<label class="switch" title="Paint them on the twin panel too, or across the centreline (Ctrl+M)">Mirrored<input id="f-mirrored" type="checkbox"${many.some((x) => x.mirrored) ? ' checked' : ''}></label>` +
         `<div class="acts"><button class="btn" data-act="merge" title="Join them into one. It asks first if they differ in colour or kind. (Ctrl+E)">Merge</button>` +
         (shapeCan().wrap ? '<button class="btn" data-act="wrap" title="One shape pulled tight round them, like a rubber band: two circles become a slot">Wrap</button>' : '') +
         `<button class="btn" data-act="${grouped ? 'ungroup' : 'group'}" title="${grouped ? 'They stop being picked up together (Ctrl+Shift+G)' : 'Pick them up together from now on (Ctrl+G)'}">${grouped ? 'Ungroup' : 'Group'}</button></div>`;
     }
     const l = app.doc.layers.find((x) => x.id === app.sel);
-    if (!l) return '<div class="note">Nothing selected</div>';
-    const colour = l.type === 'fill' || l.type === 'text' || l.type === 'image' ? colourNote() : '';
+    if (!l) return colourHead('<span class="pname muted">New shapes</span>');
     const isText = l.type === 'text', isPic = isText || l.type === 'image';
     const fx = l.fx || {};
     const fonts = [...new Set([...TEXT_FONTS, ...GOOGLE_FONTS, ...(app.doc.googleFonts || []), ...(app.doc.customFonts || []).map((f) => f.name)])];
-    // what you reach for first, then the switch and buttons, then the rest folded away
-    // a shape's fill can fade to a second colour, or to nothing
-    const fade = l.type !== 'fill' ? '' : fadeHtml(l);
     const weights = isText ? actions.fontWeights(l.font) : [];
     const weight = weights.length < 2 ? '' : field('Weight', `<select id="f-fontWeight">${weights.map((w) => opt(w, WEIGHT_NAMES[w], w === (l.fontWeight || 400))).join('')}</select>`);
     const lined = isText && String(l.text || '').includes('\n'); // settings that only mean something with several lines
-    const main = !isText ? colour + fade :
+    // the colour and name, then for text what it says and in what
+    const head = colourHead(`<input id="f-name" class="pname" type="text" value="${esc(l.name)}" title="Its name in the Layers list" aria-label="Name">`) + (!isText ? '' :
       field('Text', `<textarea id="f-text" rows="2" spellcheck="false" title="Enter starts a new line">${esc(l.text)}</textarea>`) +
       field('Font', `<select id="f-font">${fonts.map((f) => opt(f, f, f === l.font)).join('')}${opt('__google', 'Google font by name…', false)}${opt('__upload', 'Upload a font file…', false)}</select>`) +
       weight +
-      colour +
-      field('Size', slider('f-fontSize', 40, 400, l.fontSize || 160));
+      field('Size', slider('f-fontSize', 40, 400, l.fontSize || 160)));
     const inPieces = Array.isArray(l.pts) && l.pts.some((q) => q.m);
-    const acts = l.locked ? '' :
-      `<label class="switch" title="Paint it on the twin panel too, or across the centreline (Ctrl+M)">Mirrored<input id="f-mirrored" type="checkbox"${l.mirrored ? ' checked' : ''}></label>` +
+    const place = l.locked ? '' : posBoxes() +
+      (!isPic ? '' : field('Turn', slider('f-rotation', -180, 180, Math.round(l.rotation || 0)))) +
+      mirroredSwitch(l.mirrored) +
       (l.mirrored && isPic ? `<label class="switch" title="Off: it reads the right way round on both sides. On: a true mirror image.">Reverse the other side<input id="f-mirrorFlip" type="checkbox"${l.mirrorFlip ? ' checked' : ''}></label>` : '') +
-      `<div class="acts">${trimButtons(l)}${l.mirrored ? '<button class="btn" data-act="separate" title="Make the mirrored side a layer of its own">Separate</button>' : ''}${inPieces ? '<button class="btn" data-act="split" title="Undo a merge: one shape for each piece again">Split</button>' : ''}${inPieces && hasInner(l.pts) ? '<button class="btn" data-act="fillIn" title="Make it solid: its holes are filled">Fill in</button>' : ''}${l.type === 'image' ? '<button class="btn" data-act="makeShapes" title="For a flat-colour picture such as a logo: one shape for each colour in it, with the background left out. Each shape then takes a colour like any other.">Make shapes</button>' : ''}${isText ? '<button class="btn" data-act="makeShapes" title="The lettering becomes a shape, so it can fade and be reshaped. It can no longer be retyped.">Make shapes</button>' : ''}${l.type === 'image' && l.color ? '<button class="btn" data-act="ownColours" title="Take the colour off again">Original colours</button>' : ''}</div>`;
-    const more = (!isText ? '' :
+      `<div class="acts">${trimButtons(l)}${l.mirrored ? '<button class="btn" data-act="separate" title="Make the mirrored side a layer of its own">Separate</button>' : ''}</div>`;
+    // a shape's fill can fade to a second colour, or to nothing
+    const look = (l.type !== 'fill' ? '' : fadeHtml(l)) +
+      (!isText ? '' :
       field('Outline', `<span class="pair">${slider('f-outlineWidth', 0, 30, l.outlineWidth || 0)}<input id="f-outlineColor" type="color" value="${esc(hexOf(l.outlineColor || '') || '#000000')}" aria-label="Outline colour"></span>`) +
       field('Spacing', slider('f-letterSpacing', 0, 40, l.letterSpacing || 0)) +
       field('Curve', slider('f-curve', -180, 180, l.curve || 0)) +
@@ -374,16 +398,15 @@ export function initUI(app, actions, version) {
         field('Lines', `<select id="f-align">${[['left', 'Left'], ['center', 'Centred'], ['right', 'Right']].map(([v, n]) => opt(v, n, v === (l.align || 'center'))).join('')}</select>`)) +
       `<label class="switch">Italic<input id="f-italic" type="checkbox"${l.italic ? ' checked' : ''}></label>`) +
       (!isPic ? '' :
-      field('Turn', slider('f-rotation', -180, 180, Math.round(l.rotation || 0))) +
       field('Shadow', `<span class="pair">${slider('f-fx-shadow', 0, 60, fx.shadow || 0)}<input id="f-fx-shadowColor" type="color" value="${esc(hexOf(fx.shadowColor || '') || '#000000')}" aria-label="Shadow colour"></span>`) +
       field('Shadow at', `<span class="pair">${slider('f-fx-shadowDX', -60, 60, fx.shadowDX ?? 8)}${slider('f-fx-shadowDY', -60, 60, fx.shadowDY ?? 8)}</span>`)) +
       field('Opacity', slider('f-opacity', 0, 100, (l.opacity ?? 1) * 100)) +
-      field('Blend', `<select id="f-blend" title="Multiply darkens what is under it, for a texture such as worn cardboard">${opt('', 'Normal', !l.blend)}${opt('multiply', 'Multiply', l.blend === 'multiply')}</select>`) +
-      field('Name', `<input id="f-name" type="text" value="${esc(l.name)}">`);
-    return main + (l.specOnly ? '' : repeatHtml(l)) + acts + `<details class="more" id="f-more"${moreOpen ? ' open' : ''}><summary>More</summary>${more}</details>`;
+      field('Blend', `<select id="f-blend" title="Multiply darkens what is under it, for a texture such as worn cardboard">${opt('', 'Normal', !l.blend)}${opt('multiply', 'Multiply', l.blend === 'multiply')}</select>`);
+    // what turns it into something else
+    const turnInto = l.locked ? '' : `${inPieces ? '<button class="btn" data-act="split" title="Undo a merge: one shape for each piece again">Split</button>' : ''}${inPieces && hasInner(l.pts) ? '<button class="btn" data-act="fillIn" title="Make it solid: its holes are filled">Fill in</button>' : ''}${l.type === 'image' ? '<button class="btn" data-act="makeShapes" title="For a flat-colour picture such as a logo: one shape for each colour in it, with the background left out. Each shape then takes a colour like any other.">Make shapes</button>' : ''}${isText ? '<button class="btn" data-act="makeShapes" title="The lettering becomes a shape, so it can fade and be reshaped. It can no longer be retyped.">Make shapes</button>' : ''}${l.type === 'image' && l.color ? '<button class="btn" data-act="ownColours" title="Take the colour off again">Original colours</button>' : ''}`;
+    return head + fold('f-place', 'Place', place) + fold('f-look', 'Look', look) + (l.specOnly ? '' : repeatHtml(l)) + (turnInto ? `<div class="acts">${turnInto}</div>` : '');
   }
-  let moreOpen = false; // stays as the user left it while the panel is redrawn
-  let repOpen = true;   // the same for Repeat's
+  let openFold = 'f-place'; // the fold left open stays open while the panel is redrawn
   const trimCount = (l) => (Array.isArray(l.clip) ? (Array.isArray(l.clip[0]) ? l.clip.length : 1) : 0);
   function trimButtons(l) {
     const n = trimCount(l);
@@ -479,23 +502,12 @@ export function initUI(app, actions, version) {
     // a swatch does not jump about when a colour is used more or less
     return [...n.keys()].slice(0, 14);
   }
-  function colourHtml() {
-    const d = app.doc, cur = actions.currentColour(), sel = actions.selected();
-    const linked = app.sel === 'base' ? d.baseRef : sel ? sel.colorRef : null;
-    const saved = d.palette.map((c) => `<span class="chipwrap"><button class="chip${c.id === linked ? ' on' : ''}" data-pal="${esc(c.id)}"><i style="background:${esc(c.color)}"></i>${esc(c.name)}</button><button class="chipedit" data-edit="${esc(c.id)}" title="Rename or change" aria-label="Edit ${esc(c.name)}">${svg('edit')}</button></span>`).join('');
-    const used = usedColours();
-    return `<div class="sub">Saved with this livery</div><div class="chips">${saved}<button class="chip add" data-act="saveColour" title="Save the current colour">+ Save</button></div>` +
-      (used.length ? `<div class="sub">In this livery</div><div class="dots">${used.map((c) => `<button class="dot" data-col="${c}" style="background:${c}" title="${c.toUpperCase()}" aria-label="${c}"></button>`).join('')}</div>` : '') +
-      `<div class="cur"><input data-colour="pick" id="c-pick" type="color" value="${esc(cur)}" title="Choose a colour" aria-label="Colour"></div>`;
-  }
   function drawPanels() {
     const inMap = app.mode === 'map', inFinish = app.mode === 'finish';
     panels.layers.querySelector('h2').textContent = inMap ? 'Panels' : inFinish ? 'Finishes' : 'Layers';
     panels.props.querySelector('h2').textContent = inMap ? 'Panel' : inFinish ? 'Finish' : 'Properties';
-    panels.colour.querySelector('h2').textContent = 'Colour';
     panels.layers.querySelector('.body').innerHTML = inMap ? piecesHtml() : inFinish ? finishesHtml() : layersHtml();
     panels.props.querySelector('.body').innerHTML = inMap ? pieceHtml() : inFinish ? finishHtml() : propsHtml();
-    panels.colour.querySelector('.body').innerHTML = colourHtml();
     drawTile();
     const cur = panels.layers.querySelector('.row.sel');
     if (inMap && cur) cur.scrollIntoView({ block: 'nearest' });
@@ -539,7 +551,7 @@ export function initUI(app, actions, version) {
   document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && isBox(e.target)) { e.preventDefault(); e.target.blur(); } }, true); // Enter: done with the box
 
   // controls inside Properties: these must not rebuild the panel they sit in
-  // the Colour panel's colour box
+  // the colour box at the top of Properties
   document.addEventListener('input', (e) => {
     const t = e.target;
     if (!t.dataset || !t.dataset.colour) return;
@@ -651,9 +663,12 @@ export function initUI(app, actions, version) {
     e.preventDefault();
     actions.editColour(chip.querySelector('[data-pal]').dataset.pal);
   };
-  panels.colour.addEventListener('contextmenu', editChip);
-  panels.colour.addEventListener('dblclick', editChip);
-  panels.props.addEventListener('toggle', (e) => { if (e.target.id === 'f-more') moreOpen = e.target.open; if (e.target.id === 'f-repfold') repOpen = e.target.open; }, true);
+  panels.props.addEventListener('contextmenu', editChip);
+  panels.props.addEventListener('dblclick', editChip);
+  panels.props.addEventListener('toggle', (e) => { // the others closing say so too
+    if (e.target.name !== 'pfold') return;
+    if (e.target.open) openFold = e.target.id; else if (openFold === e.target.id) openFold = null;
+  }, true);
   panels.props.addEventListener('change', (e) => {
     const id = e.target.id;
     if (id === 'fn-sparkle') return actions.tweakFinish('sparkle', e.target.checked);
@@ -973,7 +988,7 @@ export function initUI(app, actions, version) {
           next ? next.before(p) : $('dock').append(p);
         }
       }
-      refresh(); // Properties mentions the Colour panel when it is hidden
+      refresh();
     }
   });
 
