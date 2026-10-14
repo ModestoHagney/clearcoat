@@ -529,3 +529,34 @@ export function matchPoint(map, x, y, maxDist) {
   });
   return best;
 }
+
+// How the sheet beside one side of a link carries onto the other side, as a
+// canvas matrix { a, b, c, d, e, f }: that side's two ends land on the other
+// side's two ends (turned, scaled and moved to fit), reflected as well when
+// that is what puts this side's panel beyond the edge from the other panel,
+// as the two lie on the car. Paint that hangs over this side's edge so lands
+// on the other panel, just inside its edge. Null if a region is gone or a
+// side has no length.
+// ponytail: the straight line between a side's ends stands in for the edge,
+// so a curved seam can drift in the middle; follow linkPoints if it shows.
+export function seamMatrix(map, link, side) {
+  const o = side === 'a' ? 'b' : 'a';
+  const ra = regionById(map, link[side].region), rb = regionById(map, link[o].region);
+  if (!ra || !rb) return null;
+  const p0 = link[side].from, p1 = link[side].to, q0 = link[o].from, q1 = link[o].to;
+  const ux = p1.x - p0.x, uy = p1.y - p0.y, wx = q1.x - q0.x, wy = q1.y - q0.y;
+  const lu = Math.hypot(ux, uy), lw = Math.hypot(wx, wy);
+  if (!lu || !lw) return null;
+  // which side of its line each panel lies on (+1 / -1), judged from a point well inside it
+  const across = (r, s, vx, vy) => { const c = labelPoint(r); return Math.sign(vx * (c.y - s.y) - vy * (c.x - s.x)) || 1; };
+  const reflect = across(ra, p0, ux, uy) === across(rb, q0, wx, wy);
+  // turn and scale this side's line onto the other's...
+  const k = lw / lu, cos = (ux * wx + uy * wy) / (lu * lw), sin = (ux * wy - uy * wx) / (lu * lw);
+  let a = k * cos, c = -k * sin, b = k * sin, d = k * cos;
+  if (reflect) {
+    // ...after reflecting about this side's own line
+    const nx = ux / lu, ny = uy / lu, r00 = 2 * nx * nx - 1, r01 = 2 * nx * ny, r11 = 2 * ny * ny - 1;
+    [a, c, b, d] = [a * r00 + c * r01, a * r01 + c * r11, b * r00 + d * r01, b * r01 + d * r11];
+  }
+  return { a, b, c, d, e: q0.x - (a * p0.x + c * p0.y), f: q0.y - (b * p0.x + d * p0.y) };
+}

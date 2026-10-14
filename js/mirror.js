@@ -7,7 +7,7 @@
 
 import { isRegionLayer, clipPolys, newId } from './engine.js';
 import { frameFrom, framed, contains } from './shapes.js';
-import { MIRROR_KINDS, regionAt, regionById, centerLine, mirrorAcross, mirrorPointKind, guessMirrorKind, trimShape } from './regions.js';
+import { MIRROR_KINDS, regionAt, regionById, centerLine, mirrorAcross, mirrorPointKind, guessMirrorKind, trimShape, regionOutline, growOutline, seamMatrix } from './regions.js';
 
 // the piece (not one of the kit's number / sponsor zones) at a point
 export const pieceAt = (map, x, y) => (map ? regionAt({ regions: map.regions.filter(r => !r.kind) }, x, y) : null);
@@ -60,6 +60,51 @@ export function mirrorImage(map, layer) {
   return copy;
 }
 
+// ---------- continue across an edge ----------
+// A layer switched to Continues has its panel's linked edges (Map › Link)
+// carry it on: what hangs over such an edge is painted on the panel that edge
+// meets, however far away that panel is on the sheet and however it is
+// turned. Like Mirrored, it is worked out when painting, so both parts follow
+// every edit.
+
+// → { home, links: [{ link, side }] } (the layer's panel and its linked
+// edges) or { error }. The panel is the one it was on when switched on
+// (`continues` holds its id), so it can be slid mostly over the edge and
+// still belong there; before that, the one under its middle.
+export function seamsOf(map, layer) {
+  if (!map) return { error: 'Load a template first.' };
+  const cx = isRegionLayer(layer) ? layer.rx + layer.rw / 2 : layer.x;
+  const cy = isRegionLayer(layer) ? layer.ry + layer.rh / 2 : layer.y;
+  const home = (typeof layer.continues === 'string' && regionById(map, layer.continues)) || homeOf(map, layer, cx, cy);
+  if (!home) return { error: `${layer.name} is not on a panel.` };
+  const links = [];
+  for (const link of map.links || []) for (const side of ['a', 'b']) if (link[side].region === home.id) links.push({ link, side });
+  if (!links.length) return { error: `${home.name} has no linked edges yet. Link them in Map.` };
+  return { home, links };
+}
+
+// The doc as it is painted: a Continues layer is trimmed to its own panel and
+// followed by one carried copy for each linked edge of that panel, each
+// trimmed to the panel across that edge. (A copy that nothing reaches is
+// simply trimmed away.)
+// ponytail: the copy's shadow offset is carried too, so it points another
+// way on a turned panel; work it out separately if that shows.
+export function withSeams(doc) {
+  if (!doc.regionMap || !doc.layers.some(l => l.continues)) return doc;
+  const map = doc.regionMap, layers = [];
+  const trimTo = (r) => [growOutline(regionOutline(r), 3)];
+  for (const l of doc.layers) {
+    const s = l.continues && seamsOf(map, l);
+    if (!s || s.error) { layers.push(l); continue; }
+    layers.push(clipPolys(l).length ? l : { ...l, clip: trimTo(s.home), clipAt: null });
+    s.links.forEach(({ link, side }, i) => {
+      const carry = seamMatrix(map, link, side), to = regionById(map, link[side === 'a' ? 'b' : 'a'].region);
+      if (carry) layers.push({ ...l, id: `${l.id}~s${i}`, continues: false, carry, clip: trimTo(to), clipAt: null });
+    });
+  }
+  return { ...doc, layers };
+}
+
 // → { copy, dst } (the new layer, and the region it landed on) or { error }
 export function mirrorLayer(map, sel) {
   if (!map) return { error: 'Load a template first.' };
@@ -88,6 +133,7 @@ export function mirrorLayer(map, sel) {
     ...sel,
     id: newId(),
     name: /\(mirrored\)$/.test(sel.name) ? sel.name : sel.name + ' (mirrored)',
+    continues: sel.continues ? dst.id : undefined, // it carries on from the twin panel's edges
     locked: false,
     groupId: null,
     matParams: sel.matParams ? { ...sel.matParams } : null,

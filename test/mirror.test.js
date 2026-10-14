@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 globalThis.document = {
   createElement: () => ({ width: 0, height: 0, getContext: () => null }),
 };
-const { mirrorLayer, pieceAt } = await import('../js/mirror.js');
+const { mirrorLayer, pieceAt, withSeams, seamsOf } = await import('../js/mirror.js');
 const { createFillLayer } = await import('../js/engine.js');
 const { parseRegionMap, setMirror } = await import('../js/regions.js');
 
@@ -131,4 +131,23 @@ test('a filled C-shaped panel mirrors onto its twin, though the middle of its bo
   assert.ok(copy.pts.every(p => p.x >= 1000 && p.x <= 1300));
   // a shape that sits wholly in the gap still belongs to the gap's panel
   assert.match(mirrorLayer(m, shape(box(120, 120, 60, 40))).error, /Wheel has no twin/);
+});
+
+test('a Continues layer is trimmed to its panel and carried over each linked edge', () => {
+  const m = map();
+  m.links = [{ a: { region: 'lone', from: { x: 1700, y: 0 }, to: { x: 1700, y: 100 } }, b: { region: 'roof', from: { x: 1000, y: 0 }, to: { x: 1400, y: 0 } } }];
+  const l = shape(box(1650, 20, 80, 20)); // hangs 30px over Lone's right edge
+  l.continues = seamsOf(m, l).home.id;
+  assert.equal(l.continues, 'lone');
+  l.pts = l.pts.map(q => ({ x: q.x + 60, y: q.y })); l.rx += 60; // slid mostly over the edge: still Lone's
+  const out = withSeams({ regionMap: m, layers: [l] }).layers;
+  assert.equal(out.length, 2);
+  assert.equal(out[0].clip[0].length, 4); // its own part, trimmed to Lone
+  assert.equal(out[1].id, l.id + '~s0');
+  const k = out[1].carry, at = (x, y) => ({ x: Math.round(k.a * x + k.c * y + k.e), y: Math.round(k.b * x + k.d * y + k.f) });
+  assert.deepEqual(at(1700, 50), { x: 1200, y: 0 }); // the edge's middle meets the roof's top edge's middle
+  assert.ok(at(1720, 50).y > 0); // over the edge lands on the roof
+  assert.deepEqual(out[0].clip[0].map(q => Math.round(q.x)), [1598, 1702, 1702, 1598]); // Lone, with its few px of bleed
+  assert.equal(l.clip, undefined); // the layer itself is untouched
+  assert.match(seamsOf(m, shape(box(10, 10, 50, 50))).error, /no linked edges/);
 });
