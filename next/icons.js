@@ -17,11 +17,19 @@ const API = 'https://api.iconify.design';
 const SIZE_ON_SHEET = 300; // px along the longer side when first placed
 
 // the shapes an SVG can hold besides <path>, as path data
-function dataOf(el) {
+export function dataOf(el) {
   const n = (k) => parseFloat(el.getAttribute(k)) || 0;
   switch (el.tagName.toLowerCase()) {
     case 'path': return el.getAttribute('d') || '';
-    case 'rect': return `M${n('x')} ${n('y')}h${n('width')}v${n('height')}h${-n('width')}z`; // ponytail: rounded corners (rx) come in square
+    case 'rect': {
+      const w = n('width'), h = n('height');
+      // a missing rx or ry takes the other's value; neither may pass half the side
+      let rx = el.hasAttribute('rx') ? n('rx') : n('ry'), ry = el.hasAttribute('ry') ? n('ry') : rx;
+      rx = Math.min(rx, w / 2); ry = Math.min(ry, h / 2);
+      if (!(rx > 0 && ry > 0)) return `M${n('x')} ${n('y')}h${w}v${h}h${-w}z`;
+      const a = (dx, dy) => `a${rx} ${ry} 0 0 1 ${dx} ${dy}`;
+      return `M${n('x') + rx} ${n('y')}h${w - 2 * rx}${a(rx, ry)}v${h - 2 * ry}${a(-rx, ry)}h${2 * rx - w}${a(-rx, -ry)}v${2 * ry - h}${a(rx, -ry)}z`;
+    }
     case 'circle': { const r = n('r'); return `M${n('cx') - r} ${n('cy')}a${r} ${r} 0 1 0 ${2 * r} 0a${r} ${r} 0 1 0 ${-2 * r} 0z`; }
     case 'ellipse': { const rx = n('rx'), ry = n('ry'); return `M${n('cx') - rx} ${n('cy')}a${rx} ${ry} 0 1 0 ${2 * rx} 0a${rx} ${ry} 0 1 0 ${-2 * rx} 0z`; }
     case 'polygon': return 'M' + (el.getAttribute('points') || '').trim() + 'z';
