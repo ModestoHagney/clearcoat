@@ -11,7 +11,7 @@ import {
   SIZE, GOOGLE_FONTS, createDoc, renderPaint, renderSpec, buildDragCache, renderPaintWithDrag,
   serializeDoc, deserializeDoc, regenerateText, textFont, TEXT_FONTS, layerCorners, layerMatrix, newId,
   createTextLayer, createImageLayer, createFillLayer, loadImage, registerCustomFont, paintLayers,
-  MATERIALS, fadeStyleOf, cleanCredits,
+  MATERIALS, fadeStyleOf, cleanCredits, cleanRepeat,
 } from '../js/engine.js';
 import { canvasToTGA } from '../js/tga.js';
 import * as persist from '../js/persist.js';
@@ -1196,6 +1196,18 @@ const actions = {
   setShapeKind(kind) { app.shapeKind = kind; requestDraw(); ui.refreshChrome(); },
   setStamp(part) { Object.assign(app.stamp, part); requestDraw(); },
 
+  // ---- repeat: copies of a layer in a line or a grid ----
+  // part: settings to change; null takes the repeat off. `panels`: redraw the
+  // panel too, for a change that shows or hides settings (a slider need not).
+  setRepeat(part, panels = true) {
+    const ls = selectedLayers().filter(l => !l.locked);
+    if (!ls.length || !canChange()) return;
+    for (const l of ls) {
+      if (part === null) delete l.repeat;
+      else l.repeat = cleanRepeat({ ...(l.repeat || { angle: 0 }), ...part });
+    }
+    change({ panels });
+  },
   // ---- patterns: a shape repeated inside a fill ----
   ownShapes: () => library.shapes,
   // '' takes the pattern off; a shape's key puts one on, or swaps what repeats
