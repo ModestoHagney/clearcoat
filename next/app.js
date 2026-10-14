@@ -296,7 +296,27 @@ function draw() {
   if (tools) tools.drawOverlay(ctx, accent);
   $('zoom-readout').textContent = Math.round(app.view.zoom * 100) + '%';
   $('empty').hidden = !!(doc.template || doc.layers.length);
+  showPos();
 }
+// the selection's top-left corner on the sheet, in the boxes by the zoom
+function selCorner() {
+  const ls = app.mode === 'map' ? [] : selectedLayers();
+  try {
+    const cs = ls.flatMap(l => layerCorners(l));
+    return cs.length ? { x: Math.round(Math.min(...cs.map(q => q.x))), y: Math.round(Math.min(...cs.map(q => q.y))) } : null;
+  } catch { return null; } // a layer with no picture yet has no box
+}
+function showPos() {
+  const at = selCorner();
+  $('pos').hidden = !at;
+  if (!at) return;
+  for (const k of ['x', 'y']) if (document.activeElement !== $('pos-' + k)) $('pos-' + k).value = at[k]; // not under the user's typing
+}
+for (const k of ['x', 'y']) $('pos-' + k).addEventListener('change', (e) => {
+  const at = selCorner(), v = Math.round(+e.target.value);
+  if (!at || !Number.isFinite(v) || !e.target.value.trim()) return showPos();
+  actions.nudge(k === 'x' ? v - at.x : 0, k === 'y' ? v - at.y : 0);
+});
 
 // ---------- undo / redo ----------
 // Snapshot-based, as in the original screen: one step per settled change.
@@ -1325,7 +1345,7 @@ const actions = {
     const same = (f) => targets.every(l => f(l) === f(top));
     const shapes = targets.every(l => isShape(l) || (isBox(l) && ['rect', 'ellipse', 'triangle'].includes(l.shape) && !l.flipH && !l.flipV));
     const sameColour = same(l => (l.color || '').toLowerCase());
-    const sameRest = same(l => l.fillType || 'solid') && same(l => l.color2 || '') && same(l => l.opacity ?? 1)
+    const sameRest = same(l => l.fillType || 'solid') && same(l => l.color2 || '') && same(l => l.opacity ?? 1) && same(l => l.blend || '')
       && same(l => !!l.mirrored) && same(l => JSON.stringify(finishSpec(app.doc, l))) && same(l => JSON.stringify(l.clip || null))
       && same(l => JSON.stringify(l.motif || null)); // a pattern and a plain shape are not the same thing
     // They cannot simply become one shape as they are: ask what is wanted.

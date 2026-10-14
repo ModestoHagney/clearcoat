@@ -594,6 +594,7 @@ export function drawLayer(ctx, layer, forSpec = false) {
     ctx.clip();
   }
   ctx.globalAlpha = layer.opacity;
+  if (layer.blend === 'multiply' && !forSpec) ctx.globalCompositeOperation = 'multiply'; // darkens what is under it: a texture over the paint
   if (doShadow) {
     // the layer is drawn once into a buffer; drawn fully off-canvas from
     // there, only its shadow lands in view, beneath the layer itself
@@ -655,7 +656,7 @@ let linearEdges = false; // on for the length of one renderPaint that asked for 
 // (A picture made by merging such layers says so with linearMix, so that it
 // keeps the look its parts had.)
 function edgesInLinear(layer) {
-  return (layer.type === 'fill' || layer.type === 'text' || layer.linearMix) && (layer.opacity ?? 1) === 1;
+  return (layer.type === 'fill' || layer.type === 'text' || layer.linearMix) && (layer.opacity ?? 1) === 1 && !layer.blend;
 }
 
 // where a layer can leave pixels, as whole-pixel bounds inside the sheet
@@ -792,6 +793,7 @@ export function buildDragCache(doc, movingIds) {
   const actx = dragAbove.getContext('2d');
   actx.clearRect(0, 0, SIZE, SIZE);
   for (let i = hi + 1; i < doc.layers.length; i++) {
+    if (doc.layers[i].blend) return null; // a blend above needs what is under it: no shortcut
     if (inPaintMap(doc.layers[i])) paintLayerInto(actx, doc.layers[i]);
   }
   return { movingIds };
@@ -909,7 +911,7 @@ export function serializeDoc(doc) {
     layers: doc.layers.map(l => ({
       id: l.id, type: l.type, name: l.name,
       groupId: l.groupId || null,
-      visible: l.visible, locked: !!l.locked, opacity: l.opacity, material: l.material,
+      visible: l.visible, locked: !!l.locked, opacity: l.opacity, blend: l.blend || null, material: l.material,
       matParams: l.matParams || null,
       specOnly: !!l.specOnly,
       fx: l.fx || null,
@@ -1061,7 +1063,7 @@ export async function deserializeDoc(data) {
         doc.layers.push({
           ...createFillLayer(l.color || '#e8e6e1'),
           id: l.id || newId(), name: l.name || 'fill',
-          visible: l.visible !== false, locked: !!l.locked, opacity: l.opacity ?? 1,
+          visible: l.visible !== false, locked: !!l.locked, opacity: l.opacity ?? 1, blend: l.blend === 'multiply' ? 'multiply' : null,
           material: l.material || 'gloss',
           matParams: l.matParams || null,
           specOnly: !!l.specOnly,
@@ -1082,7 +1084,7 @@ export async function deserializeDoc(data) {
       if (l.type === 'text') {
         const layer = {
           id: l.id || newId(), type: 'text', name: l.name || 'text',
-          visible: l.visible !== false, locked: !!l.locked, opacity: l.opacity ?? 1,
+          visible: l.visible !== false, locked: !!l.locked, opacity: l.opacity ?? 1, blend: l.blend === 'multiply' ? 'multiply' : null,
           material: l.material || 'gloss',
           matParams: l.matParams || null,
           specOnly: !!l.specOnly,
@@ -1114,7 +1116,7 @@ export async function deserializeDoc(data) {
         id: l.id || newId(),
         type: 'image',
         name: l.name || 'image',
-        visible: l.visible !== false, locked: !!l.locked, opacity: l.opacity ?? 1,
+        visible: l.visible !== false, locked: !!l.locked, opacity: l.opacity ?? 1, blend: l.blend === 'multiply' ? 'multiply' : null,
         material: l.material || 'gloss',
         matParams: l.matParams || null,
         specOnly: !!l.specOnly,

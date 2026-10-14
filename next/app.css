@@ -98,6 +98,10 @@ button:disabled { cursor: default; opacity: .38; }
 .zoom span { font: 12px var(--mono); padding: 0 4px; min-width: 42px; text-align: center; }
 .zoom button { width: 26px; height: 26px; color: var(--muted); }
 .zoom button:hover { background: var(--hover); color: var(--fg); }
+.pos { flex: none; display: flex; gap: 6px; padding: 2px 6px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line); font: 12px var(--mono); color: var(--muted); }
+.pos[hidden] { display: none; }
+.pos label { display: flex; align-items: center; gap: 4px; }
+.pos input { width: 56px; font: 12px var(--mono); padding: 3px 4px; }
 .toast { position: absolute; left: 50%; top: 14px; translate: -50% 0; z-index: 35; padding: 7px 14px; border-radius: 99px; background: var(--fg); color: var(--bar); font-size: 12.5px; box-shadow: 0 8px 24px var(--shade); max-width: calc(100% - 32px); }
 .toast.bad { background: var(--bad); color: #fff; }
 
