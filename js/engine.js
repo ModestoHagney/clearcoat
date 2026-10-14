@@ -481,7 +481,7 @@ export function cleanRepeat(r) {
     fill: !!r.fill, // as many as reach the edge of the sheet (Trim keeps them to a panel)
     gapX: num(r.gapX, -2048, 2048, 0), gapY: num(r.gapY, -2048, 2048, 0),
     angle: num(r.angle, -180, 180, 0), // tilt from the layer's own turn, in degrees
-    space: num(r.space, 0, 2048, 0), // scattered: room kept between copies; 0 lets them overlap
+    space: num(r.space, -2048, 2048, 0), // scattered: room kept between copies' boxes; below 0 they may overlap by that much
     colors, shapes, // more colours, and (for a shape) more outlines, for the copies to take
     mix: r.mix === 'random' ? 'random' : 'turn', // in turn, or each by its roll
     rSize: num(r.rSize, 0, 100, 0), rTurn: num(r.rTurn, 0, 100, 0), // how much each copy's size and turn vary
@@ -541,7 +541,7 @@ export function repeatOffsets(layer) {
     W = (ink.x1 - ink.x0) * layer.img.width * la; H = (ink.y1 - ink.y0) * layer.img.height * lb;
     cx = layer.x; cy = layer.y;
   }
-  if (r.way === 'scatter') return { cx, cy, W, H, list: scattered(layer, r, cx, cy, (W + H) / 2) };
+  if (r.way === 'scatter') return { cx, cy, W, H, list: scattered(layer, r, cx, cy, W, H, ex, ey) };
   const t = r.angle * Math.PI / 180, c = Math.cos(t), s = Math.sin(t);
   // one step in the direction (dc, ds) of the item's axes: as far as the box reaches that way, plus the gap
   const step = (dc, ds, gap) => {
@@ -565,10 +565,10 @@ export function repeatOffsets(layer) {
   return { cx, cy, W, H, list: out };
 }
 // Scattered: the layer, then copies dropped at random (by the seed) on its
-// trimmed panels, or anywhere on the sheet, each at least `space` clear of
+// trimmed panels, or anywhere on the sheet, each box at least `space` clear of
 // the others. Darts that land too close are thrown again, up to a limit, so
 // a crowded panel gets fewer than asked for.
-function scattered(layer, r, cx, cy, size) {
+function scattered(layer, r, cx, cy, W, H, ex, ey) {
   const wins = clipPolys(layer);
   let x0 = 0, y0 = 0, x1 = SIZE, y1 = SIZE;
   if (wins.length) {
@@ -577,13 +577,16 @@ function scattered(layer, r, cx, cy, size) {
     x1 = Math.max(...all.map(q => q.x)); y1 = Math.max(...all.map(q => q.y));
   }
   const rand = mulberry32(r.seed);
-  // ponytail: copies are kept apart as if round, by their mean size; outlines can still touch at the corners
-  const apart = r.space > 0 ? size + r.space : 0;
+  // two copies clash when their boxes (along the item's own axes) come closer
+  // than `space`; a space below minus the item's size lets them sit anywhere
+  // ponytail: by the item's own box, so a randomly turned or sized copy is only roughly kept clear
+  const aw = W + r.space, ah = H + r.space, apart = aw > 0 && ah > 0;
+  const clash = (q, x, y) => { const dx = x - q.x, dy = y - q.y; return Math.abs(dx * ex.x + dy * ex.y) < aw && Math.abs(dx * ey.x + dy * ey.y) < ah; };
   const pts = [{ x: cx, y: cy }];
   for (let tries = 0; pts.length < r.count && tries < r.count * 30; tries++) {
     const x = x0 + rand() * (x1 - x0), y = y0 + rand() * (y1 - y0);
     if (wins.length && !wins.some(w => contains(w, x, y))) continue;
-    if (apart && pts.some(q => (q.x - x) ** 2 + (q.y - y) ** 2 < apart * apart)) continue; // ponytail: checks every copy, fine to a few hundred
+    if (apart && pts.some(q => clash(q, x, y))) continue; // ponytail: checks every copy, fine to a few hundred
     pts.push({ x, y });
   }
   return pts.map(q => ({ x: q.x - cx, y: q.y - cy }));
