@@ -24,7 +24,7 @@ import { searchIcons, iconShape, svgToShape } from './icons.js';
 import { traceImage } from '../js/trace.js';
 import { finishSpec, finishList, withFinishes, setRule, clearRule, ruleFor, layerColour, isArea, hasOwnFinish, readFinish, writeFinish, presetOf, FINISHES, SPARKLE } from '../js/finish.js';
 import { initMap, syncGuide, guideLayer } from './map.js';
-import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
+import { mirrorLayer, mirrorImage, withMirrors, withSeams, seamsOf } from '../js/mirror.js';
 import { regionOutline, parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
 
 export const VERSION = self.VERSION || 'unknown'; // from version.js, which the page loads first
@@ -173,7 +173,7 @@ function tintedImage(img, colour) {
 const withTints = (doc) => (doc.layers.some(l => l.type === 'image' && l.color && l.img)
   ? { ...doc, layers: doc.layers.map(l => (l.type === 'image' && l.color && l.img ? { ...l, img: tintedImage(l.img, l.color) } : l)) }
   : doc);
-const shown = () => withMirrors(withTints(withFinishes(app.doc)));
+const shown = () => withSeams(withMirrors(withTints(withFinishes(app.doc))));
 let quick = false, quickTimer = null; // an edit is in full flow: draw fast, tidy up when it pauses
 let dirty = true;       // the paint composite needs re-rendering
 let composite = null;
@@ -1108,6 +1108,19 @@ const actions = {
     else ui.say(ls.length > 1 ? `Mirrored ${done} layers` : where);
     change({ now: true });
   },
+  // Continues: what hangs over a linked edge of the layer's panel is painted
+  // on the panel that edge meets, and follows every edit
+  continues() {
+    const l = actions.selected();
+    if (!l || !canChange()) return;
+    if (l.continues) { l.continues = false; change({ now: true }); return; }
+    const s = seamsOf(app.doc.regionMap, l);
+    if (s.error) { ui.say(s.error, true); ui.refresh(); return; }
+    l.continues = s.home.id;
+    const names = [...new Set(s.links.map(({ link, side }) => (regionById(app.doc.regionMap, link[side === 'a' ? 'b' : 'a'].region) || {}).name))];
+    ui.say(`Continues onto ${names.join(', ')} where it hangs over the edge`);
+    change({ now: true });
+  },
   // ---- fades ----
   // A shape's fill fades from its colour to a second one, or to nothing.
   // part: on | style ('linear' | 'radial') | to (a hex) | out (to nothing)
@@ -1337,7 +1350,7 @@ const actions = {
       return;
     }
     // their mirrored sides are part of what is painted, so they are part of the picture
-    const sheet = paintLayers(withMirrors(withTints({ ...app.doc, layers: targets })).layers, { linearEdges: true });
+    const sheet = paintLayers(withSeams(withMirrors(withTints({ ...app.doc, layers: targets }))).layers, { linearEdges: true });
     const px = sheet.getContext('2d').getImageData(0, 0, SIZE, SIZE).data;
     let x0 = SIZE, y0 = SIZE, x1 = -1, y1 = -1;
     for (let y = 0; y < SIZE; y++) {

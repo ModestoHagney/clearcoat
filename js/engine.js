@@ -715,7 +715,10 @@ export function drawLayer(ctx, layer, forSpec = false) {
   const fx = layer.fx;
   const doShadow = !forSpec && fx && fx.shadow > 0 && layer.img && (layer.type === 'image' || layer.type === 'text');
   ctx.save();
-  const windows = clipPolys(layer);
+  // a copy carried across a seam is trimmed to the panel it is carried onto
+  // (carry.clip); its own clip still lays out its scattered copies
+  const k = layer.carry;
+  const windows = k ? k.clip : clipPolys(layer);
   if (windows.length) {
     // trim: windows fixed on the sheet, one per piece. The layer keeps all of
     // its artwork and can still be moved or scaled underneath; only what
@@ -728,6 +731,9 @@ export function drawLayer(ctx, layer, forSpec = false) {
     }
     ctx.clip();
   }
+  // carried across a seam onto another panel (mirror.js withSeams): the
+  // trim above stays where it is on the sheet, the artwork goes through this
+  if (k) ctx.transform(k.a, k.b, k.c, k.d, k.e, k.f);
   ctx.globalAlpha = layer.opacity;
   if (layer.blend === 'multiply' && !forSpec) ctx.globalCompositeOperation = 'multiply'; // darkens what is under it: a texture over the paint
   if (doShadow) {
@@ -800,7 +806,9 @@ function paintBox(layer) {
   const fx = layer.fx;
   if (!(fx && fx.shadow > 0) && !layer.repeat) { // a shadow, or copies, fall outside the layer's own box
     try {
-      const cs = layerCorners(layer), xs = cs.map(q => q.x), ys = cs.map(q => q.y);
+      const k = layer.carry;
+      const cs = layerCorners(layer).map(q => (k ? { x: k.a * q.x + k.c * q.y + k.e, y: k.b * q.x + k.d * q.y + k.f } : q));
+      const xs = cs.map(q => q.x), ys = cs.map(q => q.y);
       x0 = Math.max(0, Math.floor(Math.min(...xs)) - 3); y0 = Math.max(0, Math.floor(Math.min(...ys)) - 3);
       x1 = Math.min(SIZE, Math.ceil(Math.max(...xs)) + 3); y1 = Math.min(SIZE, Math.ceil(Math.max(...ys)) + 3);
     } catch { /* no box to be had: the whole sheet */ }
@@ -1059,6 +1067,9 @@ export function serializeDoc(doc) {
       // text and pictures keep reading the right way on the other side unless
       // this asks for a true mirror image
       mirrorFlip: l.mirrorFlip ? true : undefined,
+      // what hangs over a linked edge of its panel is painted on the panel
+      // that edge meets, see mirror.js withSeams
+      continues: l.continues || undefined, // the id of the panel it belongs to
       // its finish was chosen for this layer itself, so it does not follow a
       // colour's finish rule (see finish.js)
       finishOwn: l.finishOwn ? true : undefined,
@@ -1269,6 +1280,7 @@ export async function deserializeDoc(data) {
     if (!l || !loaded.has(l.id)) continue;
     if (l.mirrored) loaded.get(l.id).mirrored = true; // any layer type, like the trim
     if (l.mirrorFlip) loaded.get(l.id).mirrorFlip = true;
+    if (typeof l.continues === 'string') loaded.get(l.id).continues = l.continues;
     if (l.finishOwn) loaded.get(l.id).finishOwn = true;
     if (l.linearMix) loaded.get(l.id).linearMix = true;
     const at = (q) => (q && Number.isFinite(q.x) && Number.isFinite(q.y) ? { x: q.x, y: q.y } : null);

@@ -387,6 +387,7 @@ export function initUI(app, actions, version) {
       (!isPic ? '' : field('Turn', slider('f-rotation', -180, 180, Math.round(l.rotation || 0)))) +
       mirroredSwitch(l.mirrored) +
       (l.mirrored && isPic ? `<label class="switch" title="Off: it reads the right way round on both sides. On: a true mirror image.">Reverse the other side<input id="f-mirrorFlip" type="checkbox"${l.mirrorFlip ? ' checked' : ''}></label>` : '') +
+      `<label class="switch" title="Where it hangs over an edge linked in Map, it carries on onto the panel that edge meets">Continue across edges<input id="f-continues" type="checkbox"${l.continues ? ' checked' : ''}></label>` +
       `<div class="acts">${trimButtons(l)}${l.mirrored ? '<button class="btn" data-act="separate" title="Make the mirrored side a layer of its own">Separate</button>' : ''}</div>`;
     // a shape's fill can fade to a second colour, or to nothing
     const look = (l.type !== 'fill' ? '' : fadeHtml(l)) +
@@ -675,6 +676,7 @@ export function initUI(app, actions, version) {
     if (id === 'fn-same') { if (e.target.value) actions.copyFinish(e.target.value); return; }
     if (/^fn-/.test(id)) return refresh(); // a slider let go: Reset comes or goes, the list's name updates
     if (id === 'f-mirrored') return actions.mirror();
+    if (id === 'f-continues') return actions.continues();
     if (id === 'f-font') return actions.setFont(e.target.value);
     if (id === 'f-fontWeight') { actions.setProp('fontWeight', +e.target.value === 400 ? null : +e.target.value); return; }
     if (id === 'f-align') { actions.setProp('align', e.target.value === 'center' ? null : e.target.value); return; }

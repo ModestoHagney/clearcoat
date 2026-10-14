@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { REGIONS_FORMAT, createRegionMap, parseRegionMap, regionById, regionAt, mirrorPoint, uniqueRegionId, detectPieces, piecesRegionMap, simplifyOutline, renameRegion, labelPoint, pointInPolygon, snapToOutline, matchPoint, linkPoints, linkLength, linkDir, centerLine, mirrorAcross, setMirror, trimShape, growOutline, guessMirrorKind } from '../js/regions.js';
+import { REGIONS_FORMAT, createRegionMap, parseRegionMap, regionById, regionAt, mirrorPoint, uniqueRegionId, detectPieces, piecesRegionMap, simplifyOutline, renameRegion, labelPoint, pointInPolygon, snapToOutline, matchPoint, linkPoints, linkLength, linkDir, seamMatrix, centerLine, mirrorAcross, setMirror, trimShape, growOutline, guessMirrorKind } from '../js/regions.js';
 
 // Convenience builder: a valid raw map with two mirrored door rectangles.
 function rawMap(overrides = {}) {
@@ -390,6 +390,23 @@ test('matchPoint carries a spot across a link to a turned, far-away region', () 
   assert.deepEqual(m.partner, { x: 575, y: 300 }); // a quarter of the way along B's top edge, from the right
   const back = matchPoint(map, 575, 298, 5); // and the same link read from B's side
   assert.deepEqual(back.partner, { x: 100, y: 25 });
+});
+
+test('seamMatrix carries paint over one side\'s edge to just inside the other panel', () => {
+  const map = linkedMap();
+  const at = (m, x, y) => ({ x: Math.round(m.a * x + m.c * y + m.e), y: Math.round(m.b * x + m.d * y + m.f) });
+  const m = seamMatrix(map, map.links[0], 'a');
+  assert.deepEqual([at(m, 100, 0), at(m, 100, 100)], [{ x: 600, y: 300 }, { x: 500, y: 300 }]); // ends on ends
+  assert.deepEqual(at(m, 110, 25), { x: 575, y: 310 }); // over A's edge: inside B, a quarter along
+  assert.ok(at(m, 50, 50).y < 300); // A itself stays beyond B's edge
+  const back = seamMatrix(map, map.links[0], 'b');
+  assert.deepEqual(at(back, 575, 290), { x: 90, y: 25 }); // and over B's edge lands just inside A
+  // the same edges with B's stretch run the other way: only a reflection fits
+  map.links[0].b = { region: 'b', from: { x: 500, y: 300 }, to: { x: 600, y: 300 } };
+  const r = seamMatrix(map, map.links[0], 'a');
+  assert.ok(Math.abs(r.a * r.d - r.b * r.c + 1) < 1e-9); // determinant -1
+  assert.deepEqual(at(r, 110, 25), { x: 525, y: 310 });
+  assert.ok(at(r, 50, 50).y < 300);
 });
 
 test('matchPoint ignores spots off the linked stretch or too far from it', () => {
