@@ -291,7 +291,7 @@ export function initUI(app, actions, version) {
         (scatter ?
           `<div class="note">Scattered over the panels it is trimmed to, or the whole sheet</div>` +
           field('Amount', slider('f-rep-count', 1, 500, r.count)) +
-          field('Space', slider('f-rep-space', 0, 400, r.space)) :
+          field('Space', slider('f-rep-space', -400, 400, r.space)) :
           `<label class="switch" title="As many as reach the edge of the sheet. Trim it to keep them to a panel.">To the edge<input id="f-rep-fill" type="checkbox"${r.fill ? ' checked' : ''}></label>` +
           (r.fill ? '' : (across ? field(grid ? 'Across' : 'Copies', slider('f-rep-count', 1, 100, r.count)) : '') +
             (down ? field(grid ? 'Down' : 'Copies', slider('f-rep-rows', 1, 100, r.rows)) : '')) +
