@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 globalThis.document = {
   createElement: () => ({ width: 0, height: 0, getContext: () => null }),
 };
-const { finishOf, layerColour, withPatterns, baseFinish, withFinishes, setRule, clearRule, finishList, ruleFor, readFinish, writeFinish, finishLabel, presetOf, SPARKLE } = await import('../js/finish.js');
+const { finishOf, layerColour, baseFinish, withFinishes, setRule, clearRule, finishList, ruleFor, readFinish, writeFinish, finishLabel, presetOf, SPARKLE } = await import('../js/finish.js');
 const { createDoc, createFillLayer, serializeDoc, deserializeDoc, cleanFinishRules } = await import('../js/engine.js');
 
 function doc() {
@@ -159,39 +159,3 @@ test('a picture has a colour only once it is given one, and then follows that co
   assert.equal(finishOf(doc, { type: 'image', color: '#FF0000' }), 'matte');
 });
 
-test('a pattern over a shape is painted and finished as two: the shape, then the pattern in its own colour', () => {
-  const shape = { id: 'a', type: 'fill', visible: true, color: '#ff0000', motif: { kind: 'star', size: 80, gap: 40, color: '#000000' } };
-  const doc = { baseColor: '#ffffff', finishRules: [{ color: '#000000', material: 'matte' }], layers: [shape] };
-  const [under, over] = withFinishes(doc).layers;
-  assert.deepEqual([under.id, under.color, under.motif, under.material || 'gloss'], ['a', '#ff0000', undefined, 'gloss']);
-  assert.deepEqual([over.id, over.color, over.motif.kind, over.material], ['a~p', '#000000', 'star', 'matte']); // black is matte, wherever it is
-  assert.deepEqual(finishList(doc).map(f => f.colour + ':' + f.material), ['#ffffff:gloss', '#ff0000:gloss', '#000000:matte']);
-  // pattern only: the shape's own paint is left out
-  const only = withPatterns({ layers: [{ ...shape, motif: { ...shape.motif, only: true } }] }).layers;
-  assert.deepEqual(only.map(l => l.id + l.color), ['a~p#000000']);
-  const plain = { layers: [{ id: 'b', type: 'fill', color: '#ff0000' }] };
-  assert.equal(withPatterns(plain), plain);
-});
-
-test('a pattern in several colours is one part per colour, each with that colour\'s finish', () => {
-  const shape = { id: 'a', type: 'fill', visible: true, color: '#ff0000', motif: { kind: 'star', size: 80, gap: 40, color: '#000000', random: true, seed: 3, colors: ['#ffffff', '#00ff00'] } };
-  const doc = { baseColor: '#808080', finishRules: [{ color: '#00ff00', material: 'chrome' }], layers: [shape] };
-  const ls = withFinishes(doc).layers;
-  assert.deepEqual(ls.map(l => [l.id, l.color, l.motif ? l.motif.part : '-', l.material || 'gloss'].join(' ')), ['a #ff0000 - gloss', 'a~p0 #000000 0 gloss', 'a~p1 #ffffff 1 gloss', 'a~p2 #00ff00 2 chrome']);
-  assert.deepEqual(finishList(doc).map(f => f.colour), ['#808080', '#ff0000', '#000000', '#ffffff', '#00ff00']);
-  // the same with Random off: the colours are the pattern's either way (they take turns instead)
-  assert.deepEqual(withPatterns({ layers: [{ ...shape, motif: { ...shape.motif, random: false } }] }).layers.map(l => l.id), ['a', 'a~p0', 'a~p1', 'a~p2']);
-});
-
-test('a pattern set to fade out fades its own paint to nothing along the shape\'s fade line', () => {
-  const shape = { id: 'a', type: 'fill', visible: true, color: '#ff0000', fillType: 'solid', fadeStyle: 'radial', fadeFrom: { x: 0, y: 0 }, fadeTo: { x: 100, y: 0 }, motif: { kind: 'star', size: 80, gap: 40, color: '#000000', colors: ['#ffffff'], fadeOut: true } };
-  const [under, p0, p1] = withPatterns({ layers: [shape] }).layers;
-  assert.equal(under.fillType, 'solid'); // the paint itself does not fade
-  assert.deepEqual([p0.fillType, p0.color, p0.color2, p0.fadeTo.x], ['radial', '#000000', '#00000000', 100]);
-  assert.deepEqual([p1.fillType, p1.color, p1.color2], ['radial', '#ffffff', '#ffffff00']);
-  // off, or with no line to follow, the pattern is solid
-  assert.equal(withPatterns({ layers: [{ ...shape, motif: { ...shape.motif, fadeOut: false } }] }).layers[1].fillType, 'solid');
-  assert.equal(withPatterns({ layers: [{ ...shape, fadeTo: undefined }] }).layers[1].fillType, 'solid');
-  // the paint fades across: the pattern goes the same way
-  assert.equal(withPatterns({ layers: [{ ...shape, fillType: 'linear' }] }).layers[1].fillType, 'linear');
-});

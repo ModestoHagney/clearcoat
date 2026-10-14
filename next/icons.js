@@ -1,7 +1,7 @@
 // Overspray: shapes from outside. An SVG (a file, or an icon from
 // the open icon sets searched through the Iconify service) is read into one of
 // this app's own outlines, so it is a shape like any other: it takes a colour,
-// repeats as a pattern, stamps, mirrors and can be reshaped.
+// repeats, stamps, mirrors and can be reshaped.
 //
 // What an SVG fills becomes the shape, and so does the inside of a line that
 // closes on itself. A line left open has no inside to fill, and several

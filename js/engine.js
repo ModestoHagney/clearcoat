@@ -1,7 +1,7 @@
 // Overspray render engine — document model, paint compositing, spec map generation.
 
 import { parseRegionMap } from './regions.js';
-import { SHAPES, motifOutline, placing, placed, cells, framed, unframed, fadeAt, flatten, contains } from './shapes.js';
+import { SHAPES, placed, flatten, contains } from './shapes.js';
 
 export const SIZE = 2048;
 
@@ -436,42 +436,11 @@ export function fillPaintStyle(ctx, layer, rx, ry, rw, rh) {
   return g;
 }
 
-// ---------- a shape repeated inside a fill (layer.motif) ----------
-
-// motif: { kind, pts?, w?, h?, name?, size, gap, stagger, turn } — what
-// repeats and how (see shapes.js). motifFrame: the mirror a copy's pattern is
-// drawn through. Every copy goes into one path, so the pattern is one fill.
 // which way a layer's fade line runs: its fill's own style while that fades,
-// else the one kept for it (a pattern can fade on a shape whose paint does not)
+// else the one kept for it
 export const fadeStyleOf = (layer) => (layer.fillType === 'radial' || layer.fillType === 'linear' ? layer.fillType : layer.fadeStyle === 'radial' ? 'radial' : 'linear');
-const motifPaths = new Map(); // settings → path, the last few worked out
-function motifPath(layer, rx, ry, rw, rh) {
-  const m = layer.motif, f = layer.motifFrame || null;
-  // Shrink: the copies get smaller along the layer's fade line, down to nothing at its far end
-  const A = layer.fadeFrom, B = layer.fadeTo, shrink = m.shrink && A && B ? [A.x, A.y, B.x, B.y, fadeStyleOf(layer)] : null;
-  const key = JSON.stringify([m, f, rx, ry, rw, rh, shrink]);
-  let all = motifPaths.get(key);
-  if (all) return all;
-  // the main shape, then any more the pattern takes turns with
-  const outs = [m, ...(m.more || [])].map(motifOutline), ones = outs.map(o => fillShapePath('path', 0, 0, 0, 0, o.pts)), box = { x: rx, y: ry, w: rw, h: rh };
-  all = new Path2D();
-  for (const c of cells(m, f ? unframed(f, box) : box)) {
-    if (m.part !== undefined && c.pick !== m.part) continue; // one colour's share of a mixed pattern (see finish.js withPatterns)
-    let size = c.size;
-    if (shrink) { // by where the copy's middle lands on the sheet
-      const p = f ? { x: f[0] * c.x + f[2] * c.y + f[4], y: f[1] * c.x + f[3] * c.y + f[5] } : c;
-      size *= 1 - fadeAt(p, A, B, shrink[4]);
-      if (size < 0.75) continue; // too small to see
-    }
-    const at = placing(outs[c.shape], c.x, c.y, size, c.turn), [a, b, cc, d, e, ff] = f ? framed(f, at) : at;
-    all.addPath(ones[c.shape], { a, b, c: cc, d, e, f: ff });
-  }
-  if (motifPaths.size > 400) motifPaths.delete(motifPaths.keys().next().value); // a patterned panel is one path for each of its colours
-  motifPaths.set(key, all);
-  return all;
-}
 const num = (v, lo, hi, d) => (Number.isFinite(+v) ? Math.max(lo, Math.min(hi, +v)) : d);
-// Who drew what a layer (or a pattern's shape) was made from: an icon from an
+// Who drew what a layer (or a repeat's shape) was made from: an icon from an
 // open set asks to be credited. [{ icon, name, set, author, licence, url }]
 const CREDIT_KEYS = ['icon', 'name', 'set', 'author', 'licence', 'url'];
 export function cleanCredits(list) {
@@ -488,29 +457,6 @@ function cleanMotifShape(m) {
   if (!pts || !(m.w > 0) || !(m.h > 0)) return null;
   const credits = cleanCredits(m.credits);
   return { kind: 'own', pts, w: +m.w, h: +m.h, id: typeof m.id === 'string' ? m.id : undefined, name: typeof m.name === 'string' ? m.name : 'Shape', ...(credits.length ? { credits } : {}) };
-}
-export function cleanMotif(m) {
-  const shape = cleanMotifShape(m);
-  if (!shape) return null;
-  const out = { ...shape, size: num(m.size, 4, 2048, 80), gap: num(m.gap, 0, 2048, 40), stagger: num(m.stagger, 0, 100, 0), turn: num(m.turn, -360, 360, 0) };
-  const more = (Array.isArray(m.more) ? m.more : []).map(cleanMotifShape).filter(Boolean).slice(0, 6);
-  if (more.length) out.more = more; // the other shapes it takes turns with
-  // color: what the pattern is painted in, over the shape's own paint; only: that paint is left out
-  if (/^#[0-9a-f]{6}$/i.test(m.color || '')) { out.color = m.color.toLowerCase(); out.only = !!m.only; }
-  else out.only = true; // from before a pattern had a colour of its own: it was the shape's, with gaps
-  // along the layer's fade line: the copies fade to nothing, get smaller, or both
-  if (m.fadeOut) out.fadeOut = true;
-  if (m.shrink) out.shrink = true;
-  // random: each copy varies by its own roll (see shapes.js cells)
-  if (m.random !== undefined || m.seed !== undefined) {
-    out.random = !!m.random;
-    out.rSize = num(m.rSize, 0, 100, 0); out.rPos = num(m.rPos, 0, 100, 0); out.rTurn = num(m.rTurn, 0, 100, 0);
-    out.seed = Number.isFinite(+m.seed) ? +m.seed | 0 : 1;
-  }
-  // more colours for the copies to take turns with (or pick between, when random)
-  const colors = (Array.isArray(m.colors) ? m.colors : []).filter(c => /^#[0-9a-f]{6}$/i.test(c || '')).slice(0, 6).map(c => c.toLowerCase());
-  if (colors.length) out.colors = colors;
-  return out;
 }
 
 export const isRegionLayer = (l) => l.type === 'fill';
@@ -740,20 +686,7 @@ function drawLayerContent(ctx, layer) {
     }
     ctx.fillStyle = fillPaintStyle(ctx, layer, rx, ry, rw, rh);
     const outline = fillShapePath(layer.shape, rx, ry, rw, rh, layer.pts);
-    if (layer.motif) {
-      // a pattern: the shape is a window onto the repeated motif. The grid is
-      // the sheet's own, so the flip above (an involution) is taken back off;
-      // a mirrored pattern comes through its motifFrame instead.
-      ctx.clip(outline);
-      if (layer.flipH || layer.flipV) {
-        ctx.translate(rx + rw / 2, ry + rh / 2);
-        ctx.scale(layer.flipH ? -1 : 1, layer.flipV ? -1 : 1);
-        ctx.translate(-(rx + rw / 2), -(ry + rh / 2));
-      }
-      ctx.fill(motifPath(layer, rx, ry, rw, rh));
-    } else {
-      ctx.fill(outline);
-    }
+    ctx.fill(outline);
     ctx.restore();
   } else {
     ctx.save();
@@ -1023,7 +956,7 @@ export function renderSpec(doc) {
 
   // Layers are stamped in runs: neighbours in the stack that carry the very
   // same finish go down as one silhouette, filled once. A livery of many
-  // shapes (every panel filled, each with a pattern) is mostly one finish, so
+  // shapes (every panel filled) is mostly one finish, so
   // it is a few stamps instead of one for each layer. Stamping the same
   // finish twice where shapes overlap gives the same result as stamping their
   // joined silhouette once, so nothing changes in what is made. Each stamp
@@ -1128,8 +1061,6 @@ export function serializeDoc(doc) {
       finishOwn: l.finishOwn ? true : undefined,
       credits: Array.isArray(l.credits) && l.credits.length ? l.credits : undefined, // see cleanCredits
       repeat: l.repeat || undefined, // copies in a line or a grid, see repeatOffsets
-      motif: l.type === 'fill' && l.motif ? l.motif : undefined,           // a pattern inside the fill
-      motifFrame: l.type === 'fill' && l.motif && l.motifFrame ? l.motifFrame : undefined,
       linearMix: l.linearMix ? true : undefined, // a merged picture whose soft pixels mix as its parts' did
       pts: Array.isArray(l.pts) ? l.pts.map((q) => { const o = { x: q.x, y: q.y }; if (q.c) o.c = { x: q.c.x, y: q.c.y }; if (q.m) o.m = true; return o; }) : undefined,
       turn: l.type === 'fill' && l.turn ? l.turn : undefined, // the angle a shape's frame stands at, in degrees
@@ -1346,11 +1277,7 @@ export async function deserializeDoc(data) {
     if (credits.length) loaded.get(l.id).credits = credits;
     const repeat = cleanRepeat(l.repeat);
     if (repeat) loaded.get(l.id).repeat = repeat;
-    const motif = l.type === 'fill' ? cleanMotif(l.motif) : null;
-    if (motif) {
-      loaded.get(l.id).motif = motif;
-      if (Array.isArray(l.motifFrame) && l.motifFrame.length === 6 && l.motifFrame.every(Number.isFinite)) loaded.get(l.id).motifFrame = l.motifFrame.slice();
-    }
+    // (a pattern from before Repeat, l.motif, is left out: the shape loads plain)
     const ok = (q) => q && Number.isFinite(q.x) && Number.isFinite(q.y);
     const clip = clipPolys(l).map(p => p.filter(ok).map(q => ({ x: q.x, y: q.y }))).filter(p => p.length >= 3);
     if (!clip.length) continue;

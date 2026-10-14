@@ -46,8 +46,8 @@ export function fadeEnds(l, style, box = { x: l.rx, y: l.ry, w: l.rw, h: l.rh })
   return (style || fadeStyleOf(l)) === 'radial' ? { a: { x: box.x + box.w / 2, y: cy }, b: right } : { a: { x: box.x, y: cy }, b: right };
 }
 export const hasFade = (l) => !!l && l.type === 'fill' && (l.fillType === 'linear' || l.fillType === 'radial');
-// something of the layer follows its fade line: its paint, or its pattern (fading out, or shrinking)
-export const hasAim = (l) => hasFade(l) || (!!l && l.type === 'fill' && !!l.motif && (!!l.motif.fadeOut || !!l.motif.shrink));
+// something of the layer follows its fade line: its paint
+export const hasAim = hasFade;
 
 // keep a shape's box in step with its outline (gradients and the engine's
 // own hit-testing work from the box)

@@ -59,6 +59,17 @@ test('a layer keeps a Multiply blend through save and load; anything else is Nor
   assert.deepEqual(back.layers.map(l => l.blend), ['multiply', null]);
 });
 
+test('a repeat keeps its settings through save and load, cleaned; an old pattern loads as the plain shape', async () => {
+  const doc = createDoc();
+  const repeat = { way: 'scatter', count: 9999, space: 12, colors: ['#FF0000', 'nope'], shapes: [{ kind: 'star' }, { kind: 'nope' }], mix: 'random', seed: 7, fadeOut: true };
+  doc.layers.push({ ...createFillLayer('#123456'), id: 'A', repeat }, { ...createFillLayer('#123456'), id: 'B', motif: { kind: 'star', size: 80, gap: 40 } });
+  const back = await deserializeDoc(JSON.parse(JSON.stringify(serializeDoc(doc))));
+  const r = back.layers[0].repeat;
+  assert.deepEqual([r.way, r.count, r.space, r.colors, r.shapes, r.mix, r.seed, r.fadeOut, r.shrink], ['scatter', 500, 12, ['#ff0000'], [{ kind: 'star' }], 'random', 7, true, false]);
+  assert.equal(back.layers[1].motif, undefined);
+  assert.equal(back.layers[1].repeat, undefined);
+});
+
 test('createFillLayer initializes colorMid/midPos and serializeDoc keeps them', () => {
   const fill = createFillLayer('#123456');
   assert.equal(fill.colorMid, null);
