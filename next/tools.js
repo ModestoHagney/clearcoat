@@ -17,7 +17,7 @@
 // Text tool: click the sheet and a line of text is put there. A selected text
 // or picture has a handle on each corner to resize it and one above to turn it.
 
-import { SIZE, createFillLayer, isRegionLayer, toLocal, layerCorners } from '../js/engine.js';
+import { SIZE, createFillLayer, isRegionLayer, toLocal, layerCorners, regenerateText } from '../js/engine.js';
 import { bounds, flatten, contains, moved, mapped, segmentAt, midOf, bendTo, insertAt, removeAt, snapAngle, nextIndex, SHAPES, aspect, boxOutline, placed, joined } from '../js/shapes.js';
 import { regionOutline, snapToOutline, trimShape, growOutline, pointInPolygon } from '../js/regions.js';
 import { clipPolys, fadeStyleOf } from '../js/engine.js';
@@ -285,7 +285,7 @@ export function initTools(app, env) {
       if (!l.img) continue;
       const q = toLocal(l, p.x, p.y), hw = l.img.width / 2, hh = l.img.height / 2;
       if (Math.abs(q.x) <= hw && Math.abs(q.y) <= hh) {
-        if (4 * hw * hh * (l.scale || 1) * (l.scaleY ?? l.scale ?? 1) > BIG * SIZE * SIZE && l.id !== app.sel) continue;
+        if (4 * hw * hh / (l.img.res || 1) ** 2 * (l.scale || 1) * (l.scaleY ?? l.scale ?? 1) > BIG * SIZE * SIZE && l.id !== app.sel) continue;
         return l;
       }
     }
@@ -554,6 +554,7 @@ export function initTools(app, env) {
     if (!d.went && d.kind === 'bend') setShape(d.layer, insertAt(d.layer.pts, d.i, 0.5));       // a click on the dot: a point there
     else if (!d.went && d.kind === 'edge') setShape(d.layer, insertAt(d.layer.pts, d.seg.i, d.seg.t)); // a click on the line
     else if (d.kind === 'move' && !d.went) return;
+    else if (d.kind === 'scale' && d.layer.type === 'text') regenerateText(d.layer); // its letters drawn again at the new size, so they stay sharp
     change({ now: true });
   }
 
