@@ -319,6 +319,23 @@ export function initUI(app, actions, version) {
         `<label class="switch" title="Leave out the shape's own paint, so what is underneath shows between the pattern">Pattern only<input id="f-pat-only" type="checkbox"${mo.only ? ' checked' : ''}></label>`) +
       `</details>`;
   }
+  // Repeat: the layer copied in a line or a grid, from where it is. `l`: the
+  // layer whose settings show (the first, when several are selected).
+  function repeatHtml(l) {
+    const r = l.repeat, grid = r && r.way === 'grid';
+    const across = r && r.way !== 'down', down = r && r.way !== 'across';
+    return `<details class="more fold" id="f-repfold"${repOpen ? ' open' : ''}><summary>Repeat</summary>` +
+      `<label class="switch" title="Copies of this layer in a line or a grid, starting from where it is. They follow every change to it.">Repeat<input id="f-rep-on" type="checkbox"${r ? ' checked' : ''}></label>` +
+      (!r ? '' :
+        field('Way', `<select id="f-rep-way">${[['across', 'Across'], ['down', 'Down'], ['grid', 'Grid']].map(([v, n]) => opt(v, n, v === r.way)).join('')}</select>`) +
+        `<label class="switch" title="As many as reach the edge of the sheet. Trim it to keep them to a panel.">To the edge<input id="f-rep-fill" type="checkbox"${r.fill ? ' checked' : ''}></label>` +
+        (r.fill ? '' : (across ? field(grid ? 'Across' : 'Copies', slider('f-rep-count', 1, 100, r.count)) : '') +
+          (down ? field(grid ? 'Down' : 'Copies', slider('f-rep-rows', 1, 100, r.rows)) : '')) +
+        (across ? field(grid ? 'Gap across' : 'Gap', slider('f-rep-gapX', -200, 400, r.gapX)) : '') +
+        (down ? field(grid ? 'Gap down' : 'Gap', slider('f-rep-gapY', -200, 400, r.gapY)) : '') +
+        field('Angle', slider('f-rep-angle', -180, 180, r.angle))) +
+      `</details>`;
+  }
   // what a pattern can repeat or a stamp place: the ready-made shapes, then
   // the library's. `current`: its key; `kept`: a pattern's own shape that has
   // since left the library, so the list can still name it.
@@ -340,6 +357,7 @@ export function initUI(app, actions, version) {
       const fills = many.filter((x) => x.type === 'fill' && !x.specOnly);
       return `<div class="note">${many.length} layers selected</div>` + colourNote() +
         (fills.length ? fadeHtml(fills.find((x) => x.fillType === 'linear' || x.fillType === 'radial') || fills[0]) + patternHtml(fills.find((x) => x.motif) || fills[0]) : '') +
+        repeatHtml(many.find((x) => x.repeat) || many[0]) +
         `<label class="switch" title="Paint them on the twin panel too, or across the centreline (Ctrl+M)">Mirrored<input id="f-mirrored" type="checkbox"${many.some((x) => x.mirrored) ? ' checked' : ''}></label>` +
         `<div class="acts"><button class="btn" data-act="merge" title="Join them into one. It asks first if they differ in colour or kind. (Ctrl+E)">Merge</button>` +
         (shapeCan().wrap ? '<button class="btn" data-act="wrap" title="One shape pulled tight round them, like a rubber band: two circles become a slot">Wrap</button>' : '') +
@@ -383,9 +401,10 @@ export function initUI(app, actions, version) {
       field('Opacity', slider('f-opacity', 0, 100, (l.opacity ?? 1) * 100)) +
       field('Blend', `<select id="f-blend" title="Multiply darkens what is under it, for a texture such as worn cardboard">${opt('', 'Normal', !l.blend)}${opt('multiply', 'Multiply', l.blend === 'multiply')}</select>`) +
       field('Name', `<input id="f-name" type="text" value="${esc(l.name)}">`);
-    return main + acts + `<details class="more" id="f-more"${moreOpen ? ' open' : ''}><summary>More</summary>${more}</details>`;
+    return main + (l.specOnly ? '' : repeatHtml(l)) + acts + `<details class="more" id="f-more"${moreOpen ? ' open' : ''}><summary>More</summary>${more}</details>`;
   }
   let moreOpen = false; // stays as the user left it while the panel is redrawn
+  let repOpen = true;   // the same for Repeat's
   let patOpen = true;   // the same for a pattern's settings; they open when a pattern is put on or added to
   const trimCount = (l) => (Array.isArray(l.clip) ? (Array.isArray(l.clip[0]) ? l.clip.length : 1) : 0);
   function trimButtons(l) {
@@ -565,6 +584,8 @@ export function initUI(app, actions, version) {
     if (t.dataset.patc !== undefined) { actions.patternColour(+t.dataset.patc, t.value); return; }
     const pat = /^f-pat-(size|gap|stagger|turn|rSize|rPos|rTurn)$/.exec(t.id || '');
     if (pat) { actions.tweakMotif(pat[1], t.dataset.exact !== undefined ? +t.dataset.exact : CURVED[pat[1]] ? fromSlider(pat[1], +t.value) : +t.value); return; }
+    const rep = /^f-rep-(count|rows|gapX|gapY|angle)$/.exec(t.id || '');
+    if (rep) { actions.setRepeat({ [rep[1]]: +t.value }, false); return; }
     // plain settings: the control's id names the layer setting it sets
     const m = /^f-(fx-)?(fontSize|outlineWidth|outlineColor|letterSpacing|lineSpacing|curve|rotation|shadow|shadowColor|shadowDX|shadowDY|text)$/.exec(t.id || '');
     if (m && layer) {
@@ -658,7 +679,7 @@ export function initUI(app, actions, version) {
   };
   panels.colour.addEventListener('contextmenu', editChip);
   panels.colour.addEventListener('dblclick', editChip);
-  panels.props.addEventListener('toggle', (e) => { if (e.target.id === 'f-more') moreOpen = e.target.open; if (e.target.id === 'f-patfold') patOpen = e.target.open; }, true);
+  panels.props.addEventListener('toggle', (e) => { if (e.target.id === 'f-more') moreOpen = e.target.open; if (e.target.id === 'f-patfold') patOpen = e.target.open; if (e.target.id === 'f-repfold') repOpen = e.target.open; }, true);
   panels.props.addEventListener('change', (e) => {
     const id = e.target.id;
     if (id === 'fn-sparkle') return actions.tweakFinish('sparkle', e.target.checked);
@@ -669,6 +690,9 @@ export function initUI(app, actions, version) {
     if (id === 'f-fontWeight') { actions.setProp('fontWeight', +e.target.value === 400 ? null : +e.target.value); return; }
     if (id === 'f-align') { actions.setProp('align', e.target.value === 'center' ? null : e.target.value); return; }
     if (id === 'f-fade') return actions.setFade('on', e.target.checked);
+    if (id === 'f-rep-on') return actions.setRepeat(e.target.checked ? {} : null);
+    if (id === 'f-rep-way') return actions.setRepeat({ way: e.target.value });
+    if (id === 'f-rep-fill') return actions.setRepeat({ fill: e.target.checked });
     if (id === 'f-pat-add') { if (e.target.value) actions.addMotifShape(e.target.value); return; }
     if (id === 'f-pat-only') return actions.tweakMotif('only', e.target.checked);
     if (id === 'f-pat-random') return actions.motifRandom(e.target.checked);

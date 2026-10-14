@@ -515,6 +515,99 @@ export function cleanMotif(m) {
 
 export const isRegionLayer = (l) => l.type === 'fill';
 
+// ---------- Repeat: copies of a layer in a line or a grid ----------
+// layer.repeat = { way: across | down | grid, count, rows, fill, gapX, gapY, angle }.
+// The layer itself is the first copy; the rest step on from it along its own
+// axes (so a turned layer repeats the way it is turned), tilted by angle.
+// A step is the item's own size, so copies sit snug, plus the gap. Copies are
+// drawn from the layer each time, so they follow every change to it.
+const REPEAT_WAYS = ['across', 'down', 'grid'];
+const REPEAT_MAX = 4000; // copies drawn at most, however small the step
+export function cleanRepeat(r) {
+  if (!r || typeof r !== 'object') return null;
+  return {
+    way: REPEAT_WAYS.includes(r.way) ? r.way : 'across',
+    count: num(r.count, 1, 200, 5) | 0, rows: num(r.rows, 1, 200, 3) | 0, // copies across, and down
+    fill: !!r.fill, // as many as reach the edge of the sheet (Trim keeps them to a panel)
+    gapX: num(r.gapX, -2048, 2048, 0), gapY: num(r.gapY, -2048, 2048, 0),
+    angle: num(r.angle, -180, 180, 0), // tilt from the layer's own turn, in degrees
+  };
+}
+// where a picture's own pixels are, as fractions of it: text and logos carry
+// see-through margins that would leave gaps between copies
+const inks = new WeakMap();
+function inkBox(img) {
+  if (inks.has(img)) return inks.get(img);
+  // ponytail: read at 256px at most, so the box is a pixel or two generous on a big picture
+  const k = Math.min(1, 256 / Math.max(img.width, img.height, 1));
+  const w = Math.max(1, Math.round(img.width * k)), h = Math.max(1, Math.round(img.height * k));
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.drawImage(img, 0, 0, w, h);
+  const d = g.getImageData(0, 0, w, h).data;
+  let x0 = w, y0 = h, x1 = -1, y1 = -1;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    if (d[(y * w + x) * 4 + 3] < 16) continue;
+    if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+  }
+  const box = x1 < 0 ? { x0: 0, y0: 0, x1: 1, y1: 1 } : { x0: x0 / w, y0: y0 / h, x1: (x1 + 1) / w, y1: (y1 + 1) / h };
+  inks.set(img, box);
+  return box;
+}
+// → where each copy goes, as { x, y } offsets on the sheet; the first is the layer itself
+export function repeatOffsets(layer) {
+  const r = layer.repeat;
+  if (!r) return [{ x: 0, y: 0 }];
+  // the item's own axes on the sheet, and its size along them
+  let ex, ey, W, H, cx, cy;
+  if (isRegionLayer(layer)) {
+    // ponytail: a shape's box is level with the sheet, so a turned shape steps by its level box
+    ex = { x: layer.flipH ? -1 : 1, y: 0 }; ey = { x: 0, y: layer.flipV ? -1 : 1 };
+    W = layer.rw; H = layer.rh; cx = layer.rx + W / 2; cy = layer.ry + H / 2;
+  } else {
+    const m = layerMatrix(layer), o = m.transformPoint(new DOMPoint(0, 0));
+    const a = m.transformPoint(new DOMPoint(1, 0)), b = m.transformPoint(new DOMPoint(0, 1));
+    const la = Math.hypot(a.x - o.x, a.y - o.y) || 1, lb = Math.hypot(b.x - o.x, b.y - o.y) || 1;
+    ex = { x: (a.x - o.x) / la, y: (a.y - o.y) / la }; ey = { x: (b.x - o.x) / lb, y: (b.y - o.y) / lb };
+    const ink = inkBox(layer.img);
+    W = (ink.x1 - ink.x0) * layer.img.width * la; H = (ink.y1 - ink.y0) * layer.img.height * lb;
+    cx = layer.x; cy = layer.y;
+  }
+  const t = r.angle * Math.PI / 180, c = Math.cos(t), s = Math.sin(t);
+  // one step in the direction (dc, ds) of the item's axes: as far as the box reaches that way, plus the gap
+  const step = (dc, ds, gap) => {
+    const k = Math.max(2, Math.min(Math.abs(dc) > 1e-6 ? W / Math.abs(dc) : Infinity, Math.abs(ds) > 1e-6 ? H / Math.abs(ds) : Infinity) + gap);
+    return { x: (ex.x * dc + ey.x * ds) * k, y: (ex.y * dc + ey.y * ds) * k };
+  };
+  const u = step(c, s, r.gapX), v = step(-s, c, r.gapY);
+  const reach = SIZE * 1.5 + W + H; // from anywhere on the sheet, past its far edge
+  const fit = (w) => Math.ceil(reach / Math.hypot(w.x, w.y));
+  const n = r.way === 'down' ? 1 : r.fill ? fit(u) : r.count;
+  const m = r.way === 'across' ? 1 : r.fill ? fit(v) : r.rows;
+  const out = [];
+  for (let j = 0; j < m; j++) {
+    for (let i = 0; i < n && out.length < REPEAT_MAX; i++) {
+      const x = u.x * i + v.x * j, y = u.y * i + v.y * j;
+      const px = cx + x, py = cy + y, edge = W + H; // copies wholly off the sheet are left out
+      if (px < -edge || py < -edge || px > SIZE + edge || py > SIZE + edge) continue;
+      out.push({ x, y });
+    }
+  }
+  return out;
+}
+// the layer and its copies
+function drawCopies(ctx, layer) {
+  if (!layer.repeat) return drawLayerContent(ctx, layer);
+  for (const o of repeatOffsets(layer)) {
+    ctx.save();
+    ctx.translate(o.x, o.y);
+    drawLayerContent(ctx, layer);
+    ctx.restore();
+  }
+}
+
+
 // ---------- compositing ----------
 
 const paintCanvas = document.createElement('canvas');
@@ -607,7 +700,7 @@ export function drawLayer(ctx, layer, forSpec = false) {
     // there, only its shadow lands in view, beneath the layer itself
     const rctx = fxScratch.getContext('2d');
     rctx.clearRect(0, 0, SIZE, SIZE);
-    drawLayerContent(rctx, layer);
+    drawCopies(rctx, layer);
     ctx.save();
     ctx.shadowColor = fx.shadowColor || '#000000';
     ctx.shadowBlur = Math.max(0, Math.min(60, fx.shadow));
@@ -617,7 +710,7 @@ export function drawLayer(ctx, layer, forSpec = false) {
     ctx.restore();
     ctx.drawImage(fxScratch, 0, 0);
   } else {
-    drawLayerContent(ctx, layer);
+    drawCopies(ctx, layer);
   }
   ctx.restore();
 }
@@ -670,7 +763,7 @@ function edgesInLinear(layer) {
 function paintBox(layer) {
   let x0 = 0, y0 = 0, x1 = SIZE, y1 = SIZE;
   const fx = layer.fx;
-  if (!(fx && fx.shadow > 0)) { // a shadow falls outside the layer's own box
+  if (!(fx && fx.shadow > 0) && !layer.repeat) { // a shadow, or copies, fall outside the layer's own box
     try {
       const cs = layerCorners(layer), xs = cs.map(q => q.x), ys = cs.map(q => q.y);
       x0 = Math.max(0, Math.floor(Math.min(...xs)) - 3); y0 = Math.max(0, Math.floor(Math.min(...ys)) - 3);
@@ -935,6 +1028,7 @@ export function serializeDoc(doc) {
       // colour's finish rule (see finish.js)
       finishOwn: l.finishOwn ? true : undefined,
       credits: Array.isArray(l.credits) && l.credits.length ? l.credits : undefined, // see cleanCredits
+      repeat: l.repeat || undefined, // copies in a line or a grid, see repeatOffsets
       motif: l.type === 'fill' && l.motif ? l.motif : undefined,           // a pattern inside the fill
       motifFrame: l.type === 'fill' && l.motif && l.motifFrame ? l.motifFrame : undefined,
       linearMix: l.linearMix ? true : undefined, // a merged picture whose soft pixels mix as its parts' did
@@ -1151,6 +1245,8 @@ export async function deserializeDoc(data) {
     if (l.type === 'image' && /^#[0-9a-f]{6}$/i.test(l.color || '')) loaded.get(l.id).color = l.color; // a picture painted in one colour
     const credits = cleanCredits(l.credits);
     if (credits.length) loaded.get(l.id).credits = credits;
+    const repeat = cleanRepeat(l.repeat);
+    if (repeat) loaded.get(l.id).repeat = repeat;
     const motif = l.type === 'fill' ? cleanMotif(l.motif) : null;
     if (motif) {
       loaded.get(l.id).motif = motif;
