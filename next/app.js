@@ -19,10 +19,10 @@ import { loadTemplate } from '../js/template.js';
 import { saveToIracing, paintFilenames, validCustid, exportPaintCanvas, paintsDir, carFolders, isPaintsFolder, matchCar } from '../js/iracing.js';
 import { initUI } from './ui.js';
 import { initTools, isShape, isBox, moveLayer, setShape, fadeEnds, hasFade, hasAim } from './tools.js';
-import { moved, joined, boxOutline, pieces, SHAPES, hasInner, outerOnly, wrapped, bounds as shapeBounds, mapped as shapeMapped } from '../js/shapes.js';
+import { moved, joined, boxOutline, placed, pieces, SHAPES, hasInner, outerOnly, wrapped, bounds as shapeBounds, mapped as shapeMapped } from '../js/shapes.js';
 import { searchIcons, iconShape, svgToShape } from './icons.js';
 import { traceImage } from '../js/trace.js';
-import { finishSpec, finishList, withFinishes, withPatterns, setRule, clearRule, ruleFor, layerColour, isArea, hasOwnFinish, readFinish, writeFinish, presetOf, FINISHES, SPARKLE } from '../js/finish.js';
+import { finishSpec, finishList, withFinishes, setRule, clearRule, ruleFor, layerColour, isArea, hasOwnFinish, readFinish, writeFinish, presetOf, FINISHES, SPARKLE } from '../js/finish.js';
 import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors } from '../js/mirror.js';
 import { regionOutline, parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
@@ -634,7 +634,7 @@ const handCursor = () => cv.classList.toggle('pan', (spaceHeld || app.tool === '
 let library = { logos: [], shapes: [], sets: [] }; // sets: several layers kept as one thing (a badge in three colours, a logo with its lettering)
 const saveLibrary = () => persist.saveBlob('next-library', library).catch(() => { /* quota: it still works this session */ });
 // A shape brought in from outside (an icon, an SVG file) is kept in the
-// library, so it is there for patterns and stamps too. One already kept (the
+// library, so it is there for Repeat and stamps too. One already kept (the
 // same icon again) is not kept twice. → the library's copy
 function keepShape(made) {
   const icon = made.credit ? made.credit.icon : null;
@@ -674,31 +674,15 @@ function aim(ls, fresh) {
   const ends = had ? { a: had.fadeFrom, b: had.fadeTo } : fadeEnds(using[0], fadeStyleOf(using[0]), box);
   for (const l of using) if (fresh || !(l.fadeFrom && l.fadeTo)) { l.fadeFrom = { ...ends.a }; l.fadeTo = { ...ends.b }; }
 }
-// the selected shapes a pattern can go on
-const patterned = () => selectedLayers().filter(l => l.type === 'fill' && !isArea(l));
-// Change the pattern of every selected shape that has one. f(motif, layer) →
-// the settings to change. A new motif object each time: the engine keeps
-// patterns by their settings. → whether there was anything to change
-function eachMotif(f) {
-  const ls = patterned().filter(l => l.motif);
-  if (!ls.length || !canChange()) return false;
-  for (const l of ls) l.motif = { ...l.motif, ...f(l.motif, l) };
-  return true;
-}
 const newSeed = () => (Math.random() * 0x7fffffff) | 0;
-// the next colour to mix into a pattern: one already in the livery that it
-// does not have yet, else one that shows on the shape
-function nextMix(m, l) {
-  const has = new Set([l.color, m.color, ...(m.colors || [])].map(c => String(c || '').toLowerCase()));
-  const livery = [app.doc.baseColor, ...withPatterns(app.doc).layers.map(layerColour)].filter(Boolean).map(c => c.toLowerCase());
+// the next colour for a repeat's copies: one already in the livery that they
+// do not have yet, else a plain one
+function nextMix(colors) {
+  const has = new Set(colors.map(c => String(c || '').toLowerCase()));
+  const livery = [app.doc.baseColor, ...app.doc.layers.map(layerColour)].filter(Boolean).map(c => c.toLowerCase());
   return [...livery, '#ffffff', '#101114', '#808080'].find(c => !has.has(c)) || '#808080';
 }
-// a first colour for a pattern: one that shows on the shape's own
-const standsOut = (hex) => {
-  const [r, g, b] = [1, 3, 5].map(i => parseInt(String(hex || '#ffffff').slice(i, i + 2), 16) || 0);
-  return 0.299 * r + 0.587 * g + 0.114 * b > 150 ? '#101114' : '#ffffff';
-};
-// What a pattern repeats or a stamp places, from its key: a ready-made
+// What a repeat's copies take, or a stamp places, from its key: a ready-made
 // shape's name, or 'own:<id>' for one saved in the library. A library shape
 // is copied in, so the livery does not depend on this browser's library.
 function motifOf(key) {
@@ -1121,7 +1105,7 @@ const actions = {
   // A shape's fill fades from its colour to a second one, or to nothing.
   // part: on | style ('linear' | 'radial') | to (a hex) | out (to nothing)
   setFade(part, value) {
-    const ls = patterned(); // every selected shape: together they fade as one
+    const ls = selectedLayers().filter(l => l.type === 'fill' && !isArea(l)); // every selected shape: together they fade as one
     if (!ls.length || !canChange()) return;
     for (const l of ls) {
       // switched on, it starts as the usual want: a smooth fade to nothing
@@ -1130,19 +1114,13 @@ const actions = {
         l.fillType = value ? fadeStyleOf(l) : 'solid';
         if (value && (!l.color2 || l.color2 === '#101114')) l.color2 = l.color + '00';
       } else if (part === 'style') {
-        l.fadeStyle = value === 'radial' ? 'radial' : 'linear'; // kept, for a pattern that fades on paint that does not
+        l.fadeStyle = value === 'radial' ? 'radial' : 'linear';
         if (hasFade(l)) l.fillType = l.fadeStyle;
       } else if (part === 'to') l.color2 = value;
       else if (part === 'out') l.color2 = value ? l.color + '00' : '#ffffff'; // the same colour, see-through
     }
     aim(ls, part === 'style');
     change(part === 'to' ? { panels: false } : { now: true });
-  },
-  // a pattern's own fades, along the same line: 'fadeOut' (to nothing) or 'shrink' (smaller and smaller)
-  motifFade(key, on) {
-    if (!eachMotif(() => ({ [key]: !!on }))) return;
-    aim(patterned(), false);
-    change({ now: true });
   },
   // the mirrored side becomes a layer of its own, to be changed separately
   separate() {
@@ -1212,78 +1190,34 @@ const actions = {
   repeatReroll() { actions.setRepeat({ seed: newSeed() }); },
   // the copies' other colours: they take turns with the layer's own, or pick by their roll
   addRepeatColour() {
-    actions.setRepeat((r, l) => ({ colors: [...r.colors, nextMix({ color: layerColour(l), colors: r.colors }, l)] }));
+    actions.setRepeat((r, l) => ({ colors: [...r.colors, nextMix([layerColour(l), ...r.colors])] }));
     // the new colour is there to be chosen: its box opens the colour pop-up straight away
     const r = (actions.selected() || {}).repeat, n = r ? r.colors.length : 0;
     if (n) setTimeout(() => { const box = $(`f-rep-c${n - 1}`); if (box) box.click(); }, 0);
   },
-  dropRepeatColour(k) { actions.setRepeat((r) => ({ colors: r.colors.filter((_, i) => i !== k) })); },
+  // k: which of the extra colours, or -1 for the layer's own, whose place the first extra then takes
+  dropRepeatColour(k) {
+    if (k >= 0) return actions.setRepeat((r) => ({ colors: r.colors.filter((_, i) => i !== k) }));
+    const r = (actions.selected() || {}).repeat;
+    if (!r || !r.colors.length) return; // the only colour stays
+    actions.setRepeat({ colors: r.colors.slice(1) }, false);
+    actions.applyColour(r.colors[0]);
+  },
   repeatColour(k, hex) { actions.setRepeat((r) => ({ colors: r.colors.map((c, i) => (i === k ? hex : c)) }), false); },
   // a shape's copies can take other outlines too
   addRepeatShape(key) { actions.setRepeat((r) => ({ shapes: [...r.shapes, motifOf(key)] })); },
-  dropRepeatShape(k) { actions.setRepeat((r) => ({ shapes: r.shapes.filter((_, i) => i !== k) })); },
-  // ---- patterns: a shape repeated inside a fill ----
+  // k: which of the extra shapes, or -1 for the layer's own: the first extra
+  // then becomes its outline, the same size, where it is
+  dropRepeatShape(k) {
+    if (k >= 0) return actions.setRepeat((r) => ({ shapes: r.shapes.filter((_, i) => i !== k) }));
+    actions.setRepeat((r, l) => {
+      if (l.type !== 'fill' || !r.shapes.length) return {}; // the only shape stays
+      l.shape = 'path';
+      setShape(l, placed(r.shapes[0], l.rx + l.rw / 2, l.ry + l.rh / 2, Math.max(l.rw, l.rh), l.turn || 0));
+      return { shapes: r.shapes.slice(1) };
+    });
+  },
   ownShapes: () => library.shapes,
-  // '' takes the pattern off; a shape's key puts one on, or swaps what repeats
-  tweakMotif(key, v) {
-    if (eachMotif(() => ({ [key]: v }))) change({ panels: false });
-  },
-  // more shapes for the pattern to take turns with (or, with Random on, pick between)
-  // Add a shape to the pattern of every selected shape. One with no pattern
-  // yet gets one: a copy of the pattern another selected shape has, so they
-  // carry one pattern (the grid is the sheet's), or else a new one of this shape.
-  addMotifShape(key) {
-    const ls = patterned(), shape = motifOf(key);
-    if (!ls.length || !canChange()) return;
-    if (!shape) return ui.refresh(); // one of my own, no longer in the library
-    const lead = (ls.find(l => l.motif) || {}).motif;
-    for (const l of ls) {
-      if (!l.motif && !lead) { l.motif = { ...shape, size: 80, gap: 40, stagger: 0, turn: 0, only: false, color: standsOut(l.color) }; continue; }
-      const m = l.motif || lead;
-      l.motif = { ...m, more: [...(m.more || []), shape].slice(0, 6) };
-    }
-    change();
-  },
-  // k: which of the extra shapes, or -1 for the first. Without the first the
-  // next one takes its place; without any there is no pattern.
-  dropMotifShape(k) {
-    const ls = patterned().filter(l => l.motif);
-    if (!ls.length || !canChange()) return;
-    for (const l of ls) {
-      const { kind, pts, w, h, id, name, more = [], ...rest } = l.motif;
-      if (k >= 0) l.motif = { ...l.motif, more: more.filter((_, i) => i !== k) };
-      else if (more.length) l.motif = { ...rest, ...more[0], more: more.slice(1) };
-      else { delete l.motif; delete l.motifFrame; }
-    }
-    change();
-  },
-  // Random: each copy varies by a roll kept with the livery (the seed). The
-  // selected shapes share one seed, so they carry one random pattern.
-  motifRandom(on) {
-    const lead = (patterned().find(l => l.motif && l.motif.seed !== undefined) || {}).motif, seed = lead ? lead.seed : newSeed();
-    if (eachMotif(m => ({ random: !!on, seed, rSize: m.rSize ?? 30, rPos: m.rPos ?? 30, rTurn: m.rTurn ?? 30, colors: m.colors || [] }))) change();
-  },
-  reshuffle() {
-    const seed = newSeed();
-    if (eachMotif(() => ({ seed }))) change();
-  },
-  // the pattern's other colours: its copies take turns with them, or pick between them when random
-  addPatternColour() {
-    if (!eachMotif((m, l) => ({ colors: [...(m.colors || []), nextMix(m, l)].slice(0, 6) }))) return;
-    change();
-    // the new colour is there to be chosen: its box opens the colour pop-up straight away
-    const l = actions.selected(), n = l && l.motif ? (l.motif.colors || []).length : 0;
-    if (n) setTimeout(() => { const box = $(`f-pat-c${n - 1}`); if (box) box.click(); }, 0);
-  },
-  // k: which of the extra colours, or -1 for the first, whose place the next one then takes
-  dropPatternColour(k) {
-    const without = (m) => (k >= 0 ? { colors: (m.colors || []).filter((_, i) => i !== k) }
-      : (m.colors || []).length ? { color: m.colors[0], colors: m.colors.slice(1) } : {}); // the only colour stays
-    if (eachMotif(without)) change();
-  },
-  patternColour(k, hex) {
-    if (eachMotif(m => ({ colors: (m.colors || []).map((c, i) => (i === k ? hex : c)) }))) change({ panels: false });
-  },
   setBandWidth(n) { app.bandWidth = Math.max(2, Math.min(800, Math.round(n) || 60)); requestDraw(); },
   redraw() { requestDraw(); ui.refresh(); },
   hint: () => (app.mode === 'map' ? (mapTools ? mapTools.hint() : '') : tools ? tools.hint() : ''),
@@ -1373,7 +1307,7 @@ const actions = {
     const sameColour = same(l => (l.color || '').toLowerCase());
     const sameRest = same(l => l.fillType || 'solid') && same(l => l.color2 || '') && same(l => l.opacity ?? 1) && same(l => l.blend || '')
       && same(l => !!l.mirrored) && same(l => JSON.stringify(finishSpec(app.doc, l))) && same(l => JSON.stringify(l.clip || null))
-      && same(l => JSON.stringify(l.motif || null)); // a pattern and a plain shape are not the same thing
+      && same(l => JSON.stringify(l.repeat || null)); // copies and a plain shape are not the same thing
     // They cannot simply become one shape as they are: ask what is wanted.
     // → 'shape' (like the top one) | a colour for them all | 'group' | 'picture'
     let how = 'shape';
@@ -1396,7 +1330,7 @@ const actions = {
       return;
     }
     // their mirrored sides are part of what is painted, so they are part of the picture
-    const sheet = paintLayers(withMirrors(withTints(withPatterns({ ...app.doc, layers: targets }))).layers, { linearEdges: true });
+    const sheet = paintLayers(withMirrors(withTints({ ...app.doc, layers: targets })).layers, { linearEdges: true });
     const px = sheet.getContext('2d').getImageData(0, 0, SIZE, SIZE).data;
     let x0 = SIZE, y0 = SIZE, x1 = -1, y1 = -1;
     for (let y = 0; y < SIZE; y++) {
@@ -1695,7 +1629,7 @@ const actions = {
   // who is to be credited for what is in the livery: icons from the open sets, wherever they ended up
   credits() {
     const all = [];
-    for (const l of app.doc.layers) all.push(...(l.credits || []), ...(l.motif ? [l.motif, ...(l.motif.more || [])].flatMap(m => m.credits || []) : []), ...(l.repeat ? l.repeat.shapes.flatMap(m => m.credits || []) : []));
+    for (const l of app.doc.layers) all.push(...(l.credits || []), ...(l.repeat ? l.repeat.shapes.flatMap(m => m.credits || []) : []));
     return cleanCredits(all);
   },
   // Several layers kept in the library as one thing. They are kept as a
@@ -1712,7 +1646,7 @@ const actions = {
     const x = Math.min(...xs), y = Math.min(...ys), w = Math.max(1, Math.max(...xs) - x), h = Math.max(1, Math.max(...ys) - y);
     const layers = serializeDoc({ ...app.doc, layers: ls }).layers.map(l => ({ ...l, clip: undefined, clipAt: undefined, mirrored: false, colorRef: null, groupId: null }));
     // its picture: the layers alone, as they are painted, at library size
-    const sheet = paintLayers(withTints(withPatterns({ ...app.doc, layers: ls })).layers, { linearEdges: true });
+    const sheet = paintLayers(withTints({ ...app.doc, layers: ls }).layers, { linearEdges: true });
     const k = 160 / Math.max(w, h), t = document.createElement('canvas');
     t.width = Math.max(1, Math.round(w * k)); t.height = Math.max(1, Math.round(h * k));
     const tg = t.getContext('2d'); tg.imageSmoothingQuality = 'high'; tg.drawImage(sheet, x, y, w, h, 0, 0, t.width, t.height);

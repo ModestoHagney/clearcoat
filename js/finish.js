@@ -10,7 +10,7 @@
 //               follows the colour: recolour a shape and its finish changes.
 // Anything else is gloss. Pure: no canvas, runs under node --test.
 
-import { MATERIALS, resolveParams, fadeStyleOf } from './engine.js';
+import { MATERIALS, resolveParams } from './engine.js';
 
 // The finishes offered, in the order shown. Each is a starting point: three
 // numbers (metallic, roughness, clearcoat — the spec map's three channels)
@@ -81,37 +81,9 @@ export function baseSpec(doc) {
 }
 export const baseFinish = (doc) => baseSpec(doc).material;
 
-// A shape with a pattern over its paint is two things to paint and to finish:
-// the shape in its own colour, then the pattern in the pattern's colour. The
-// engine draws a layer that has a motif as the pattern alone, so the doc is
-// opened out here: each such layer becomes the plain shape and, in front of
-// it, the pattern (id + '~p'). `only` leaves the shape's own paint out. A
-// pattern in several colours is one such layer per colour
-// (id + '~p0', '~p1', …), each drawing only the copies that took its colour,
-// so every colour can have its own finish.
-// The doc itself is returned when it has no patterns.
-export function withPatterns(doc) {
-  if (!doc.layers.some(l => l.motif)) return doc;
-  return {
-    ...doc,
-    layers: doc.layers.flatMap((l) => {
-      if (!l.motif) return [l];
-      // Fade out: the pattern's own paint fades to nothing along the layer's fade line
-      const style = fadeStyleOf(l), fades = !!l.motif.fadeOut && !!l.fadeFrom && !!l.fadeTo;
-      const part = (color) => ({ color, color2: color + '00', colorMid: null, fillType: fades ? style : 'solid', fadeStyle: style });
-      const over = { ...l, id: l.id + '~p', colorRef: null, fx: null, ...part(l.motif.color || l.color) };
-      const more = l.motif.colors || [];
-      const overs = !more.length ? [over] : [over.color, ...more].map((color, k) => ({ ...over, id: `${l.id}~p${k}`, ...part(color), motif: { ...l.motif, part: k } }));
-      return l.motif.only ? overs : [{ ...l, motif: undefined, motifFrame: undefined }, ...overs];
-    }),
-  };
-}
-
-// The doc as it is painted and finished: patterns opened out (see above) and
-// each layer carrying the finish it ends up with. The doc itself is returned
-// when there is nothing to change.
-export function withFinishes(whole) {
-  const doc = withPatterns(whole);
+// The doc as it is painted and finished: each layer carrying the finish it
+// ends up with. The doc itself is returned when there is nothing to change.
+export function withFinishes(doc) {
   if (!(doc.finishRules || []).length) return doc;
   let changed = false;
   const layers = doc.layers.map((l) => {
@@ -152,7 +124,7 @@ export function finishList(doc) {
   const used = new Map(); // colour → count, base coat first, then back to front
   const count = (c) => { if (c) used.set(c, (used.get(c) || 0) + 1); };
   count(hex(doc.baseColor));
-  for (const l of withPatterns(doc).layers) if (l.visible !== false && !isArea(l) && !hasOwnFinish(l)) count(layerColour(l)); // a pattern's colour is one of the livery's
+  for (const l of doc.layers) if (l.visible !== false && !isArea(l) && !hasOwnFinish(l)) count(layerColour(l));
   const out = [];
   for (const [colour, n] of used) {
     const r = ruleFor(doc, colour);

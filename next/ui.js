@@ -5,7 +5,7 @@
 import { pieces, hue } from './map.js';
 import { SHAPES, PLAIN_SHAPES, roundedOf, plainOf, softened, boxOutline, aspect, hasInner } from '../js/shapes.js';
 import { TEXT_FONTS, GOOGLE_FONTS, fadeStyleOf } from '../js/engine.js';
-import { FINISHES, finishName, finishLabel, finishList, layerColour, isArea, readFinish, presetOf, withPatterns } from '../js/finish.js';
+import { FINISHES, finishName, finishLabel, finishList, layerColour, isArea, readFinish, presetOf } from '../js/finish.js';
 import { renderTile } from './preview.js';
 import { initPicker } from './picker.js';
 
@@ -102,20 +102,11 @@ const MAP_TOOLS = [
 ];
 const PANELS = ['layers', 'props', 'colour'];
 const WEIGHT_NAMES = { 100: 'Thin', 200: 'Extra light', 300: 'Light', 400: 'Regular', 500: 'Medium', 600: 'Semi bold', 700: 'Bold', 800: 'Extra bold', 900: 'Black' };
-// A pattern's Size and Spacing sliders are finer at the low end, where a
-// pixel matters most: the slider runs 0 to 1000 and the value goes with its
-// square. [least, most] in px on the sheet.
-const CURVED = { size: [10, 400], gap: [0, 200] };
-const toSlider = (k, v) => Math.round(1000 * Math.sqrt(Math.max(0, Math.min(1, (v - CURVED[k][0]) / (CURVED[k][1] - CURVED[k][0])))));
-const fromSlider = (k, s) => Math.round(CURVED[k][0] + (CURVED[k][1] - CURVED[k][0]) * (s / 1000) ** 2);
 // A slider with its value beside it, in a box that can be read, typed in, or
-// nudged with the arrow keys. curve: one of CURVED's sliders, whose box shows
-// the real value and not where the slider stands.
-const slider = (id, min, max, v, curve) => {
-  const [lo, hi, val] = curve ? [...CURVED[curve], fromSlider(curve, v)] : [min, max, Math.round(v)];
-  return `<span class="slide"><input id="${id}" type="range" min="${min}" max="${max}" value="${Math.round(v)}">` +
-    `<input class="nbox" data-for="${id}"${curve ? ` data-curve="${curve}"` : ''} type="number" min="${lo}" max="${hi}" step="1" value="${val}" aria-label="Exact value"></span>`;
-};
+// nudged with the arrow keys.
+const slider = (id, min, max, v) =>
+  `<span class="slide"><input id="${id}" type="range" min="${min}" max="${max}" value="${Math.round(v)}">` +
+  `<input class="nbox" data-for="${id}" type="number" min="${min}" max="${max}" step="1" value="${Math.round(v)}" aria-label="Exact value"></span>`;
 const hexOf = (v) => (/^#?[0-9a-f]{6}$/i.test(String(v).trim()) ? '#' + String(v).trim().replace('#', '').toLowerCase() : null);
 
 export function initUI(app, actions, version) {
@@ -267,7 +258,7 @@ export function initUI(app, actions, version) {
   }
   const field = (label, html) => `<label class="field"><span>${label}</span>${html}</label>`;
   // Across, or from the middle: which way the fade line runs. Shown with
-  // whatever follows it: the paint's fade, or else the pattern's.
+  // the paint's fade.
   const fadeWay = (l) => `<div class="seg"><button data-fade="linear" aria-pressed="${fadeStyleOf(l) === 'linear'}">Across</button><button data-fade="radial" aria-pressed="${fadeStyleOf(l) === 'radial'}">From the middle</button></div>`;
   const aimNote = '<div class="note">Drag the two dots on the shape to aim it</div>';
   // A shape's paint can fade to a second colour, or to nothing.
@@ -280,45 +271,6 @@ export function initUI(app, actions, version) {
       field('Fades to', `<span class="pair"><input id="f-fade-to" type="color" value="${esc(out ? '#ffffff' : hexOf(l.color2 || '') || '#ffffff')}"${out ? ' disabled' : ''} aria-label="The colour it fades to"><label class="inline"><input id="f-fade-out" type="checkbox"${out ? ' checked' : ''}>Nothing</label></span>`) +
       aimNote);
   }
-  // A pattern over a shape's paint: what repeats, its own colour, and how.
-  // `l`: the shape whose settings show (the first, when several are selected).
-  function patternHtml(l) {
-    const mo = l.motif, more = mo ? mo.more || [] : [];
-    const col = mo ? esc(hexOf(mo.color || '') || hexOf(l.color || '') || '#ffffff') : '';
-    const cols = mo ? mo.colors || [] : [];
-    // one small tile for each shape, one swatch for each colour, each with a × to take it out (the last colour left stays)
-    const out = (attr, k, what) => `<button type="button" class="mx" ${attr}="${k}" title="Take this ${what} out" aria-label="Take ${what} ${k + 2} out of the pattern">${svg('close')}</button>`;
-    const tile = (sh, k) => `<span class="mwrap"><span class="mtile" title="${esc(sh.kind === 'own' ? sh.name : SHAPES[sh.kind])}">${sh.kind === 'own' ? shapeSvg(sh) : svg(sh.kind)}</span>${out('data-patdrop', k, 'shape')}</span>`;
-    // Everything about a pattern folds away under one heading. Its shapes and
-    // its colours are a row each: the copies take turns with them, or pick
-    // between them when Random is on. The first shape added turns the pattern
-    // on, and taking the last one out turns it off.
-    const add = `<span class="plusbox" title="Add a shape to repeat. The first one turns the pattern on."><span class="icon" aria-hidden="true">+</span><select id="f-pat-add" aria-label="Add a shape to the pattern">${opt('', 'Add a shape…', true)}${motifOptions('', null)}</select></span>`;
-    return `<details class="more fold" id="f-patfold"${patOpen ? ' open' : ''}><summary>Pattern</summary>` +
-        `<div class="field tiles"><span>Shapes</span><span class="pair wrap">${mo ? tile(mo, -1) + more.map(tile).join('') : ''}${more.length < 6 ? add : ''}</span></div>` +
-      (!mo ? '' :
-        `<div class="field tiles"><span>Colours</span><span class="pair wrap"><span class="mwrap"><input class="mini" data-pat="pick" id="f-pat-color" type="color" value="${col}" title="The pattern's colour: click to change it" aria-label="Pattern colour">${cols.length ? out('data-patcdrop', -1, 'colour') : ''}</span>` +
-          cols.map((c, k) => `<span class="mwrap"><input class="mini" data-patc="${k}" id="f-pat-c${k}" type="color" value="${esc(c)}" title="Click to change this colour" aria-label="Colour ${k + 2} of the pattern">${out('data-patcdrop', k, 'colour')}</span>`).join('') +
-          (cols.length < 6 ? `<button type="button" class="icon" data-act="addPatternColour" title="Add another colour: they take turns, or mix when Random is on" aria-label="Add another colour to the pattern">+</button>` : '') +
-          '</span></div>' +
-        field('Size', slider('f-pat-size', 0, 1000, toSlider('size', mo.size), 'size')) +
-        field('Spacing', slider('f-pat-gap', 0, 1000, toSlider('gap', mo.gap), 'gap')) +
-        field('Stagger', slider('f-pat-stagger', 0, 100, Math.round(mo.stagger))) +
-        field('Turn', slider('f-pat-turn', -180, 180, Math.round(mo.turn))) +
-        `<label class="switch" title="Each copy differs a little. The roll is kept with the livery.">Random<input id="f-pat-random" type="checkbox"${mo.random ? ' checked' : ''}></label>` +
-        (!mo.random ? '' : `<div class="nest">` +
-          field('Size', slider('f-pat-rSize', 0, 100, Math.round(mo.rSize || 0))) +
-          field('Position', slider('f-pat-rPos', 0, 100, Math.round(mo.rPos || 0))) +
-          field('Turn', slider('f-pat-rTurn', 0, 100, Math.round(mo.rTurn || 0))) +
-          `<div class="acts"><button class="btn" data-act="reshuffle" title="Roll again">Reshuffle</button></div>` +
-        `</div>`) +
-        `<label class="switch" title="The copies get fainter along the fade line, down to nothing">Fade out<input id="f-pat-fadeOut" type="checkbox"${mo.fadeOut ? ' checked' : ''}></label>` +
-        `<label class="switch" title="The copies get smaller along the fade line, down to nothing">Shrink<input id="f-pat-shrink" type="checkbox"${mo.shrink ? ' checked' : ''}></label>` +
-        // the line they follow is the paint's fade line; when the paint does not fade, its controls are here instead
-        ((mo.fadeOut || mo.shrink) && !(l.fillType === 'linear' || l.fillType === 'radial') ? fadeWay(l) + aimNote : '') +
-        `<label class="switch" title="Leave out the shape's own paint, so what is underneath shows between the pattern">Pattern only<input id="f-pat-only" type="checkbox"${mo.only ? ' checked' : ''}></label>`) +
-      `</details>`;
-  }
   // Repeat: the layer copied in a line, a grid, or scattered, from where it
   // is. `l`: the layer whose settings show (the first, when several are selected).
   function repeatHtml(l) {
@@ -327,6 +279,11 @@ export function initUI(app, actions, version) {
     const out = (attr, k, what) => `<button type="button" class="mx" ${attr}="${k}" title="Take this ${what} out" aria-label="Take ${what} ${k + 2} out">${svg('close')}</button>`;
     const tile = (sh, k) => `<span class="mwrap"><span class="mtile" title="${esc(sh.kind === 'own' ? sh.name : SHAPES[sh.kind])}">${sh.kind === 'own' ? shapeSvg(sh) : svg(sh.kind)}</span>${out('data-repsdrop', k, 'shape')}</span>`;
     const several = r && (r.colors.length || r.shapes.length);
+    // the layer's own colour and shape come first: changed or taken out like the others
+    const ownColour = r ? hexOf(layerColour(l) || '') || '#ffffff' : '';
+    const ownShape = !r || l.type !== 'fill' ? '' : l.shape === 'path' && Array.isArray(l.pts)
+      ? shapeSvg({ pts: l.pts.map((q) => ({ x: q.x - l.rx, y: q.y - l.ry, ...(q.c ? { c: { x: q.c.x - l.rx, y: q.c.y - l.ry } } : {}), ...(q.m ? { m: true } : {}) })), w: l.rw, h: l.rh })
+      : SHAPES[l.shape] ? svg(l.shape) : shapeSvg({ shape: l.shape, w: l.rw, h: l.rh });
     return `<details class="more fold" id="f-repfold"${repOpen ? ' open' : ''}><summary>Repeat</summary>` +
       `<label class="switch" title="Copies of this layer in a line, a grid, or scattered, starting from where it is. They follow every change to it.">Repeat<input id="f-rep-on" type="checkbox"${r ? ' checked' : ''}></label>` +
       (!r ? '' :
@@ -343,11 +300,12 @@ export function initUI(app, actions, version) {
           field('Angle', slider('f-rep-angle', -180, 180, r.angle))) +
         // more colours, and for a shape more outlines: the copies take turns with the layer's own, or pick by their roll
         `<div class="field tiles"><span>Colours</span><span class="pair wrap">` +
+          `<span class="mwrap"><input class="mini" data-repc="-1" id="f-rep-cown" type="color" value="${esc(ownColour)}" title="The layer's own colour: click to change it" aria-label="The layer's own colour">${r.colors.length ? out('data-repcdrop', -1, 'colour') : ''}</span>` +
           r.colors.map((c, k) => `<span class="mwrap"><input class="mini" data-repc="${k}" id="f-rep-c${k}" type="color" value="${esc(c)}" title="Click to change this colour" aria-label="Copy colour ${k + 2}">${out('data-repcdrop', k, 'colour')}</span>`).join('') +
           (r.colors.length < 6 ? `<button type="button" class="icon" data-act="addRepeatColour" title="Add a colour for the copies to take, along with the layer's own" aria-label="Add a colour for the copies">+</button>` : '') +
         '</span></div>' +
         (l.type !== 'fill' ? '' :
-          `<div class="field tiles"><span>Shapes</span><span class="pair wrap">${r.shapes.map(tile).join('')}` +
+          `<div class="field tiles"><span>Shapes</span><span class="pair wrap"><span class="mwrap"><span class="mtile" title="The layer's own shape">${ownShape}</span>${r.shapes.length ? out('data-repsdrop', -1, 'shape') : ''}</span>${r.shapes.map(tile).join('')}` +
           (r.shapes.length < 6 ? `<span class="plusbox" title="Add a shape for the copies to take, along with this one"><span class="icon" aria-hidden="true">+</span><select id="f-rep-addshape" aria-label="Add a shape for the copies">${opt('', 'Add a shape…', true)}${motifOptions('', null)}</select></span>` : '') +
           '</span></div>') +
         (!several ? '' : field('Mix', `<select id="f-rep-mix">${opt('turn', 'In turn', r.mix === 'turn')}${opt('random', 'Random', r.mix === 'random')}</select>`)) +
@@ -358,9 +316,9 @@ export function initUI(app, actions, version) {
         `<label class="switch" title="The copies get smaller the further they are from the layer">Shrink<input id="f-rep-shrink" type="checkbox"${r.shrink ? ' checked' : ''}></label>`) +
       `</details>`;
   }
-  // what a pattern can repeat or a stamp place: the ready-made shapes, then
-  // the library's. `current`: its key; `kept`: a pattern's own shape that has
-  // since left the library, so the list can still name it.
+  // what a repeat's copies can take or a stamp place: the ready-made shapes,
+  // then the library's. `current`: its key; `kept`: a shape of its own that
+  // has since left the library, so the list can still name it.
   const motifOptions = (current, kept) => {
     const own = actions.ownShapes();
     const rounds = PLAIN_SHAPES.map(roundedOf).filter(Boolean);
@@ -378,7 +336,7 @@ export function initUI(app, actions, version) {
       const grouped = many.some((x) => x.groupId);
       const fills = many.filter((x) => x.type === 'fill' && !x.specOnly);
       return `<div class="note">${many.length} layers selected</div>` + colourNote() +
-        (fills.length ? fadeHtml(fills.find((x) => x.fillType === 'linear' || x.fillType === 'radial') || fills[0]) + patternHtml(fills.find((x) => x.motif) || fills[0]) : '') +
+        (fills.length ? fadeHtml(fills.find((x) => x.fillType === 'linear' || x.fillType === 'radial') || fills[0]) : '') +
         repeatHtml(many.find((x) => x.repeat) || many[0]) +
         `<label class="switch" title="Paint them on the twin panel too, or across the centreline (Ctrl+M)">Mirrored<input id="f-mirrored" type="checkbox"${many.some((x) => x.mirrored) ? ' checked' : ''}></label>` +
         `<div class="acts"><button class="btn" data-act="merge" title="Join them into one. It asks first if they differ in colour or kind. (Ctrl+E)">Merge</button>` +
@@ -393,12 +351,11 @@ export function initUI(app, actions, version) {
     const fonts = [...new Set([...TEXT_FONTS, ...GOOGLE_FONTS, ...(app.doc.googleFonts || []), ...(app.doc.customFonts || []).map((f) => f.name)])];
     // what you reach for first, then the switch and buttons, then the rest folded away
     // a shape's fill can fade to a second colour, or to nothing
-    const pattern = l.type !== 'fill' || l.specOnly ? '' : patternHtml(l);
     const fade = l.type !== 'fill' ? '' : fadeHtml(l);
     const weights = isText ? actions.fontWeights(l.font) : [];
     const weight = weights.length < 2 ? '' : field('Weight', `<select id="f-fontWeight">${weights.map((w) => opt(w, WEIGHT_NAMES[w], w === (l.fontWeight || 400))).join('')}</select>`);
     const lined = isText && String(l.text || '').includes('\n'); // settings that only mean something with several lines
-    const main = !isText ? colour + fade + pattern :
+    const main = !isText ? colour + fade :
       field('Text', `<textarea id="f-text" rows="2" spellcheck="false" title="Enter starts a new line">${esc(l.text)}</textarea>`) +
       field('Font', `<select id="f-font">${fonts.map((f) => opt(f, f, f === l.font)).join('')}${opt('__google', 'Google font by name…', false)}${opt('__upload', 'Upload a font file…', false)}</select>`) +
       weight +
@@ -408,7 +365,7 @@ export function initUI(app, actions, version) {
     const acts = l.locked ? '' :
       `<label class="switch" title="Paint it on the twin panel too, or across the centreline (Ctrl+M)">Mirrored<input id="f-mirrored" type="checkbox"${l.mirrored ? ' checked' : ''}></label>` +
       (l.mirrored && isPic ? `<label class="switch" title="Off: it reads the right way round on both sides. On: a true mirror image.">Reverse the other side<input id="f-mirrorFlip" type="checkbox"${l.mirrorFlip ? ' checked' : ''}></label>` : '') +
-      `<div class="acts">${trimButtons(l)}${l.mirrored ? '<button class="btn" data-act="separate" title="Make the mirrored side a layer of its own">Separate</button>' : ''}${inPieces ? '<button class="btn" data-act="split" title="Undo a merge: one shape for each piece again">Split</button>' : ''}${inPieces && hasInner(l.pts) ? '<button class="btn" data-act="fillIn" title="Make it solid: its holes are filled">Fill in</button>' : ''}${l.type === 'image' ? '<button class="btn" data-act="makeShapes" title="For a flat-colour picture such as a logo: one shape for each colour in it, with the background left out. Each shape then takes a colour like any other.">Make shapes</button>' : ''}${isText ? '<button class="btn" data-act="makeShapes" title="The lettering becomes a shape, so it can fade, take a pattern and be reshaped. It can no longer be retyped.">Make shapes</button>' : ''}${l.type === 'image' && l.color ? '<button class="btn" data-act="ownColours" title="Take the colour off again">Original colours</button>' : ''}</div>`;
+      `<div class="acts">${trimButtons(l)}${l.mirrored ? '<button class="btn" data-act="separate" title="Make the mirrored side a layer of its own">Separate</button>' : ''}${inPieces ? '<button class="btn" data-act="split" title="Undo a merge: one shape for each piece again">Split</button>' : ''}${inPieces && hasInner(l.pts) ? '<button class="btn" data-act="fillIn" title="Make it solid: its holes are filled">Fill in</button>' : ''}${l.type === 'image' ? '<button class="btn" data-act="makeShapes" title="For a flat-colour picture such as a logo: one shape for each colour in it, with the background left out. Each shape then takes a colour like any other.">Make shapes</button>' : ''}${isText ? '<button class="btn" data-act="makeShapes" title="The lettering becomes a shape, so it can fade and be reshaped. It can no longer be retyped.">Make shapes</button>' : ''}${l.type === 'image' && l.color ? '<button class="btn" data-act="ownColours" title="Take the colour off again">Original colours</button>' : ''}</div>`;
     const more = (!isText ? '' :
       field('Outline', `<span class="pair">${slider('f-outlineWidth', 0, 30, l.outlineWidth || 0)}<input id="f-outlineColor" type="color" value="${esc(hexOf(l.outlineColor || '') || '#000000')}" aria-label="Outline colour"></span>`) +
       field('Spacing', slider('f-letterSpacing', 0, 40, l.letterSpacing || 0)) +
@@ -427,7 +384,6 @@ export function initUI(app, actions, version) {
   }
   let moreOpen = false; // stays as the user left it while the panel is redrawn
   let repOpen = true;   // the same for Repeat's
-  let patOpen = true;   // the same for a pattern's settings; they open when a pattern is put on or added to
   const trimCount = (l) => (Array.isArray(l.clip) ? (Array.isArray(l.clip[0]) ? l.clip.length : 1) : 0);
   function trimButtons(l) {
     const n = trimCount(l);
@@ -518,7 +474,7 @@ export function initUI(app, actions, version) {
     const n = new Map();
     const add = (c) => { const h = hexOf(c || ''); if (h) n.set(h, (n.get(h) || 0) + 1); };
     add(app.doc.baseColor);
-    for (const l of withPatterns(app.doc).layers) if (l.visible) add(layerColour(l));
+    for (const l of app.doc.layers) if (l.visible) add(layerColour(l));
     // in the order they sit in the livery (base coat, then back to front), so
     // a swatch does not jump about when a colour is used more or less
     return [...n.keys()].slice(0, 14);
@@ -555,12 +511,11 @@ export function initUI(app, actions, version) {
     if (t.classList && t.classList.contains('nbox')) {
       const s = $(t.dataset.for), v = Math.max(+t.min, Math.min(+t.max, +t.value));
       if (!s || t.value === '' || !Number.isFinite(v)) return; // half-typed
-      if (t.dataset.curve) { s.value = toSlider(t.dataset.curve, v); s.dataset.exact = v; } else s.value = v;
+      s.value = v;
       s.dispatchEvent(new Event('input', { bubbles: true }));
     } else if (t.type === 'range' && e.isTrusted) {
       const box = t.parentNode.querySelector('.nbox');
-      delete t.dataset.exact;
-      if (box) box.value = box.dataset.curve ? fromSlider(box.dataset.curve, +t.value) : t.value;
+      if (box) box.value = t.value;
     }
   }, true);
   // A box that is done with says so as its slider's 'change'. That waits until
@@ -576,7 +531,7 @@ export function initUI(app, actions, version) {
   document.addEventListener('change', (e) => {
     const t = e.target, s = isBox(t) && $(t.dataset.for);
     if (!s) return;
-    t.value = t.dataset.curve ? (s.dataset.exact ?? fromSlider(t.dataset.curve, +s.value)) : s.value; // what it came to, held within its range
+    t.value = s.value; // what it came to, held within its range
     owed = s;
     setTimeout(settleBoxes, 0);
   }, true);
@@ -602,11 +557,7 @@ export function initUI(app, actions, version) {
     const fn = /^fn-(met|rough|clear|amount|size|strength|bright)$/.exec(t.id || '');
     if (fn) { actions.tweakFinish(fn[1], +t.value); drawTile(); return; }
     if (t.id === 'f-fade-to') { actions.setFade('to', t.value); return; }
-    if (t.dataset.pat) { actions.tweakMotif('color', t.value); return; } // the pattern's colour
-    if (t.dataset.patc !== undefined) { actions.patternColour(+t.dataset.patc, t.value); return; }
-    const pat = /^f-pat-(size|gap|stagger|turn|rSize|rPos|rTurn)$/.exec(t.id || '');
-    if (pat) { actions.tweakMotif(pat[1], t.dataset.exact !== undefined ? +t.dataset.exact : CURVED[pat[1]] ? fromSlider(pat[1], +t.value) : +t.value); return; }
-    if (t.dataset.repc !== undefined) { actions.repeatColour(+t.dataset.repc, t.value); return; }
+    if (t.dataset.repc !== undefined) { if (+t.dataset.repc < 0) actions.setColour(t.value); else actions.repeatColour(+t.dataset.repc, t.value); return; } // -1: the layer's own colour
     const rep = /^f-rep-(count|rows|gapX|gapY|angle|space|rSize|rTurn)$/.exec(t.id || '');
     if (rep) { actions.setRepeat({ [rep[1]]: +t.value }, false); return; }
     // plain settings: the control's id names the layer setting it sets
@@ -702,7 +653,7 @@ export function initUI(app, actions, version) {
   };
   panels.colour.addEventListener('contextmenu', editChip);
   panels.colour.addEventListener('dblclick', editChip);
-  panels.props.addEventListener('toggle', (e) => { if (e.target.id === 'f-more') moreOpen = e.target.open; if (e.target.id === 'f-patfold') patOpen = e.target.open; if (e.target.id === 'f-repfold') repOpen = e.target.open; }, true);
+  panels.props.addEventListener('toggle', (e) => { if (e.target.id === 'f-more') moreOpen = e.target.open; if (e.target.id === 'f-repfold') repOpen = e.target.open; }, true);
   panels.props.addEventListener('change', (e) => {
     const id = e.target.id;
     if (id === 'fn-sparkle') return actions.tweakFinish('sparkle', e.target.checked);
@@ -720,12 +671,6 @@ export function initUI(app, actions, version) {
     if (id === 'f-rep-fadeOut' || id === 'f-rep-shrink') return actions.setRepeat({ [id.slice(6)]: e.target.checked });
     if (id === 'f-rep-addshape') { if (e.target.value) actions.addRepeatShape(e.target.value); return; }
     if (e.target.dataset.repc !== undefined) return; // nothing is redrawn: that would swallow the click that took the focus away
-    if (id === 'f-pat-add') { if (e.target.value) actions.addMotifShape(e.target.value); return; }
-    if (id === 'f-pat-only') return actions.tweakMotif('only', e.target.checked);
-    if (id === 'f-pat-random') return actions.motifRandom(e.target.checked);
-    if (id === 'f-pat-fadeOut') return actions.motifFade('fadeOut', e.target.checked);
-    if (id === 'f-pat-shrink') return actions.motifFade('shrink', e.target.checked);
-    if (e.target.dataset.pat) return; // nothing is redrawn: that would swallow the click that took the focus away
     if (id === 'f-fade-out') return actions.setFade('out', e.target.checked);
     if (id === 'f-italic') { actions.setProp('italic', e.target.checked); return; }
     if (id === 'f-mirrorFlip') { actions.setProp('mirrorFlip', e.target.checked); return; }
@@ -839,7 +784,7 @@ export function initUI(app, actions, version) {
       const tabs = [['logos', `Your pictures${lib.logos.length ? ' · ' + lib.logos.length : ''}`], ['shapes', `Your shapes${lib.shapes.length + sets.length ? ' · ' + (lib.shapes.length + sets.length) : ''}`], ['search', 'Search icons']].filter(([k]) => !shapesOnly || k !== 'logos');
       const side = tab === 'logos' ? '<button type="button" class="btn" data-lib="file:" style="margin-left:auto">Picture from a file…</button>'
         : tab === 'shapes' ? (shapesOnly ? '' : '<button type="button" class="btn main" data-lib="draw:" style="margin-left:auto" title="A blank page and the drawing tools: what you draw is saved here as one shape">Draw a shape</button>') +
-          `<button type="button" class="btn" data-lib="shapefile:"${shapesOnly ? ' style="margin-left:auto"' : ''} title="What the file fills becomes a shape: it takes a colour and works as a pattern or a stamp">Shape from an SVG file…</button>` : '';
+          `<button type="button" class="btn" data-lib="shapefile:"${shapesOnly ? ' style="margin-left:auto"' : ''} title="What the file fills becomes a shape: it takes a colour and works as a stamp or a repeat's shape">Shape from an SVG file…</button>` : '';
       const grid = tab === 'logos' ? lib.logos.map((it) => tile('logos', it, `<img alt="" src="${esc(it.src)}">`, true)).join('')
         : sets.map((it) => tile('sets', it, `<img alt="" src="${esc(it.thumb)}">`, true)).join('') + lib.shapes.map((it) => tile('shapes', it, shapeSvg(it), true)).join('');
       const empty = tab === 'logos' ? 'Pictures you bring in are kept here.' : 'Shapes you save, search for or bring in from a file are kept here. Select several layers and use Edit › Save to library to keep them as one.';
@@ -989,8 +934,6 @@ export function initUI(app, actions, version) {
     if (t.dataset.finish) return actions.setFinish(t.dataset.finish);
     if (t.dataset.scope) return actions.finishScope(t.dataset.scope);
     if (t.dataset.fade) return actions.setFade('style', t.dataset.fade);
-    if (t.dataset.patdrop !== undefined) return actions.dropMotifShape(+t.dataset.patdrop);
-    if (t.dataset.patcdrop !== undefined) return actions.dropPatternColour(+t.dataset.patcdrop);
     if (t.dataset.repsdrop !== undefined) return actions.dropRepeatShape(+t.dataset.repsdrop);
     if (t.dataset.repcdrop !== undefined) return actions.dropRepeatColour(+t.dataset.repcdrop);
     if (t.dataset.piece) return actions.pickPiece(t.dataset.piece);
