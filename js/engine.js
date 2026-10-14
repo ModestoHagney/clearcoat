@@ -169,7 +169,8 @@ export function layerMatrix(l) {
   return new DOMMatrix()
     .translate(l.x, l.y)
     .rotate(l.rotation)
-    .scale(l.scale * (l.flipH ? -1 : 1), (l.scaleY ?? l.scale) * (l.flipV ? -1 : 1));
+    .scale(l.scale * (l.flipH ? -1 : 1), (l.scaleY ?? l.scale) * (l.flipV ? -1 : 1))
+    .scale(1 / (l.img?.res || 1)); // text drawn at more pixels than its size, to stay sharp scaled up
 }
 
 export const TEXT_FONTS = ['Arial Black', 'Impact', 'Georgia', 'Courier New', 'Verdana', 'Trebuchet MS'];
@@ -229,8 +230,13 @@ export function createTextLayer() {
 // needs none.
 export const textFont = (layer, size = 160) => `${layer.italic ? 'italic ' : ''}${layer.fontWeight ? layer.fontWeight + ' ' : ''}${size}px "${layer.font || 'Arial Black'}"`;
 
-// re-rasterize after any text property change; the canvas is sized to the
-// text so the layer's center (x, y) stays put
+// how many pixels a text layer is drawn at per unit of its size: as many as
+// it is scaled up by, so its letters stay sharp, within MAX_TEXT_PX a side
+const MAX_TEXT_PX = 4096;
+export const textRes = (layer, w, h) => Math.max(1, Math.min(Math.max(Math.abs(layer.scale || 1), Math.abs(layer.scaleY ?? layer.scale ?? 1)), MAX_TEXT_PX / Math.max(w, h, 1)));
+
+// re-rasterize after any text property change, or after it is scaled; the
+// canvas is sized to the text so the layer's center (x, y) stays put
 export function regenerateText(layer) {
   const lines = String(layer.text ?? '').split('\n');
   const size = Math.max(40, Math.min(400, layer.fontSize || 160));
@@ -243,13 +249,14 @@ export function regenerateText(layer) {
   const margin = Math.ceil(outline) + Math.ceil(size * 0.15); // outline + italic overhang
   const c = document.createElement('canvas');
   const ctx = c.getContext('2d');
+  let W, k; // the text's width, and the pixels it is drawn at per unit of its size
+  const size2 = (w, h) => { W = w; k = textRes(layer, w, h); c.width = Math.ceil(w * k); c.height = Math.ceil(h * k); ctx.scale(k, k); };
   if (!curve) {
     // straight text — original rendering path
     ctx.font = fontStr;
     if ('letterSpacing' in ctx) ctx.letterSpacing = spacing;
     const maxW = Math.max(1, ...lines.map(t => ctx.measureText(t).width));
-    c.width = Math.ceil(maxW) + margin * 2;
-    c.height = Math.ceil(lineH * lines.length) + margin * 2;
+    size2(Math.ceil(maxW) + margin * 2, Math.ceil(lineH * lines.length) + margin * 2);
     // resizing reset the context — set everything again
     ctx.font = fontStr;
     if ('letterSpacing' in ctx) ctx.letterSpacing = spacing;
@@ -259,7 +266,7 @@ export function regenerateText(layer) {
     ctx.fillStyle = layer.textColor || '#ffffff';
     ctx.strokeStyle = layer.outlineColor || '#000000';
     ctx.lineWidth = outline * 2; // half the stroke falls outside the glyph
-    const x = align === 'left' ? margin : align === 'right' ? c.width - margin : c.width / 2;
+    const x = align === 'left' ? margin : align === 'right' ? W - margin : W / 2;
     lines.forEach((line, i) => {
       const y = margin + lineH * (i + 0.5);
       if (outline > 0) ctx.strokeText(line, x, y);
@@ -290,8 +297,7 @@ export function regenerateText(layer) {
       maxW = Math.max(maxW, xExt * 2);
       maxSag = Math.max(maxSag, sag);
     }
-    c.width = Math.ceil(maxW) + margin * 2;
-    c.height = Math.ceil(lineH * lines.length + maxSag) + margin * 2;
+    size2(Math.ceil(maxW) + margin * 2, Math.ceil(lineH * lines.length + maxSag) + margin * 2);
     // resizing reset the context — set everything again
     ctx.font = fontStr;
     if ('letterSpacing' in ctx) ctx.letterSpacing = '0px'; // gaps applied manually
@@ -311,7 +317,7 @@ export function regenerateText(layer) {
       ld.chars.forEach((ch, j) => {
         const phi = (s + ld.widths[j] / 2) / R; // signed angle from arc midpoint
         ctx.save();
-        ctx.translate(c.width / 2 + R * Math.sin(phi), lineY + dir * R * (1 - Math.cos(phi)));
+        ctx.translate(W / 2 + R * Math.sin(phi), lineY + dir * R * (1 - Math.cos(phi)));
         ctx.rotate(dir * phi);
         if (outline > 0) ctx.strokeText(ch, 0, 0);
         ctx.fillText(ch, 0, 0);
@@ -320,6 +326,7 @@ export function regenerateText(layer) {
       });
     });
   }
+  c.res = k; // layerMatrix shrinks it back by this
   layer.img = c;
   layer.src = c.toDataURL('image/png');
   delete layer._albedo; // shader-ball albedo cache is stale now
