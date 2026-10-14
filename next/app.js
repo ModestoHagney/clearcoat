@@ -1988,6 +1988,22 @@ $('btn-zoom-out').addEventListener('click', () => actions.zoomBy(0.8));
 $('btn-fit').addEventListener('click', fit);
 new ResizeObserver(() => (app.workshop ? fit() : requestDraw())).observe($('stage')); // the shape's window follows the stage
 
+// ---------- view choices ----------
+// What is shown, where the sheet sits and where the cards are: kept in this
+// browser over a reload. Nothing here is the livery, which the autosave keeps.
+function saveView() {
+  if (!ui) return;
+  const view = aside ? aside.view : app.view; // drawing a shape: the livery's view, not the shape window's
+  try { localStorage.setItem('next-view', JSON.stringify({ show: app.show, mapShow: app.mapShow, view, panels: ui.layout() })); } catch { /* not kept this time */ }
+}
+function loadView() {
+  try { return JSON.parse(localStorage.getItem('next-view')) || {}; } catch { return {}; }
+}
+// only the choices this version has, so one taken out does not come back
+const takeBools = (into, from) => { for (const k in into) if (typeof (from || {})[k] === 'boolean') into[k] = from[k]; };
+addEventListener('pagehide', saveView);
+document.addEventListener('visibilitychange', () => { if (document.hidden) saveView(); });
+
 // ---------- start ----------
 
 async function boot() {
@@ -2021,7 +2037,11 @@ async function boot() {
     const lib = await persist.loadBlob('next-library');
     if (lib) library = { logos: Array.isArray(lib.logos) ? lib.logos : [], shapes: Array.isArray(lib.shapes) ? lib.shapes : [], sets: Array.isArray(lib.sets) ? lib.sets : [] };
   } catch { /* an empty library */ }
+  const saved = loadView();
+  takeBools(app.show, saved.show);
+  takeBools(app.mapShow, saved.mapShow);
   ui = initUI(app, actions, VERSION);
+  ui.setLayout(saved.panels);
   tools = initTools(app, {
     screenToDoc, docToScreen, change, requestDraw,
     select: actions.select, setTool: actions.setTool, toolChanged,
@@ -2070,6 +2090,8 @@ async function boot() {
   });
   ensureDocFonts();
   fit();
+  const v = saved.view || {};
+  if (Number.isFinite(v.x) && Number.isFinite(v.y) && v.zoom >= 0.05 && v.zoom <= 8) Object.assign(app.view, { x: v.x, y: v.y, zoom: v.zoom }); // F fits it again
   resetHistory();
   ui.refresh();
   requestDraw();

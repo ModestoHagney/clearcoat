@@ -976,18 +976,7 @@ export function initUI(app, actions, version) {
       const p = t.closest('.panel'), key = p.dataset.panel;
       if (t.dataset.p === 'fold') p.querySelector('.body').hidden = !p.querySelector('.body').hidden;
       if (t.dataset.p === 'close') app.show[key] = false;
-      if (t.dataset.p === 'float') {
-        const floating = p.classList.toggle('float'), n = PANELS.indexOf(key);
-        t.innerHTML = svg(floating ? 'dock' : 'float');
-        t.title = floating ? 'Dock' : 'Float';
-        t.setAttribute('aria-label', t.title);
-        if (floating) { $('stage').append(p); p.style.left = 24 + n * 24 + 'px'; p.style.top = 20 + n * 150 + 'px'; }
-        else {
-          p.style.left = p.style.top = '';
-          const next = PANELS.slice(n + 1).map((k) => panels[k]).find((q) => q.parentElement === $('dock'));
-          next ? next.before(p) : $('dock').append(p);
-        }
-      }
+      if (t.dataset.p === 'float') setFloat(key, !p.classList.contains('float'));
       refresh();
     }
   });
@@ -1017,6 +1006,39 @@ export function initUI(app, actions, version) {
     openCtx(e, layerItems());
   });
 
+  function setFloat(key, floating) {
+    const p = panels[key], t = p.querySelector('[data-p="float"]'), n = PANELS.indexOf(key);
+    p.classList.toggle('float', floating);
+    t.innerHTML = svg(floating ? 'dock' : 'float');
+    t.title = floating ? 'Dock' : 'Float';
+    t.setAttribute('aria-label', t.title);
+    if (floating) { $('stage').append(p); p.style.left = 24 + n * 24 + 'px'; p.style.top = 20 + n * 150 + 'px'; }
+    else {
+      p.style.left = p.style.top = '';
+      const next = PANELS.slice(n + 1).map((k) => panels[k]).find((q) => q.parentElement === $('dock'));
+      next ? next.before(p) : $('dock').append(p);
+    }
+  }
+  // where the cards are, for the next visit (app.js keeps it with the other view choices)
+  const layout = () => Object.fromEntries(PANELS.map((k) => {
+    const p = panels[k], body = p.querySelector('.body');
+    return [k, { float: p.classList.contains('float'), left: parseFloat(p.style.left), top: parseFloat(p.style.top), folded: body.hidden, height: body.style.maxHeight }];
+  }));
+  function setLayout(saved) {
+    const st = $('stage');
+    for (const k of PANELS) {
+      const s = saved && saved[k], p = panels[k], body = p.querySelector('.body');
+      if (!s) continue;
+      body.hidden = !!s.folded;
+      if (/^\d+(\.\d+)?px$/.test(s.height || '')) body.style.maxHeight = s.height;
+      if (!s.float) continue;
+      setFloat(k, true);
+      // the window may be smaller this time: keep the header where it can be grabbed
+      if (Number.isFinite(s.left)) p.style.left = Math.max(0, Math.min(st.clientWidth - 60, s.left)) + 'px';
+      if (Number.isFinite(s.top)) p.style.top = Math.max(0, Math.min(st.clientHeight - 30, s.top)) + 'px';
+    }
+  }
+
   // floating panels move by their header
   let drag = null;
   document.addEventListener('pointerdown', (e) => {
@@ -1036,5 +1058,5 @@ export function initUI(app, actions, version) {
 
   // put the cursor in a Properties box, ready to type over what is there
   const focusField = (id) => { const el = $(id); if (el) { el.focus(); if (el.select) el.select(); } };
-  return { refresh, refreshChrome, say, ask, askText, pickProject, carSetup, shortcuts, editColour, focusField, library, mergeChoice };
+  return { layout, setLayout, refresh, refreshChrome, say, ask, askText, pickProject, carSetup, shortcuts, editColour, focusField, library, mergeChoice };
 }
