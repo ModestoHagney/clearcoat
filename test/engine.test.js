@@ -52,6 +52,13 @@ test('serializeDoc carries fx as-is, null when absent', () => {
   assert.equal(out.layers[1].fx, null);
 });
 
+test('a layer keeps a Multiply blend through save and load; anything else is Normal', async () => {
+  const doc = createDoc();
+  doc.layers.push({ ...createFillLayer('#123456'), id: 'A', blend: 'multiply' }, { ...createFillLayer('#123456'), id: 'B', blend: 'screen' });
+  const back = await deserializeDoc(JSON.parse(JSON.stringify(serializeDoc(doc))));
+  assert.deepEqual(back.layers.map(l => l.blend), ['multiply', null]);
+});
+
 test('createFillLayer initializes colorMid/midPos and serializeDoc keeps them', () => {
   const fill = createFillLayer('#123456');
   assert.equal(fill.colorMid, null);

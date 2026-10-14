@@ -381,6 +381,7 @@ export function initUI(app, actions, version) {
       field('Shadow', `<span class="pair">${slider('f-fx-shadow', 0, 60, fx.shadow || 0)}<input id="f-fx-shadowColor" type="color" value="${esc(hexOf(fx.shadowColor || '') || '#000000')}" aria-label="Shadow colour"></span>`) +
       field('Shadow at', `<span class="pair">${slider('f-fx-shadowDX', -60, 60, fx.shadowDX ?? 8)}${slider('f-fx-shadowDY', -60, 60, fx.shadowDY ?? 8)}</span>`)) +
       field('Opacity', slider('f-opacity', 0, 100, (l.opacity ?? 1) * 100)) +
+      field('Blend', `<select id="f-blend" title="Multiply darkens what is under it, for a texture such as worn cardboard">${opt('', 'Normal', !l.blend)}${opt('multiply', 'Multiply', l.blend === 'multiply')}</select>`) +
       field('Name', `<input id="f-name" type="text" value="${esc(l.name)}">`);
     return main + acts + `<details class="more" id="f-more"${moreOpen ? ' open' : ''}><summary>More</summary>${more}</details>`;
   }
@@ -671,6 +672,7 @@ export function initUI(app, actions, version) {
     if (id === 'f-fade-out') return actions.setFade('out', e.target.checked);
     if (id === 'f-italic') { actions.setProp('italic', e.target.checked); return; }
     if (id === 'f-mirrorFlip') { actions.setProp('mirrorFlip', e.target.checked); return; }
+    if (id === 'f-blend') { actions.setProp('blend', e.target.value || null); return; }
     if (id === 'm-name') return actions.mapRename(e.target.value.trim());
     if (id === 'm-pair') return actions.mapPair(e.target.value);
     if (id === 'm-colours') return actions.toggleMapColours();
