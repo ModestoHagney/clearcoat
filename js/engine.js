@@ -1,7 +1,7 @@
 // Overspray render engine — document model, paint compositing, spec map generation.
 
 import { parseRegionMap } from './regions.js';
-import { SHAPES, motifOutline, placing, cells, framed, unframed, fadeAt } from './shapes.js';
+import { SHAPES, motifOutline, placing, cells, framed, unframed, fadeAt, flatten } from './shapes.js';
 
 export const SIZE = 2048;
 
@@ -562,9 +562,20 @@ export function repeatOffsets(layer) {
   // the item's own axes on the sheet, and its size along them
   let ex, ey, W, H, cx, cy;
   if (isRegionLayer(layer)) {
-    // ponytail: a shape's box is level with the sheet, so a turned shape steps by its level box
-    ex = { x: layer.flipH ? -1 : 1, y: 0 }; ey = { x: 0, y: layer.flipV ? -1 : 1 };
-    W = layer.rw; H = layer.rh; cx = layer.rx + W / 2; cy = layer.ry + H / 2;
+    // a shape stands at the angle it was last turned to (layer.turn): its box
+    // and axes are taken that way, as its frame on screen is
+    const t = (layer.turn || 0) * Math.PI / 180, c = Math.cos(t), s = Math.sin(t);
+    const fh = layer.flipH ? -1 : 1, fv = layer.flipV ? -1 : 1;
+    ex = { x: c * fh, y: s * fh }; ey = { x: -s * fv, y: c * fv };
+    if (t && Array.isArray(layer.pts) && layer.pts.length >= 3) {
+      let u0 = Infinity, v0 = Infinity, u1 = -Infinity, v1 = -Infinity;
+      for (const q of flatten(layer.pts)) {
+        const u = q.x * c + q.y * s, v = q.y * c - q.x * s;
+        if (u < u0) u0 = u; if (u > u1) u1 = u; if (v < v0) v0 = v; if (v > v1) v1 = v;
+      }
+      W = u1 - u0; H = v1 - v0;
+    } else { W = layer.rw; H = layer.rh; }
+    cx = layer.rx + layer.rw / 2; cy = layer.ry + layer.rh / 2;
   } else {
     const m = layerMatrix(layer), o = m.transformPoint(new DOMPoint(0, 0));
     const a = m.transformPoint(new DOMPoint(1, 0)), b = m.transformPoint(new DOMPoint(0, 1));
