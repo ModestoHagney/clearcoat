@@ -1203,11 +1203,25 @@ const actions = {
     const ls = selectedLayers().filter(l => !l.locked);
     if (!ls.length || !canChange()) return;
     for (const l of ls) {
-      if (part === null) delete l.repeat;
-      else l.repeat = cleanRepeat({ ...(l.repeat || { angle: 0 }), ...part });
+      if (part === null) { delete l.repeat; continue; }
+      const r = l.repeat || cleanRepeat({ seed: newSeed() });
+      l.repeat = cleanRepeat({ ...r, ...(typeof part === 'function' ? part(r, l) : part) });
     }
     change({ panels });
   },
+  repeatReroll() { actions.setRepeat({ seed: newSeed() }); },
+  // the copies' other colours: they take turns with the layer's own, or pick by their roll
+  addRepeatColour() {
+    actions.setRepeat((r, l) => ({ colors: [...r.colors, nextMix({ color: layerColour(l), colors: r.colors }, l)] }));
+    // the new colour is there to be chosen: its box opens the colour pop-up straight away
+    const r = (actions.selected() || {}).repeat, n = r ? r.colors.length : 0;
+    if (n) setTimeout(() => { const box = $(`f-rep-c${n - 1}`); if (box) box.click(); }, 0);
+  },
+  dropRepeatColour(k) { actions.setRepeat((r) => ({ colors: r.colors.filter((_, i) => i !== k) })); },
+  repeatColour(k, hex) { actions.setRepeat((r) => ({ colors: r.colors.map((c, i) => (i === k ? hex : c)) }), false); },
+  // a shape's copies can take other outlines too
+  addRepeatShape(key) { actions.setRepeat((r) => ({ shapes: [...r.shapes, motifOf(key)] })); },
+  dropRepeatShape(k) { actions.setRepeat((r) => ({ shapes: r.shapes.filter((_, i) => i !== k) })); },
   // ---- patterns: a shape repeated inside a fill ----
   ownShapes: () => library.shapes,
   // '' takes the pattern off; a shape's key puts one on, or swaps what repeats
@@ -1681,7 +1695,7 @@ const actions = {
   // who is to be credited for what is in the livery: icons from the open sets, wherever they ended up
   credits() {
     const all = [];
-    for (const l of app.doc.layers) all.push(...(l.credits || []), ...(l.motif ? [l.motif, ...(l.motif.more || [])].flatMap(m => m.credits || []) : []));
+    for (const l of app.doc.layers) all.push(...(l.credits || []), ...(l.motif ? [l.motif, ...(l.motif.more || [])].flatMap(m => m.credits || []) : []), ...(l.repeat ? l.repeat.shapes.flatMap(m => m.credits || []) : []));
     return cleanCredits(all);
   },
   // Several layers kept in the library as one thing. They are kept as a
