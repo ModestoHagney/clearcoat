@@ -6,7 +6,7 @@
 // which mirror point by point.)
 
 import { isRegionLayer, clipPolys, newId } from './engine.js';
-import { frameFrom, framed, contains } from './shapes.js';
+import { contains } from './shapes.js';
 import { MIRROR_KINDS, regionAt, regionById, centerLine, mirrorAcross, mirrorPointKind, guessMirrorKind, trimShape, regionOutline, growOutline, seamMatrix } from './regions.js';
 
 // the piece (not one of the kit's number / sponsor zones) at a point
@@ -96,10 +96,11 @@ export function withSeams(doc) {
   for (const l of doc.layers) {
     const s = l.continues && seamsOf(map, l);
     if (!s || s.error) { layers.push(l); continue; }
-    layers.push(clipPolys(l).length ? l : { ...l, clip: trimTo(s.home), clipAt: null });
+    const own = clipPolys(l).length ? l : { ...l, clip: trimTo(s.home), clipAt: null };
+    layers.push(own);
     s.links.forEach(({ link, side }, i) => {
-      const carry = seamMatrix(map, link, side), to = regionById(map, link[side === 'a' ? 'b' : 'a'].region);
-      if (carry) layers.push({ ...l, id: `${l.id}~s${i}`, continues: false, carry, clip: trimTo(to), clipAt: null });
+      const m = seamMatrix(map, link, side), to = regionById(map, link[side === 'a' ? 'b' : 'a'].region);
+      if (m) layers.push({ ...own, id: `${l.id}~s${i}`, continues: false, carry: { ...m, clip: trimTo(to) } });
     });
   }
   return { ...doc, layers };
@@ -155,8 +156,6 @@ export function mirrorLayer(map, sel) {
   // mirror gives them is taken back out, about their own upright. (On a twin
   // that lies upside-down on the sheet that leaves them turned to match it.)
   if ((sel.type === 'image' || sel.type === 'text') && !sel.mirrorFlip) copy.flipH = !copy.flipH;
-  // a pattern is drawn through the mirror, so the other side is its mirror image
-  if (sel.motif) { const f = frameFrom((x, y) => carry(x, y)); copy.motifFrame = sel.motifFrame ? framed(f, sel.motifFrame) : f; }
   // a fade's two points go across with the shape
   if (sel.fadeFrom && sel.fadeTo) { copy.fadeFrom = pt(sel.fadeFrom); copy.fadeTo = pt(sel.fadeTo); }
   if (isPath(sel)) {
@@ -178,8 +177,7 @@ export function mirrorLayer(map, sel) {
     copy.ry = Math.round(Math.min(...ys));
     copy.rw = Math.max(1, Math.round(Math.max(...xs) - Math.min(...xs)));
     copy.rh = Math.max(1, Math.round(Math.max(...ys) - Math.min(...ys)));
-    // (a pattern is not flipped with the box but drawn through the mirror, so its fade points stay carried across)
-    if (sel.fadeFrom && sel.fadeTo && sel.rw && sel.rh && !sel.motif) {
+    if (sel.fadeFrom && sel.fadeTo && sel.rw && sel.rh) {
       // a box is mirrored by flipping it within its rect, fade and all, so its
       // fade points keep their place in the rect and the flip carries them
       const rel = (q) => ({ x: copy.rx + (q.x - sel.rx) / sel.rw * copy.rw, y: copy.ry + (q.y - sel.ry) / sel.rh * copy.rh });

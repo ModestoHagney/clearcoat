@@ -144,6 +144,8 @@ test('a Continues layer is trimmed to its panel and carried over each linked edg
   assert.equal(out.length, 2);
   assert.equal(out[0].clip[0].length, 4); // its own part, trimmed to Lone
   assert.equal(out[1].id, l.id + '~s0');
+  assert.deepEqual(out[1].clip, out[0].clip); // laid out as on its own panel...
+  assert.equal(out[1].carry.clip[0].length, 4); // ...and trimmed to the roof
   const k = out[1].carry, at = (x, y) => ({ x: Math.round(k.a * x + k.c * y + k.e), y: Math.round(k.b * x + k.d * y + k.f) });
   assert.deepEqual(at(1700, 50), { x: 1200, y: 0 }); // the edge's middle meets the roof's top edge's middle
   assert.ok(at(1720, 50).y > 0); // over the edge lands on the roof

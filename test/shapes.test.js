@@ -138,7 +138,7 @@ test('boxOutline: a box, a triangle, and an ellipse that stays within a hair of 
 
 // ---------- ready-made shapes, patterns and stamps ----------
 const shapesMod = await import('../js/shapes.js');
-const { SHAPES, motifOutline, placed, cells, frameFrom, framed, unframed } = shapesMod;
+const { SHAPES, motifOutline, placed } = shapesMod;
 
 test('every ready-made shape fills the box it is drawn in', () => {
   for (const kind of Object.keys(SHAPES)) {
@@ -153,73 +153,6 @@ test('a stamp is the motif at the size asked, about the spot clicked', () => {
   const own = { kind: 'own', w: 40, h: 20, pts: [{ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 20 }, { x: 0, y: 20 }] };
   const t = bounds(placed(own, 0, 0, 200, 90)); // the longer side is the size; a quarter turn stands it up
   assert.deepEqual([t.w, t.h].map(Math.round), [100, 200]);
-});
-
-test('a pattern sits on a grid fixed to the sheet, every second row shifted by the stagger', () => {
-  const m = { size: 40, gap: 10, stagger: 50 };
-  const a = cells(m, { x: 0, y: 0, w: 200, h: 200 }), b = cells(m, { x: 130, y: 70, w: 200, h: 200 });
-  const key = (c) => c.x + ',' + c.y, inA = new Set(a.map(key));
-  assert.ok(a.some(c => c.x === 50 && c.y === 100));  // an even row: multiples of the 50 px step
-  assert.ok(a.some(c => c.x === 75 && c.y === 50));   // an odd row: half a step across
-  assert.ok(!a.some(c => c.x === 50 && c.y === 50));
-  const shared = b.filter(c => inA.has(key(c)));
-  assert.ok(shared.length > 0 && b.every(c => c.x < 130 || c.y < 70 || c.x > 200 || c.y > 200 || inA.has(key(c)))); // where the two boxes overlap, the same middles
-  // every copy that can reach the box is there
-  assert.ok(a.some(c => c.x === -25 && c.y === 50) && a.some(c => c.x === 225 && c.y === 150));
-  assert.ok(!a.some(c => c.y < -30 || c.y > 230)); // and none that cannot
-});
-
-test('a mirror read off three points sends every point where the mirror does', () => {
-  const carry = (x, y) => ({ x: 900 - x, y: y + 30 }); // a flip with a shift
-  const f = frameFrom(carry), at = (g, x, y) => ({ x: g[0] * x + g[2] * y + g[4], y: g[1] * x + g[3] * y + g[5] });
-  assert.deepEqual(at(f, 120, 40), carry(120, 40));
-  assert.deepEqual(at(framed(f, f), 120, 40), { x: 120, y: 100 }); // twice: back across, shifted twice
-  assert.deepEqual(unframed(f, { x: 700, y: 130, w: 100, h: 50 }), { x: 100, y: 100, w: 100, h: 50 });
-});
-
-test('a random pattern rolls the same every time, and differently for another seed', () => {
-  const box = { x: 0, y: 0, w: 400, h: 400 }, plain = { size: 40, gap: 10, stagger: 0, turn: 10 };
-  const m = { ...plain, random: true, rSize: 100, rPos: 100, rTurn: 100, seed: 7, colors: ['#111111', '#222222'] };
-  const a = cells(m, box), again = cells(m, box), other = cells({ ...m, seed: 8 }, box);
-  assert.deepEqual(a, again);
-  assert.notDeepEqual(a.map(c => c.x), other.map(c => c.x));
-  // off: no size, place or turn varies, whatever the amounts say
-  assert.ok(cells({ ...m, random: false }, box).every(c => c.size === 40 && c.turn === 10 && c.x % 50 === 0 && c.pick === (((c.i + c.j) % 3) + 3) % 3)); // the colours take turns
-  // with more shapes too, colours step differently: a shape is not tied to one colour
-  const both = cells({ ...m, random: false, colors: ['#111111'], more: [{ kind: 'star' }] }, box);
-  assert.deepEqual([...new Set(both.map(c => c.shape + '/' + c.pick))].sort(), ['0/0', '0/1', '1/0', '1/1']);
-  // amounts at nothing: random, but only the colours are mixed
-  assert.ok(cells({ ...m, rSize: 0, rPos: 0, rTurn: 0 }, box).every(c => c.size === 40 && c.turn === 10 && c.x % 50 === 0));
-  // within what the amounts allow, and every colour gets used
-  const at = (c) => ({ gx: c.i * 50, gy: c.j * 50 });
-  assert.ok(a.every(c => c.size >= 10 && c.size <= 70 && Math.abs(c.turn - 10) <= 180 && Math.abs(c.x - at(c).gx) <= 25 && Math.abs(c.y - at(c).gy) <= 25));
-  assert.deepEqual([...new Set(a.map(c => c.pick))].sort(), [0, 1, 2]);
-  // the same copy rolls the same from another shape's box: one pattern across shapes
-  const b = cells(m, { x: 200, y: 200, w: 400, h: 400 }), key = (c) => c.i + ',' + c.j, byKey = new Map(a.map(c => [key(c), c]));
-  const shared = b.filter(c => byKey.has(key(c)));
-  assert.ok(shared.length > 10 && shared.every(c => c.x === byKey.get(key(c)).x && c.pick === byKey.get(key(c)).pick));
-});
-
-test('a pattern with more shapes: they take turns across the grid, or mix by the roll when random', () => {
-  const box = { x: 0, y: 0, w: 400, h: 400 }, m = { size: 40, gap: 10, stagger: 0, turn: 0, more: [{ kind: 'star' }] };
-  const plain = cells(m, box);
-  assert.ok(plain.every(c => c.shape === Math.abs(c.i + c.j) % 2)); // next to each one, the other
-  assert.ok(cells({ ...m, more: [] }, box).every(c => c.shape === 0));
-  const mixed = cells({ ...m, more: [{ kind: 'star' }, { kind: 'cross' }], random: true, seed: 5 }, box);
-  assert.deepEqual([...new Set(mixed.map(c => c.shape))].sort(), [0, 1, 2]);
-  assert.ok(mixed.some(c => c.shape !== Math.abs(c.i + c.j) % 3)); // not simply in turn
-  assert.deepEqual(mixed, cells({ ...m, more: [{ kind: 'star' }, { kind: 'cross' }], random: true, seed: 5 }, box));
-});
-
-test('how far along a fade a point is: across, and from the middle', () => {
-  const { fadeAt } = shapesMod, A = { x: 100, y: 100 }, B = { x: 300, y: 100 };
-  assert.equal(fadeAt({ x: 100, y: 500 }, A, B), 0);          // level with the start, wherever it is sideways
-  assert.equal(fadeAt({ x: 200, y: -40 }, A, B), 0.5);
-  assert.equal(fadeAt({ x: 50, y: 100 }, A, B), 0);           // before the start
-  assert.equal(fadeAt({ x: 900, y: 100 }, A, B), 1);          // past the end
-  assert.equal(fadeAt({ x: 100, y: 200 }, A, B, 'radial'), 0.5); // by distance from the start
-  assert.equal(fadeAt({ x: 0, y: 100 }, A, B, 'radial'), 0.5);
-  assert.equal(fadeAt({ x: 7, y: 7 }, A, A), 0);              // no line at all
 });
 
 test('rounded shapes: only corners between straight lines are rounded, and the shape still fills its box', () => {

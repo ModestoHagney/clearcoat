@@ -225,7 +225,7 @@ function fitted(pts, x, y, w, h) {
 export const softened = (plain, x, y, w, h, r) => fitted(rounded(boxOutline(plain, x, y, w, h), r), x, y, w, h);
 
 // a ready-made shape drawn in a box, as an outline: so it can join another,
-// repeat as a pattern, or simply be a shape of its own
+// repeat, or simply be a shape of its own
 export function boxOutline(shape, x, y, w, h) {
   const plain = plainOf(shape);
   if (plain) return softened(plain, x, y, w, h, Math.min(w, h) * ROUND);
@@ -258,7 +258,7 @@ export function snapAngle(from, to, step = 45) {
   return { x: from.x + Math.cos(a) * len, y: from.y + Math.sin(a) * len };
 }
 
-// ---------- a shape repeated: patterns and stamps ----------
+// ---------- a shape repeated: Repeat's shapes and stamps ----------
 
 // A motif is the shape that repeats: { kind } names a ready-made one, and
 // { kind: 'own', pts, w, h } carries an outline of its own (a library shape).
@@ -279,94 +279,6 @@ const through = (f) => (p) => ({ x: f[0] * p.x + f[2] * p.y + f[4], y: f[1] * p.
 export function placed(m, x, y, size, turn = 0) {
   const o = motifOutline(m);
   return mapped(o.pts, through(placing(o, x, y, size, turn)));
-}
-
-// The middles of every copy that could show inside `box`. The grid is fixed
-// to the sheet, not to the shape it fills, so two shapes with the same
-// settings carry on the same pattern. stagger: how far every second row is
-// shifted, as a percentage of the step.
-//
-// → [{ x, y, size, turn, pick, shape, i, j }]: where each copy goes and how.
-// `shape` says which of the pattern's shapes it is (0 = the main one, then
-// m.more in order): they take turns across the grid, or with Random on each
-// copy takes one by its roll. A plain
-// pattern gives every copy the motif's own size and turn. A random one
-// (m.random) varies each by its own roll: rSize, rPos and rTurn say how much,
-// 0 to 100. `pick` says which of the pattern's colours it takes (0 = the
-// main one, then m.colors in order): in turn, or by the roll when random. A roll comes from the seed and the
-// copy's place in the grid, so it is the same every time it is painted, on
-// every shape that shares the grid, until the seed is changed.
-export const CELL_LIMIT = 15000; // about a tenth of a second to paint
-export const SIZE_SWING = 0.75;  // rSize 100: from a quarter of the size to one and three quarters
-function roll(seed, i, j, k) { // 0 ≤ … < 1, steady for the same four numbers
-  let h = (seed | 0) ^ Math.imul(i, 374761393) ^ Math.imul(j, 668265263) ^ Math.imul(k, 2246822519);
-  h = Math.imul(h ^ (h >>> 13), 1274126177);
-  h = Math.imul(h ^ (h >>> 16), 2246822507);
-  return ((h ^ (h >>> 13)) >>> 0) / 4294967296;
-}
-export function cells(m, box) {
-  const { size, gap = 0, stagger = 0 } = m, turn = m.turn || 0;
-  const rnd = !!m.random, rSize = rnd ? (m.rSize || 0) / 100 : 0, rPos = rnd ? (m.rPos || 0) / 100 : 0, rTurn = rnd ? (m.rTurn || 0) / 100 : 0;
-  const colours = 1 + (m.colors || []).length, seed = m.seed || 0, shapes = 1 + (m.more || []).length;
-  // colours take turns as shapes do; stepped differently when there are both, so a shape does not always get the same colour
-  const turnOf = (n, v) => ((v % n) + n) % n, cstep = shapes > 1 ? 2 : 1;
-  const step = Math.max(2, size + gap);
-  // a turned copy reaches this far from its middle: more if it may grow or drift
-  const pad = size * 0.75 * (1 + SIZE_SWING * rSize) + step / 2 * rPos;
-  const x0 = box.x - pad, y0 = box.y - pad, x1 = box.x + box.w + pad, y1 = box.y + box.h + pad;
-  // ponytail: past CELL_LIMIT copies the grid is opened up instead of drawn;
-  // raise the limit if a finer pattern is ever wanted and the screen keeps up.
-  const pitch = Math.max(step, Math.sqrt((x1 - x0) * (y1 - y0) / CELL_LIMIT));
-  const out = [];
-  for (let j = Math.ceil(y0 / pitch); j * pitch <= y1; j++) {
-    const off = j % 2 ? stagger / 100 * pitch : 0;
-    for (let i = Math.ceil((x0 - off) / pitch); i * pitch + off <= x1; i++) {
-      const c = { x: i * pitch + off, y: j * pitch, size, turn, pick: turnOf(colours, i + cstep * j), shape: turnOf(shapes, i + j), i, j };
-      if (rnd) {
-        const u = (k) => roll(seed, i, j, k) * 2 - 1; // −1 … 1
-        c.x += u(1) * rPos * pitch / 2;
-        c.y += u(2) * rPos * pitch / 2;
-        c.size = size * (1 + u(3) * SIZE_SWING * rSize);
-        c.turn = turn + u(4) * 180 * rTurn;
-        c.pick = Math.floor(roll(seed, i, j, 5) * colours);
-        c.shape = Math.floor(roll(seed, i, j, 6) * shapes);
-      }
-      out.push(c);
-    }
-  }
-  return out;
-}
-
-// A mirror as numbers: found from where it sends three points. A pattern on a
-// mirrored shape is drawn through it, so the other side is a true mirror image.
-export function frameFrom(carry) {
-  const o = carry(0, 0), u = carry(1, 0), v = carry(0, 1);
-  return [u.x - o.x, u.y - o.y, v.x - o.x, v.y - o.y, o.x, o.y];
-}
-// g, then f
-export const framed = (f, g) => [
-  f[0] * g[0] + f[2] * g[1], f[1] * g[0] + f[3] * g[1],
-  f[0] * g[2] + f[2] * g[3], f[1] * g[2] + f[3] * g[3],
-  f[0] * g[4] + f[2] * g[5] + f[4], f[1] * g[4] + f[3] * g[5] + f[5],
-];
-// the box round `box` as it lies before the frame is applied
-export function unframed(f, box) {
-  const det = f[0] * f[3] - f[1] * f[2];
-  if (!det) return box;
-  const back = (x, y) => ({ x: (f[3] * (x - f[4]) - f[2] * (y - f[5])) / det, y: (f[0] * (y - f[5]) - f[1] * (x - f[4])) / det });
-  const cs = [back(box.x, box.y), back(box.x + box.w, box.y), back(box.x, box.y + box.h), back(box.x + box.w, box.y + box.h)];
-  const xs = cs.map(p => p.x), ys = cs.map(p => p.y), x = Math.min(...xs), y = Math.min(...ys);
-  return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
-}
-
-// How far along a fade a point is: 0 at `from` (or before it), 1 at `to` (or
-// past it). Across: measured along the line between them. From the middle
-// ('radial'): by distance from `from`.
-export function fadeAt(p, from, to, style) {
-  const dx = to.x - from.x, dy = to.y - from.y, len2 = dx * dx + dy * dy;
-  if (!len2) return 0;
-  const t = style === 'radial' ? Math.hypot(p.x - from.x, p.y - from.y) / Math.sqrt(len2) : ((p.x - from.x) * dx + (p.y - from.y) * dy) / len2;
-  return Math.max(0, Math.min(1, t));
 }
 
 // ---------- holes ----------
