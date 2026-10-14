@@ -251,7 +251,7 @@ export function initUI(app, actions, version) {
       const cols = [...new Set(ms.map((l) => layerColour(l)).filter(Boolean))].slice(0, 4), n = cols.length;
       const sw = n ? `background:linear-gradient(90deg, ${cols.map((c, i) => `${esc(c)} ${i / n * 100}% ${(i + 1) / n * 100}%`).join(', ')})` : swatch(ms[0]);
       const seen = ms.some((l) => l.visible), open = !g.collapsed;
-      return `<div class="row grouped ghead${ms.some((l) => picked.has(l.id)) ? ' sel' : ''}" data-layer="${esc(ms[0].id)}" data-group="${esc(g.id)}" data-last="${esc(ms[ms.length - 1].id)}" draggable="true" style="--g:${groupHue(g.id)}" title="A group of ${ms.length} layers. Double-click its name to rename it.">` +
+      return `<div class="row grouped ghead${ms.some((l) => picked.has(l.id)) ? ' sel' : ''}" data-layer="${esc(ms[0].id)}" data-group="${esc(g.id)}" data-last="${esc(ms[ms.length - 1].id)}" draggable="true" style="--g:${groupHue(g.id)}" title="A group of ${ms.length} layers. Click its name again to rename it.">` +
         `<button class="twist" data-fold="${esc(g.id)}" aria-expanded="${open}" title="${open ? 'Fold it to one row' : 'Show its layers'}" aria-label="${open ? 'Fold' : 'Unfold'} ${esc(g.name)}">${open ? '▾' : '▸'}</button>` +
         `<span class="sw" style="${sw}"></span><span class="name">${esc(g.name)}</span><span class="count">${ms.length}</span>` +
         `<button class="rowx" data-delg="${esc(g.id)}" title="Delete the group and its layers" aria-label="Delete ${esc(g.name)}">${svg('close')}</button><button class="eye${seen ? '' : ' off'}" data-eyeg="${esc(g.id)}" title="Show or hide" aria-label="Show or hide ${esc(g.name)}">${svg('eye')}</button></div>`;
@@ -618,16 +618,22 @@ export function initUI(app, actions, version) {
     // (a group's own row stands for all its layers: they go together, and what is dropped below it lands behind its last one)
     actions.reorder(dragId, spot.above ? spot.row.dataset.layer : spot.row.dataset.last || spot.row.dataset.layer, spot.above, dragWhole);
   });
-  // A double click on a group's name renames it. The first click selects the
-  // group, which redraws the list, so the browser's own dblclick never arrives
-  // (its target is gone): two clicks on the same group's name, close together, are counted here.
-  let headClick = { id: null, at: 0 };
+  // A name in the list is renamed by a double click, or by a click on it once
+  // it is already the one selected (as file lists do). The first click selects,
+  // which redraws the list, so the browser's own dblclick never arrives (its
+  // target is gone): two clicks on the same name, close together, are counted here.
+  let nameClick = { key: null, at: 0 };
   panels.layers.addEventListener('click', (e) => {
-    const row = e.target.closest('.ghead');
-    if (!row || !e.target.closest('.name')) return;
-    const twice = headClick.id === row.dataset.group && performance.now() - headClick.at < 450;
-    headClick = twice ? { id: null, at: 0 } : { id: row.dataset.group, at: performance.now() };
-    if (twice) actions.renameGroup(row.dataset.group);
+    const row = e.target.closest('.row[data-layer]');
+    if (!row || row.dataset.layer === 'base' || !e.target.closest('.name') || e.shiftKey || e.ctrlKey || e.metaKey || app.mode !== 'paint') return;
+    const gid = row.dataset.group, key = gid || row.dataset.layer, sel = actions.selectedLayers();
+    const twice = nameClick.key === key && performance.now() - nameClick.at < 450;
+    const already = gid ? row.classList.contains('sel') && sel.every((l) => l.groupId === gid) : sel.length === 1 && sel[0].id === key;
+    nameClick = twice ? { key: null, at: 0 } : { key, at: performance.now() };
+    if (!twice && !already) return;
+    e.stopPropagation(); // it is already selected: nothing else to do with this click
+    nameClick = { key: null, at: 0 };
+    gid ? actions.renameGroup(gid) : actions.renameLayer(key);
   }, true);
   panels.layers.addEventListener('dragend', () => { dragId = null; dropMark(null); });
 

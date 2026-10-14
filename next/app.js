@@ -1481,6 +1481,13 @@ const actions = {
     g.collapsed = !g.collapsed;
     change({ now: true });
   },
+  async renameLayer(id) {
+    const l = app.doc.layers.find(x => x.id === id);
+    const name = l && await ui.askText({ title: 'Rename the layer', label: 'Name', value: l.name, ok: 'Rename' });
+    if (!name || !name.trim()) return;
+    l.name = name.trim();
+    change({ now: true });
+  },
   async renameGroup(gid) {
     const g = (app.doc.groups || []).find(x => x.id === gid);
     const name = g && await ui.askText({ title: 'Rename the group', label: 'Name', value: g.name, ok: 'Rename' });
