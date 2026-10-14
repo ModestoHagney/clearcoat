@@ -889,7 +889,7 @@ const actions = {
 
   exportTga() {
     const [paintName, specName] = paintFilenames(app.doc, validCustid(app.custid) ? app.custid : safeName());
-    download(canvasToTGA(paint()), paintName);
+    download(canvasToTGA(exportPaintCanvas(app.doc, paint())), paintName); // a helmet at 1024, as Save to iRacing writes it
     if (specName) download(canvasToTGA(renderSpec(shown()), { alpha: true }), specName);
     ui.say(specName ? `${paintName} is the paint; ${specName} is the finish map` : `Exported ${paintName}`);
   },
