@@ -577,7 +577,7 @@ export function initTools(app, env) {
   function key(e) {
     if (app.tool === 'pen') {
       if (e.key === 'Enter') { if (!finish()) env.say('Click at least three points first'); return true; }
-      if (e.key === 'Backspace') { if (draft && draft.length) { draft.pop(); requestDraw(); env.refreshChrome(); } return true; }
+      if (e.key === 'Backspace' && draft && draft.length) { draft.pop(); requestDraw(); env.refreshChrome(); return true; } // with no points yet it deletes the selected layer as usual
       if (e.key === 'Escape') {
         if (draft && draft.length) { draft = null; cursor = null; requestDraw(); env.refreshChrome(); }
         else env.setTool('select');

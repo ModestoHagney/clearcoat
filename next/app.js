@@ -302,7 +302,6 @@ function draw() {
 // Snapshot-based, as in the original screen: one step per settled change.
 // Long strings (embedded pictures) are swapped for references so 40 snapshots
 // of a logo-heavy livery do not hold 40 copies of every logo.
-// ponytail: the table is never pruned; clear it per project if memory bites.
 const interned = new Map(), internedBack = [];
 const pack = (data) => JSON.stringify(data, (k, v) => {
   if (typeof v !== 'string' || v.length < 1024) return v;
@@ -344,8 +343,12 @@ function syncUndo() {
   $('btn-undo').disabled = !app.canUndo;
   $('btn-redo').disabled = !app.canRedo;
 }
+let snapSeq = 0; // undo steps load their pictures at their own pace; only the last one asked for is shown
 async function applySnap(snap) {
-  app.doc = await deserializeDoc(unpack(snap));
+  const seq = ++snapSeq;
+  const doc = await deserializeDoc(unpack(snap));
+  if (seq !== snapSeq) return;
+  app.doc = doc;
   if (app.sel !== 'base' && !app.doc.layers.some(l => l.id === app.sel)) app.sel = 'base';
   syncUndo();
   change();
@@ -398,7 +401,8 @@ function change({ panels = true, now = false } = {}) {
   if (ui) panels ? ui.refresh() : ui.refreshChrome();
 }
 
-let saveTimer = null, lastJson = null;
+let saveTimer = null, lastJson = null, saveWarned = false;
+const SAVE_FAILED = 'Could not save in the browser: its storage may be full. Export TGA keeps a copy of the paint.';
 function projectThumb() {
   const c = document.createElement('canvas');
   c.width = c.height = 128;
@@ -422,7 +426,13 @@ async function runSave() {
       await persist.saveBlob('next-autosave', json);
       await persist.saveSetting('next-project', app.projectId);
       if (app.projectId) await persist.saveProject(app.projectId, { name: app.doc.name, thumb: projectThumb() }, json);
-    } catch { /* quota or private mode — the livery is still on screen */ }
+      saveWarned = false;
+    } catch { // quota or private mode: the livery is still on screen, so say so once and try again on the next save
+      lastJson = null;
+      if (!saveWarned) { saveWarned = true; ui.say(SAVE_FAILED, true); }
+      liveTick();
+      return false;
+    }
   }
   liveTick();
 }
@@ -773,8 +783,8 @@ const actions = {
       app.projectId = Date.now().toString(36);
       lastJson = null;
     }
-    await runSave();
-    ui.say(`Saved ${app.doc.name}`);
+    if (await runSave() === false) ui.say(SAVE_FAILED, true);
+    else ui.say(`Saved ${app.doc.name}`);
     ui.refreshChrome();
   },
 
