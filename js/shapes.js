@@ -174,7 +174,9 @@ export const plainOf = (shape) => (shape === 'round' ? 'rect' : shape.endsWith('
 const NO_HOLLOW = new Set(['ring', 'flame']);
 export const hollowOf = (shape) => (PLAIN[shape] && !NO_HOLLOW.has(shape) ? shape + '-h' : null);
 const solidOf = (shape) => (shape.endsWith('-h') && PLAIN[shape.slice(0, -2)] ? shape.slice(0, -2) : null);
-export const PLAIN_SHAPES = Object.keys(PLAIN);
+// the ones offered to pick: the ring is left out, as the hollow circle is the
+// same thing (a livery that already has one keeps it)
+export const PLAIN_SHAPES = Object.keys(PLAIN).filter(k => k !== 'ring');
 export const SHAPES = {
   ...PLAIN,
   ...Object.fromEntries(PLAIN_SHAPES.filter(roundedOf).map(k => [roundedOf(k), 'Rounded ' + PLAIN[k].toLowerCase()])),
