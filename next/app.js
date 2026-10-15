@@ -916,7 +916,7 @@ const actions = {
     const tab = window.open('https://www.tradingpaints.com/upload', '_blank'), blocked = !tab;
     if (tab) tab.opener = null;
     const car = app.doc.target === 'car' && validCustid(app.custid);
-    const name = (car ? `car_${app.doc.customNumber ? 'num_' : ''}${app.custid}` : safeName()) + '.png';
+    const name = safeName() + '.png'; // Trading Paints takes any file name; the upload page asks for the car and number
     const blob = await new Promise(done => exportPaintCanvas(app.doc, paint()).toBlob(done, 'image/png'));
     if (!blob) { ui.say('The paint could not be exported', true); return; }
     download(blob, name);
