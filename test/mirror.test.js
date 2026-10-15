@@ -173,3 +173,21 @@ test('trimmed to several linked panels, copies carry on from each, taking only t
   assert.deepEqual(seamsOf(m, l).homes.map(r => r.id), ['lone']);
   assert.equal(withSeams({ regionMap: m, layers: [l] }).layers[1].carry.from, null);
 });
+
+test('a Repeat is carried across as its mirror image: the copies run the way the original\'s land', async () => {
+  const { cleanRepeat, repeatOffsets } = await import('../js/engine.js');
+  const near = (a, b) => a.length === b.length && a.every((p, i) => Math.abs(p.x - b[i].x) < 1e-6 && Math.abs(p.y - b[i].y) < 1e-6);
+  const cases = [
+    [shape([{ x: 50, y: 20 }, { x: 150, y: 20 }, { x: 50, y: 60 }]), p => ({ x: p.x, y: -p.y })], // twin above/below
+    [shape([{ x: 1050, y: 100 }, { x: 1150, y: 100 }, { x: 1050, y: 300 }]), p => ({ x: -p.x, y: p.y })], // across the roof's centreline
+  ];
+  for (const [l, flip] of cases) {
+    for (const turn of [0, 30]) {
+      for (const way of ['across', 'down', 'grid']) {
+        l.turn = turn; l.repeat = cleanRepeat({ way, count: 3, rows: 2, gapX: 10, gapY: 5, angle: 15 });
+        const { copy } = mirrorLayer(map(), l);
+        assert.ok(near(repeatOffsets(copy).list, repeatOffsets(l).list.map(flip)), `${way}, turned ${turn}`);
+      }
+    }
+  }
+});

@@ -5,7 +5,7 @@
 // (It began as the original screen's mirrorLayerCopy, with free shapes added,
 // which mirror point by point.)
 
-import { isRegionLayer, clipPolys, newId } from './engine.js';
+import { isRegionLayer, clipPolys, newId, repeatAxes } from './engine.js';
 import { contains } from './shapes.js';
 import { MIRROR_KINDS, regionAt, regionById, centerLine, mirrorAcross, mirrorPointKind, guessMirrorKind, trimShape, regionOutline, growOutline, seamPieces } from './regions.js';
 
@@ -206,6 +206,14 @@ export function mirrorLayer(map, sel) {
     const placed = carry(sel.x, sel.y);
     copy.x = Math.round(placed.x);
     copy.y = Math.round(placed.y);
+  }
+  if (sel.repeat) {
+    // a Repeat's copies are carried across too: each of the copy's own axes
+    // runs whichever way the original's lands, so the far side is its mirror image
+    const r = sel.repeat, A = repeatAxes(sel), B = repeatAxes(copy);
+    const m0 = isRegionLayer(sel) ? { x: sel.rx + sel.rw / 2, y: sel.ry + sel.rh / 2 } : { x: sel.x, y: sel.y };
+    const back = (e, sign, f) => { const p = pt(m0), q = pt({ x: m0.x + e.x * sign * 50, y: m0.y + e.y * sign * 50 }); return (q.x - p.x) * f.x + (q.y - p.y) * f.y < 0; };
+    copy.repeat = { ...r, mirrorX: back(A.ex, r.mirrorX ? -1 : 1, B.ex), mirrorY: back(A.ey, r.mirrorY ? -1 : 1, B.ey) };
   }
   return { copy, dst };
 }

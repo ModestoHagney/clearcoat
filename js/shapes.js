@@ -55,8 +55,9 @@ export function bounds(pts) {
 
 // each piece as its own straight-sided outline
 export const outlines = (pts, steps = 12) => pieces(pts).map(([a, b]) => flatten(pts.slice(a, b).map((p, k) => (k ? p : { ...p, m: undefined })), steps));
-// inside any of its pieces
-export const contains = (pts, x, y) => outlines(pts).some(o => pointInPolygon(o, x, y));
+// inside the shape as it is painted: a piece run the other way round (a ring's
+// middle, a hollow shape's) is a hole in what is round it, as the canvas fills it
+export const contains = (pts, x, y) => outlines(pts).reduce((n, o) => (pointInPolygon(o, x, y) ? n + (turn(o) < 0 ? -1 : 1) : n), 0) !== 0;
 
 // every point (and bend handle) through f, keeping what else the point carries
 export const mapped = (pts, f) => pts.map((p) => {
@@ -312,10 +313,12 @@ export function placing(o, x, y, size, turn = 0) {
   return [a, b, -b, a, x - (a * o.w - b * o.h) / 2, y - (b * o.w + a * o.h) / 2];
 }
 const through = (f) => (p) => ({ x: f[0] * p.x + f[2] * p.y + f[4], y: f[1] * p.x + f[3] * p.y + f[5] });
-// that copy as an outline on the sheet: what Stamp places
-export function placed(m, x, y, size, turn = 0) {
+// that copy as an outline on the sheet: what Stamp places. back: { x, y },
+// turned over along its own across or down first (a Repeat's mirrored side)
+export function placed(m, x, y, size, turn = 0, back = null) {
   const o = motifOutline(m);
-  return mapped(o.pts, through(placing(o, x, y, size, turn)));
+  const pts = back && (back.x || back.y) ? mapped(o.pts, p => ({ x: back.x ? o.w - p.x : p.x, y: back.y ? o.h - p.y : p.y })) : o.pts;
+  return mapped(pts, through(placing(o, x, y, size, turn)));
 }
 
 // ---------- holes ----------

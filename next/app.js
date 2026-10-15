@@ -382,11 +382,13 @@ async function applySnap(snap) {
   skipCapture = true; // after change(), which clears it for real edits
 }
 function undo() {
+  if (saveTimer) runSave(); // an edit made a moment ago is recorded first, so it is the step taken back
   if (undoStack.length < 2) return;
   redoStack.push(undoStack.pop());
   applySnap(undoStack[undoStack.length - 1]);
 }
 function redo() {
+  if (saveTimer) runSave(); // likewise: an edit since the undo clears what redo would bring back
   if (!redoStack.length) return;
   const snap = redoStack.pop();
   undoStack.push(snap);
@@ -1429,18 +1431,31 @@ const actions = {
     for (const l of ls) setShape(l, outerOnly(l.pts));
     change({ now: true });
   },
-  order(dir) { // +1 forward, -1 back
-    const L = app.doc.layers, i = L.findIndex(l => l.id === app.sel), j = i + dir;
-    if (i === -1 || j < 0 || j >= L.length || !canChange()) return;
-    [L[i], L[j]] = [L[j], L[i]];
-    change({ now: true });
+  // +1 forward, -1 back: every selected layer (a whole group, when that is
+  // picked) steps past the next layer, or past the next group whole
+  order(dir) {
+    const L = app.doc.layers, on = new Set(selectedLayers().map(l => l.id));
+    if (!on.size || !canChange()) return;
+    const runs = []; // [first, last] of each stretch of selected layers, back to front
+    L.forEach((l, i) => { if (!on.has(l.id)) return; const r = runs[runs.length - 1]; r && r[1] === i - 1 ? (r[1] = i) : runs.push([i, i]); });
+    let moved = false;
+    for (const [a, b] of dir > 0 ? runs.reverse() : runs) { // the one furthest ahead goes first, into room the others then have
+      const j = dir > 0 ? b + 1 : a - 1, g = L[j] && L[j].groupId;
+      if (!L[j] || on.has(L[j].id)) continue;
+      let k = j;
+      if (g && g !== L[a].groupId) while (L[k + dir] && L[k + dir].groupId === g && !on.has(L[k + dir].id)) k += dir;
+      const run = L.splice(a, b - a + 1);
+      L.splice(dir > 0 ? k - run.length + 1 : k, 0, ...run);
+      moved = true;
+    }
+    if (moved) change({ now: true });
   },
-  // to the very front (+1) or the very back (-1)
+  // to the very front (+1) or the very back (-1), every selected layer in the order they were in
   orderEnd(dir) {
-    const L = app.doc.layers, i = L.findIndex(l => l.id === app.sel);
-    if (i === -1 || !canChange()) return;
-    const [l] = L.splice(i, 1);
-    dir > 0 ? L.push(l) : L.unshift(l);
+    const on = new Set(selectedLayers().map(l => l.id));
+    if (!on.size || !canChange()) return;
+    const taken = app.doc.layers.filter(l => on.has(l.id)), rest = app.doc.layers.filter(l => !on.has(l.id));
+    app.doc.layers = dir > 0 ? [...rest, ...taken] : [...taken, ...rest];
     change({ now: true });
   },
   front: () => actions.orderEnd(+1),
