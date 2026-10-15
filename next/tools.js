@@ -197,7 +197,7 @@ export function initTools(app, env) {
   // Trim: each click adds the panel under it as a window, or takes it out again
   function trimAt(p) {
     const l = selLayer();
-    if (!l) { env.endTrim(); return; }
+    if (!l || p.x < 0 || p.y < 0 || p.x > SIZE || p.y > SIZE) { env.endTrim(); return; } // a click off the sheet is Done
     const polys = clipPolys(l).slice(), ats = [].concat(l.clipAt || []);
     const had = polys.findIndex(poly => pointInPolygon(poly, p.x, p.y));
     if (had !== -1) { polys.splice(had, 1); ats.splice(had, 1); }
@@ -602,7 +602,7 @@ export function initTools(app, env) {
 
   const hint = () => {
     if (app.tool === 'hand') return 'Drag to move the sheet · wheel zooms · H or Esc puts it down';
-    if (app.trimming) return 'Click panels to show it in · click again to take one out · Enter when done';
+    if (app.trimming) return 'Click panels to show it in · click again to take one out · Enter or click off the sheet when done';
     if (app.mode === 'finish') {
       if (app.tool === 'piece') return 'Click a panel to give the whole panel a finish';
       if (app.tool === 'pen') return draft && draft.length ? 'Enter to finish the area · Backspace undoes a point' : 'Click points round the area · Shift holds 45°';
