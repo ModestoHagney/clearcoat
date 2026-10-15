@@ -169,8 +169,17 @@ const PLAIN = {
 const NO_CORNERS = new Set(['ellipse', 'flame', 'ring']);
 export const roundedOf = (shape) => (NO_CORNERS.has(shape) || !PLAIN[shape] ? null : shape === 'rect' ? 'round' : shape + '-r');
 export const plainOf = (shape) => (shape === 'round' ? 'rect' : shape.endsWith('-r') ? shape.slice(0, -2) : null);
+// and a hollow version of each one: only a band round its edge (a ring
+// already is one; a flame's flick is too thin to have a middle to cut out)
+const NO_HOLLOW = new Set(['ring', 'flame']);
+export const hollowOf = (shape) => (PLAIN[shape] && !NO_HOLLOW.has(shape) ? shape + '-h' : null);
+const solidOf = (shape) => (shape.endsWith('-h') && PLAIN[shape.slice(0, -2)] ? shape.slice(0, -2) : null);
 export const PLAIN_SHAPES = Object.keys(PLAIN);
-export const SHAPES = { ...PLAIN, ...Object.fromEntries(PLAIN_SHAPES.filter(roundedOf).map(k => [roundedOf(k), 'Rounded ' + PLAIN[k].toLowerCase()])) };
+export const SHAPES = {
+  ...PLAIN,
+  ...Object.fromEntries(PLAIN_SHAPES.filter(roundedOf).map(k => [roundedOf(k), 'Rounded ' + PLAIN[k].toLowerCase()])),
+  ...Object.fromEntries(PLAIN_SHAPES.filter(hollowOf).map(k => [hollowOf(k), 'Hollow ' + PLAIN[k].toLowerCase()])),
+};
 // corners of the straight-sided ones in a box 1 by 1
 const ring = (n, r = () => 1, from = -Math.PI / 2) => Array.from({ length: n }, (_, i) => {
   const a = from + i * 2 * Math.PI / n;
@@ -198,9 +207,11 @@ const CURVED = {
 };
 // height over width of the ones that are not as tall as wide when regular
 const ASPECT = { hexagon: Math.sqrt(3) / 2, star: 0.951, arrow: 0.8, bolt: 1.45, shield: 1.15, flame: 1.35 };
-export const aspect = (shape) => ASPECT[plainOf(shape) || shape] || 1;
+export const aspect = (shape) => ASPECT[plainOf(shape) || solidOf(shape) || shape] || 1;
 // how round a rounded corner is, as a share of the shape's shorter side
 const ROUND = 0.12;
+// how thick a hollow shape's band is, as a share of its shorter side
+const HOLLOW = 0.1;
 
 // The same outline with its corners rounded off by r. Only a corner between
 // two straight lines is rounded; one next to a bend is left as it is.
@@ -224,11 +235,35 @@ function fitted(pts, x, y, w, h) {
 // a plain shape with its corners rounded by r, still filling its box
 export const softened = (plain, x, y, w, h, r) => fitted(rounded(boxOutline(plain, x, y, w, h), r), x, y, w, h);
 
+// The same outline moved in by t all round (bends taken in short straight
+// steps). Each corner moves along the line halfway between its two sides, so
+// every side keeps the same thickness t.
+// ponytail: a part of the shape narrower than 2t folds over itself; fine at HOLLOW's thickness.
+export function inset(pts, t) {
+  const f = flatten(pts).filter((p, i, a) => { const q = a[(i + 1) % a.length]; return Math.hypot(q.x - p.x, q.y - p.y) > 1e-9; });
+  const s = turn(f) < 0 ? -1 : 1, n = f.length; // which side is inside
+  const normal = (a, b) => { const len = Math.hypot(b.x - a.x, b.y - a.y); return { x: -(b.y - a.y) / len * s, y: (b.x - a.x) / len * s }; };
+  return f.map((p, i) => {
+    const n1 = normal(f[(i - 1 + n) % n], p), n2 = normal(p, f[(i + 1) % n]);
+    const k = t / Math.max(0.1, 1 + n1.x * n2.x + n1.y * n2.y); // a sharp corner moves further, so its sides stay t thick
+    return { x: p.x + (n1.x + n2.x) * k, y: p.y + (n1.y + n2.y) * k };
+  });
+}
+// a plain shape with its middle cut out, leaving a band t thick: the hole is a
+// second piece run the other way round, as a ring's is
+export function hollowed(plain, x, y, w, h, t) {
+  const outer = boxOutline(plain, x, y, w, h), hole = reversed(inset(outer, t));
+  hole[0].m = true;
+  return [...outer, ...hole];
+}
+
 // a ready-made shape drawn in a box, as an outline: so it can join another,
 // repeat, or simply be a shape of its own
 export function boxOutline(shape, x, y, w, h) {
   const plain = plainOf(shape);
   if (plain) return softened(plain, x, y, w, h, Math.min(w, h) * ROUND);
+  const solid = solidOf(shape);
+  if (solid) return hollowed(solid, x, y, w, h, Math.min(w, h) * HOLLOW);
   if (UNIT[shape]) return UNIT[shape].map(([u, v]) => ({ x: x + u * w, y: y + v * h }));
   if (CURVED[shape]) {
     return fitted(CURVED[shape].map(([u, v, cu, cv]) => (cu === undefined ? { x: u, y: v } : { x: u, y: v, c: { x: cu, y: cv } })), x, y, w, h);

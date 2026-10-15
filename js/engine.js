@@ -688,19 +688,9 @@ function drawLayerContent(ctx, layer) {
       ctx.scale(layer.flipH ? -1 : 1, layer.flipV ? -1 : 1);
       ctx.translate(-(rx + rw / 2), -(ry + rh / 2));
     }
-    const paint = fillPaintStyle(ctx, layer, rx, ry, rw, rh);
+    ctx.fillStyle = fillPaintStyle(ctx, layer, rx, ry, rw, rh);
     const outline = fillShapePath(layer.shape, rx, ry, rw, rh, layer.pts);
-    if (layer.hollow > 0) {
-      // hollow: only a line this thick, drawn inside the shape's own edge
-      // (a stroke twice as wide, clipped to the shape), so it keeps its size
-      ctx.clip(outline);
-      ctx.lineWidth = layer.hollow * 2;
-      ctx.strokeStyle = paint;
-      ctx.stroke(outline);
-    } else {
-      ctx.fillStyle = paint;
-      ctx.fill(outline);
-    }
+    ctx.fill(outline);
     ctx.restore();
   } else {
     ctx.save();
@@ -1077,7 +1067,6 @@ export function serializeDoc(doc) {
       fx: l.fx || null,
       color: l.color,
       shape: l.shape, fillType: l.fillType, color2: l.color2, gradAngle: l.gradAngle,
-      hollow: l.type === 'fill' && l.hollow > 0 ? l.hollow : undefined, // only an outline this many pixels thick
       colorRef: l.colorRef || undefined,
       // painted on its twin panel (or across its centreline) as well; the
       // mirror image is worked out when painting, see mirror.js withMirrors
@@ -1233,7 +1222,6 @@ export async function deserializeDoc(data) {
           shape: l.shape || 'rect',
           pts: shapePts(l.pts),
           turn: Number.isFinite(l.turn) ? l.turn : 0,
-          hollow: Number.isFinite(l.hollow) && l.hollow > 0 ? l.hollow : 0,
           colorRef: typeof l.colorRef === 'string' ? l.colorRef : null,
           fillType: l.fillType || 'solid',
           color2: l.color2 || '#101114',

@@ -216,3 +216,15 @@ test('wrap: one outline pulled tight round the shapes; two circles make a slot w
   // a shape that is hollow or dented is wrapped by its outside
   assert.equal(wrapped([boxOutline('star', 0, 0, 100, 95)]).length, 5);
 });
+
+test('a hollow shape is its outline with the middle cut out, a band of even thickness', () => {
+  const pts = boxOutline('triangle-h', 0, 0, 100, 100);
+  const [outer, hole] = pieces(pts);
+  assert.equal(hole[0], 3); // the hole is a second piece
+  const inner = pts.slice(hole[0], hole[1]);
+  // every corner of the hole sits 10 in from both sides it lies between: the base, and each slant
+  const dist = (p, a, b) => Math.abs((b.x - a.x) * (a.y - p.y) - (a.x - p.x) * (b.y - a.y)) / Math.hypot(b.x - a.x, b.y - a.y);
+  const o = pts.slice(0, outer[1]);
+  for (const p of inner) assert.equal([0, 1, 2].filter(i => near(dist(p, o[i], o[(i + 1) % 3]), 10)).length, 2);
+  assert.ok(SHAPES['star-h'] && !SHAPES['ring-h']); // a ring is already hollow
+});
