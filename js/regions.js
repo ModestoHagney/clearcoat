@@ -530,33 +530,77 @@ export function matchPoint(map, x, y, maxDist) {
   return best;
 }
 
-// How the sheet beside one side of a link carries onto the other side, as a
-// canvas matrix { a, b, c, d, e, f }: that side's two ends land on the other
-// side's two ends (turned, scaled and moved to fit), reflected as well when
-// that is what puts this side's panel beyond the edge from the other panel,
-// as the two lie on the car. Paint that hangs over this side's edge so lands
-// on the other panel, just inside its edge. Null if a region is gone or a
-// side has no length.
-// ponytail: the straight line between a side's ends stands in for the edge,
-// so a curved seam can drift in the middle; follow linkPoints if it shows.
+// The matrix { a, b, c, d, e, f } (a canvas transform) that lands p0 on q0
+// and p1 on q1: turned and scaled to fit, after reflecting about the line
+// p0-p1 when `reflect`. Null if either line has no length.
+function fit(p0, p1, q0, q1, reflect) {
+  const ux = p1.x - p0.x, uy = p1.y - p0.y, wx = q1.x - q0.x, wy = q1.y - q0.y;
+  const lu = Math.hypot(ux, uy), lw = Math.hypot(wx, wy);
+  if (!lu || !lw) return null;
+  // turn and scale this line onto the other...
+  const k = lw / lu, cos = (ux * wx + uy * wy) / (lu * lw), sin = (ux * wy - uy * wx) / (lu * lw);
+  let a = k * cos, c = -k * sin, b = k * sin, d = k * cos;
+  if (reflect) {
+    // ...after reflecting about this line itself
+    const nx = ux / lu, ny = uy / lu, r00 = 2 * nx * nx - 1, r01 = 2 * nx * ny, r11 = 2 * ny * ny - 1;
+    [a, c, b, d] = [a * r00 + c * r01, a * r01 + c * r11, b * r00 + d * r01, b * r01 + d * r11];
+  }
+  return { a, b, c, d, e: q0.x - (a * p0.x + c * p0.y), f: q0.y - (b * p0.x + d * p0.y) };
+}
+
+// which side of the line s-(s+v) a panel lies on (+1 / -1), judged from a point well inside it
+const sideOf = (r, s, vx, vy) => { const c = labelPoint(r); return Math.sign(vx * (c.y - s.y) - vy * (c.x - s.x)) || 1; };
+
+// How the sheet beside one side of a link carries onto the other side, taken
+// as a whole: that side's two ends land on the other side's two ends (turned,
+// scaled and moved to fit), reflected as well when that is what puts this
+// side's panel beyond the edge from the other panel, as the two lie on the
+// car. Paint that hangs over this side's edge so lands on the other panel,
+// just inside its edge. Null if a region is gone or a side has no length.
 export function seamMatrix(map, link, side) {
   const o = side === 'a' ? 'b' : 'a';
   const ra = regionById(map, link[side].region), rb = regionById(map, link[o].region);
   if (!ra || !rb) return null;
   const p0 = link[side].from, p1 = link[side].to, q0 = link[o].from, q1 = link[o].to;
-  const ux = p1.x - p0.x, uy = p1.y - p0.y, wx = q1.x - q0.x, wy = q1.y - q0.y;
-  const lu = Math.hypot(ux, uy), lw = Math.hypot(wx, wy);
-  if (!lu || !lw) return null;
-  // which side of its line each panel lies on (+1 / -1), judged from a point well inside it
-  const across = (r, s, vx, vy) => { const c = labelPoint(r); return Math.sign(vx * (c.y - s.y) - vy * (c.x - s.x)) || 1; };
-  const reflect = across(ra, p0, ux, uy) === across(rb, q0, wx, wy);
-  // turn and scale this side's line onto the other's...
-  const k = lw / lu, cos = (ux * wx + uy * wy) / (lu * lw), sin = (ux * wy - uy * wx) / (lu * lw);
-  let a = k * cos, c = -k * sin, b = k * sin, d = k * cos;
-  if (reflect) {
-    // ...after reflecting about this side's own line
-    const nx = ux / lu, ny = uy / lu, r00 = 2 * nx * nx - 1, r01 = 2 * nx * ny, r11 = 2 * ny * ny - 1;
-    [a, c, b, d] = [a * r00 + c * r01, a * r01 + c * r11, b * r00 + d * r01, b * r01 + d * r11];
+  return fit(p0, p1, q0, q1, sideOf(ra, p0, p1.x - p0.x, p1.y - p0.y) === sideOf(rb, q0, q1.x - q0.x, q1.y - q0.y));
+}
+
+// The same, following the edge as it bends: the link cut into short stretches
+// (about every 48 px), each carried by its own matrix onto the matching
+// stretch of the other side, and kept to a strip running `depth` px into the
+// other panel from that stretch: → [{ m, strip }]. Strips meet along lines
+// square to the edge, so neighbours join up. (Paint that hangs past the
+// link's ends, or deeper than `depth`, is not carried.)
+// ponytail: on an edge that curves in tightly, strips deeper than its
+// curve's radius overlap; shrink depth if that shows.
+export function seamPieces(map, link, side, depth = 200) {
+  const o = side === 'a' ? 'b' : 'a';
+  const ra = regionById(map, link[side].region), rb = regionById(map, link[o].region);
+  if (!ra || !rb) return [];
+  const n = Math.max(1, Math.min(32, Math.round(linkLength(map, link) / 48)));
+  const at = (sd, t) => linkPoints(map, link, sd, t, t)[0];
+  const A = [], B = [];
+  for (let k = 0; k <= n; k++) { A.push(at(side, k / n)); B.push(at(o, k / n)); }
+  const p0 = A[0], p1 = A[n], q0 = B[0], q1 = B[n];
+  if (!p0 || !q0) return [];
+  const into = sideOf(rb, q0, q1.x - q0.x, q1.y - q0.y);
+  const reflect = sideOf(ra, p0, p1.x - p0.x, p1.y - p0.y) === into;
+  // into the other panel, square to its edge at each cut
+  const normal = B.map((q, k) => {
+    const s = B[Math.max(0, k - 1)], e = B[Math.min(n, k + 1)], tx = e.x - s.x, ty = e.y - s.y, l = Math.hypot(tx, ty) || 1;
+    return { x: -ty / l * into, y: tx / l * into, tx: tx / l, ty: ty / l };
+  });
+  const out = [];
+  for (let k = 0; k < n; k++) {
+    const m = fit(A[k], A[k + 1], B[k], B[k + 1], reflect);
+    if (!m) continue;
+    // a hair wider along the edge, and a few px out past it, so neighbours and the edge leave no gap
+    const u = normal[k], v = normal[k + 1];
+    const s = { x: B[k].x - u.tx, y: B[k].y - u.ty }, e = { x: B[k + 1].x + v.tx, y: B[k + 1].y + v.ty };
+    out.push({ m, strip: [
+      { x: s.x - u.x * 4, y: s.y - u.y * 4 }, { x: e.x - v.x * 4, y: e.y - v.y * 4 },
+      { x: e.x + v.x * depth, y: e.y + v.y * depth }, { x: s.x + u.x * depth, y: s.y + u.y * depth },
+    ] });
   }
-  return { a, b, c, d, e: q0.x - (a * p0.x + c * p0.y), f: q0.y - (b * p0.x + d * p0.y) };
+  return out;
 }

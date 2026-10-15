@@ -7,7 +7,7 @@
 
 import { isRegionLayer, clipPolys, newId } from './engine.js';
 import { contains } from './shapes.js';
-import { MIRROR_KINDS, regionAt, regionById, centerLine, mirrorAcross, mirrorPointKind, guessMirrorKind, trimShape, regionOutline, growOutline, seamMatrix } from './regions.js';
+import { MIRROR_KINDS, regionAt, regionById, centerLine, mirrorAcross, mirrorPointKind, guessMirrorKind, trimShape, regionOutline, growOutline, seamPieces } from './regions.js';
 
 // the piece (not one of the kit's number / sponsor zones) at a point
 export const pieceAt = (map, x, y) => (map ? regionAt({ regions: map.regions.filter(r => !r.kind) }, x, y) : null);
@@ -88,8 +88,9 @@ export function seamsOf(map, layer) {
 }
 
 // The doc as it is painted: a Continues layer is trimmed to its own panel and
-// followed by one carried copy for each linked edge of that panel, each
-// trimmed to the panel across that edge. (A copy that nothing reaches is
+// followed by carried copies for each linked edge of that panel (one for each
+// short stretch of it, see seamPieces), each trimmed to the panel across that
+// edge and to its stretch's strip. (A copy that nothing reaches is
 // simply trimmed away.) On several panels, each carried copy takes only the
 // copies standing on the panel whose edge it crosses (carry.from), so one
 // panel's copies are not carried over another panel's edge.
@@ -105,9 +106,11 @@ export function withSeams(doc) {
     const own = clipPolys(l).length ? l : { ...l, clip: trimTo(s.home), clipAt: null };
     layers.push(own);
     s.links.forEach(({ link, side, from }, i) => {
-      const m = seamMatrix(map, link, side), to = regionById(map, link[side === 'a' ? 'b' : 'a'].region);
+      const to = regionById(map, link[side === 'a' ? 'b' : 'a'].region);
       const only = s.homes.length > 1 ? trimTo(from)[0] : null;
-      if (m) layers.push({ ...own, id: `${l.id}~s${i}`, continues: false, carry: { ...m, clip: trimTo(to), from: only } });
+      seamPieces(map, link, side).forEach(({ m, strip }, j) => {
+        layers.push({ ...own, id: `${l.id}~s${i}.${j}`, continues: false, carry: { ...m, clip: trimTo(to), strip, from: only } });
+      });
     });
   }
   return { ...doc, layers };

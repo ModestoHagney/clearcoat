@@ -732,6 +732,12 @@ export function drawLayer(ctx, layer, forSpec = false) {
     }
     ctx.clip();
   }
+  if (k && k.strip) { // and to the strip beside its own stretch of the edge
+    ctx.beginPath();
+    k.strip.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)));
+    ctx.closePath();
+    ctx.clip();
+  }
   // carried across a seam onto another panel (mirror.js withSeams): the
   // trim above stays where it is on the sheet, the artwork goes through this
   if (k) ctx.transform(k.a, k.b, k.c, k.d, k.e, k.f);

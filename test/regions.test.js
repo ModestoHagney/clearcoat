@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { REGIONS_FORMAT, createRegionMap, parseRegionMap, regionById, regionAt, mirrorPoint, uniqueRegionId, detectPieces, piecesRegionMap, simplifyOutline, renameRegion, labelPoint, pointInPolygon, snapToOutline, matchPoint, linkPoints, linkLength, linkDir, seamMatrix, centerLine, mirrorAcross, setMirror, trimShape, growOutline, guessMirrorKind } from '../js/regions.js';
+import { REGIONS_FORMAT, createRegionMap, parseRegionMap, regionById, regionAt, mirrorPoint, uniqueRegionId, detectPieces, piecesRegionMap, simplifyOutline, renameRegion, labelPoint, pointInPolygon, snapToOutline, matchPoint, linkPoints, linkLength, linkDir, seamMatrix, seamPieces, centerLine, mirrorAcross, setMirror, trimShape, growOutline, guessMirrorKind } from '../js/regions.js';
 
 // Convenience builder: a valid raw map with two mirrored door rectangles.
 function rawMap(overrides = {}) {
@@ -407,6 +407,31 @@ test('seamMatrix carries paint over one side\'s edge to just inside the other pa
   assert.ok(Math.abs(r.a * r.d - r.b * r.c + 1) < 1e-9); // determinant -1
   assert.deepEqual(at(r, 110, 25), { x: 525, y: 310 });
   assert.ok(at(r, 50, 50).y < 300);
+});
+
+test('seamPieces follows a bent edge: every cut along one side lands on the matching cut of the other', () => {
+  // A's right edge is straight; B's top edge has a kink, so a single straight line would drift in the middle
+  const map = parseRegionMap(rawMap({
+    regions: [
+      { id: 'a', x: 0, y: 0, w: 100, h: 200 },
+      { id: 'b', x: 500, y: 300, w: 200, h: 200, points: [{ x: 500, y: 300 }, { x: 600, y: 260 }, { x: 700, y: 300 }, { x: 700, y: 500 }, { x: 500, y: 500 }] },
+    ],
+    links: [{ a: { region: 'a', from: { x: 100, y: 0 }, to: { x: 100, y: 200 } }, b: { region: 'b', from: { x: 700, y: 300 }, to: { x: 500, y: 300 }, dir: -1 } }] }));
+  const link = map.links[0], pieces = seamPieces(map, link, 'a');
+  const at = (m, q) => ({ x: m.a * q.x + m.c * q.y + m.e, y: m.b * q.x + m.d * q.y + m.f });
+  const near = (p, q) => Math.hypot(p.x - q.x, p.y - q.y) < 1e-6;
+  const n = pieces.length;
+  assert.ok(n >= 4);
+  pieces.forEach(({ m }, k) => {
+    for (const t of [k / n, (k + 1) / n]) assert.ok(near(at(m, linkPoints(map, link, 'a', t, t)[0]), linkPoints(map, link, 'b', t, t)[0]));
+  });
+  // the middle of A's edge lands on the kink, where the whole-edge line misses it by 40px
+  const mid = pieces[n / 2].m;
+  assert.ok(near(at(mid, { x: 100, y: 100 }), { x: 600, y: 260 }));
+  assert.ok(Math.abs(at(seamMatrix(map, link, 'a'), { x: 100, y: 100 }).y - 300) < 1e-6);
+  // over A's edge lands inside B, beyond its kink
+  const over = at(mid, { x: 110, y: 100 });
+  assert.ok(pointInPolygon(regionById(map, 'b').points, over.x, over.y));
 });
 
 test('matchPoint ignores spots off the linked stretch or too far from it', () => {
