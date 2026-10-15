@@ -5,7 +5,7 @@
 // corrected.
 
 import { SIZE, createImageLayer, loadImage } from '../js/engine.js';
-import { regionOutline, regionById, centerLine, snapToOutline, labelPoint, linkPoints, linkLength, linkDir, matchPoint } from '../js/regions.js';
+import { regionOutline, regionById, centerLine, snapToOutline, labelPoint, linkPoints, linkLength, linkDir, matchPoint, twinLink } from '../js/regions.js';
 import { pieceAt } from '../js/mirror.js';
 
 export const GUIDE = 'Panel guide'; // the layer that puts the panel colours on the car
@@ -171,9 +171,12 @@ export function initMap(app, env) {
     ends.push(hit);
     if (ends.length < 4) { requestDraw(); env.refreshChrome(); return; }
     const [a1, a2, b1, b2] = ends, pt = (c) => ({ x: Math.round(c.x * 10) / 10, y: Math.round(c.y * 10) / 10 });
-    (m.links || (m.links = [])).push({ a: { region: a1.region, from: pt(a1), to: pt(a2) }, b: { region: b1.region, from: pt(b1), to: pt(b2) } });
+    const link = { a: { region: a1.region, from: pt(a1), to: pt(a2) }, b: { region: b1.region, from: pt(b1), to: pt(b2) } };
+    (m.links || (m.links = [])).push(link);
+    const twin = twinLink(m, link); // the matching edges on the other side of the car get linked too
+    if (twin) m.links.push(twin);
     ends = []; snap = null;
-    env.mapChanged(`Linked ${nameOf(a1.region)} and ${nameOf(b1.region)}`);
+    env.mapChanged(`Linked ${nameOf(a1.region)} and ${nameOf(b1.region)}` + (twin ? `, and ${nameOf(twin.a.region)} and ${nameOf(twin.b.region)}` : ''));
   }
 
   function down(e, s) {
