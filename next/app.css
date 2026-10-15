@@ -124,6 +124,7 @@ button:disabled { cursor: default; opacity: .38; }
 .panel header .icon { width: 24px; height: 24px; }
 .panel header .icon svg { width: 14px; height: 14px; }
 .body { padding: 4px 8px 10px; display: flex; flex-direction: column; gap: 2px; max-height: 46vh; overflow: auto; }
+.body > * { flex-shrink: 0; } /* a long panel scrolls; its rows keep their height */
 .row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 6px; border-radius: 6px; text-align: left; cursor: pointer; }
 .row:hover { background: var(--hover); }
 .row.sel { background: var(--accent-soft); }
@@ -140,17 +141,19 @@ button:disabled { cursor: default; opacity: .38; }
 .row .rowx:hover { background: var(--fg); color: var(--bar); }
 .row .eye svg { width: 15px; height: 15px; }
 .row .eye.off { opacity: .35; }
-.field { display: grid; grid-template-columns: 78px minmax(0, 1fr); align-items: center; gap: 8px; padding: 4px 6px; }
-.field > span { color: var(--muted); }
-.field.wide { grid-template-columns: auto minmax(0, 1fr); }
-.field.wide > span:first-child { white-space: nowrap; }
+.field { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 30px; margin: 4px 6px; padding: 2px 4px 2px 10px; border: 1px solid var(--line); border-radius: 6px; box-sizing: border-box; }
+.field > span:first-child { color: var(--muted); flex: none; white-space: nowrap; }
+.field > :last-child:not(span:first-child) { flex: 1; min-width: 0; }
+.field:has(textarea) { flex-direction: column; align-items: stretch; gap: 4px; padding: 6px 8px 8px 10px; }
+.field:has(textarea) > textarea { flex: none; }
 .nest { margin: 0 0 4px 8px; border-left: 2px solid var(--line); } /* what belongs to the switch above it */
 .pair.wrap { flex-wrap: wrap; }
 input[type="color"].mini { width: 24px; height: 24px; }
 .pair.wrap { gap: 4px; }
 .pair select { flex: 1; min-width: 0; }
 /* a pattern's shapes and colours: small tiles in a row, each with a x that shows when pointed at */
-.field.tiles { grid-template-columns: 52px minmax(0, 1fr); } /* a narrower label: more room for the row, which need not line up with the sliders */
+.field.tiles { padding-block: 4px; }
+.field.tiles > .pair { justify-content: flex-end; }
 .mwrap { position: relative; display: inline-flex; flex: none; }
 .mtile { width: 24px; height: 24px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 6px; background: var(--bar); color: var(--fg); }
 .mtile svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
@@ -168,13 +171,29 @@ input[type="color"].mini { width: 24px; height: 24px; }
 .pair { display: flex; gap: 6px; align-items: center; min-width: 0; }
 .pair .num { font: 12px var(--mono); min-width: 30px; text-align: right; }
 .field textarea { resize: vertical; font: inherit; line-height: 1.35; }
-.field input[type="text"], .field textarea, .field select, dialog input[type="text"], dialog select { width: 100%; min-width: 0; padding: 4px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--bar); }
-.field input[type="range"] { width: 100%; min-width: 0; accent-color: var(--accent); }
-.slide { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
-.slide input[type="range"] { flex: 1; }
-.nbox { width: 42px; flex: none; padding: 2px 4px; border: 1px solid var(--line); border-radius: 5px; background: var(--bar); color: var(--fg); font: 11px var(--mono); text-align: right; appearance: textfield; -moz-appearance: textfield; }
+dialog input[type="text"], dialog select { width: 100%; min-width: 0; padding: 4px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--bar); }
+/* inside a row the box is the row: the control itself has no frame, and sits on the right */
+.field input[type="text"], .field input.num, .field select { width: 100%; min-width: 0; padding: 4px 6px; border: 0; border-radius: 4px; background: transparent; color: var(--fg); text-align: right; text-align-last: right; }
+.field input.num { font: 12px var(--mono); appearance: textfield; -moz-appearance: textfield; }
+.field input.num::-webkit-inner-spin-button, .field input.num::-webkit-outer-spin-button { appearance: none; margin: 0; }
+.field textarea { width: 100%; min-width: 0; padding: 4px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--bar); }
+.field input:focus-visible, .field select:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.field:hover, .switch:hover, .fillbar:hover { border-color: var(--muted); }
+/* a slider: one bar that fills up, name on the left, value on the right */
+.fillbar { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 30px; margin: 4px 6px; padding: 0 4px 0 10px; border: 1px solid var(--line); border-radius: 6px; box-sizing: border-box; overflow: hidden; cursor: ew-resize; user-select: none; touch-action: none;
+  background: linear-gradient(color-mix(in srgb, var(--accent) 28%, transparent), color-mix(in srgb, var(--accent) 28%, transparent)) 0 0 / var(--p, 0%) 100% no-repeat, var(--bar); }
+.fillbar input[type="range"] { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.fillbar:focus-within { outline: 2px solid var(--accent); outline-offset: -1px; }
+.bname { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nbox { width: 46px; flex: none; padding: 2px 6px; border: 0; border-radius: 4px; background: transparent; color: var(--fg); font: 12px var(--mono); text-align: right; pointer-events: none; appearance: textfield; -moz-appearance: textfield; }
 .nbox::-webkit-inner-spin-button, .nbox::-webkit-outer-spin-button { appearance: none; margin: 0; }
-.nbox:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.nbox:focus { pointer-events: auto; outline: 0; background: var(--panel); cursor: text; }
+/* two rows side by side, and a bar with its colour beside it */
+.two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin: 4px 6px; }
+.two > .fillbar, .two > .field { margin: 0; }
+.with { display: flex; align-items: center; gap: 6px; margin: 4px 6px; }
+.with > .fillbar { flex: 1; min-width: 0; margin: 0; }
+.with > input[type="color"] { height: 30px; }
 input[type="color"] { width: 38px; height: 26px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: none; flex: none; cursor: pointer; }
 .sub { padding: 8px 6px 2px; font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
 .chips, .dots { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 6px; align-items: center; }
@@ -184,8 +203,9 @@ input[type="color"] { width: 38px; height: 26px; padding: 0; border: 1px solid v
 .chip i, .dot { width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--line); flex: none; }
 .chip.add { padding: 3px 9px; color: var(--muted); }
 .icon.on { background: var(--accent); color: var(--accent-fg); }
-.seg button { padding: 3px 10px; border: 1px solid var(--line); border-radius: 99px; font-size: 12px; color: var(--muted); }
-.seg button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--fg); }
+.seg button { padding: 6px 4px; font-size: 12px; color: var(--muted); }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
 .toolopts { position: absolute; left: 8px; top: 10px; z-index: 5; display: flex; gap: 4px; padding: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 4px 14px var(--shade); }
 .toolopts .tool::after { left: 50%; top: calc(100% + 8px); translate: -50% 0; }
 .toolopts.rows { flex-direction: column; gap: 0; }
@@ -203,20 +223,37 @@ input[type="color"] { width: 38px; height: 26px; padding: 0; border: 1px solid v
 .field input.mono { font-family: var(--mono); text-transform: uppercase; }
 .note { padding: 4px 6px; color: var(--muted); font-size: 12px; }
 .acts { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 6px 2px; }
+/* in the panels, buttons sit two to a row, all one width */
+#dock .acts { display: grid; grid-template-columns: 1fr 1fr; padding: 4px 6px; }
+#dock .acts .btn { min-width: 0; height: 30px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .more { margin-top: 6px; border-top: 1px solid var(--line); }
 .more > summary { padding: 7px 6px 5px; font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); cursor: pointer; list-style-position: inside; }
 .more > summary:hover { color: var(--fg); }
-.more.fold { margin-top: 2px; border-top: 0; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
-.more.fold > summary { padding-top: 4px; }
+.more.fold { margin-top: 12px; border-top: 0; padding-bottom: 2px; }
+.more.fold:first-of-type { margin-top: 8px; }
+.more.fold > summary { display: flex; align-items: center; margin: 0 6px 4px; padding: 7px 10px; border-radius: 6px; background: var(--line); color: var(--fg); list-style: none; }
+.more.fold > summary::-webkit-details-marker { display: none; }
+.more.fold > summary::after { content: '▸'; margin-left: 8px; color: var(--muted); }
+.more.fold[open] > summary::after { content: '▾'; }
+.more.fold > summary .st { margin-left: auto; font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--muted); }
 .rule { border: 0; border-top: 1px solid var(--line); margin: 8px 6px; }
-.switch { display: flex; align-items: center; justify-content: space-between; padding: 5px 6px; cursor: pointer; }
-.switch input { accent-color: var(--accent); width: 16px; height: 16px; }
+/* on or off: a row with a switch on the right */
+.switch { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 30px; margin: 4px 6px; padding: 0 8px 0 10px; border: 1px solid var(--line); border-radius: 6px; box-sizing: border-box; color: var(--muted); cursor: pointer; }
+.switch input { appearance: none; position: relative; flex: none; width: 30px; height: 16px; margin: 0; border-radius: 9px; background: var(--line); cursor: pointer; transition: background .12s; }
+.switch input::after { content: ''; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px var(--shade); transition: left .12s; }
+.switch input:checked { background: var(--accent); }
+.switch input:checked::after { left: 16px; }
+.switch input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.switch:has(input:disabled) { opacity: .45; cursor: default; }
 .row .tags { display: flex; gap: 5px; color: var(--muted); font-size: 12px; flex: none; }
 .row .tags i { font-style: normal; }
 .btn { padding: 5px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--bar); }
 .btn:hover:not(:disabled) { background: var(--hover); }
 .btn.main { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); font-weight: 500; }
 .btn.main:hover:not(:disabled) { background: var(--accent); filter: brightness(1.08); }
+.btn[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); font-weight: 500; }
+.btn[aria-pressed="true"]:hover:not(:disabled) { background: var(--accent); filter: brightness(1.08); }
+.btn:disabled { opacity: .4; cursor: default; }
 
 .ctx { position: absolute; z-index: 40; top: 0; left: 0; }
 /* the colour pop-up (picker.js) */
@@ -297,7 +334,7 @@ dialog.lib .dbody { height: 60vh; } /* the same size whichever tab is open */
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 
 /* Finish mode */
-.seg { display: flex; gap: 6px; padding: 6px; }
+.seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; margin: 4px 6px; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
 .ftile { display: block; width: calc(100% - 12px); height: auto; margin: 6px 6px 2px; }
 .ftarget { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; padding: 6px 6px 2px; color: var(--muted); font-size: 12px; }
 .ftarget b { margin-left: auto; color: var(--fg); font-size: 14px; font-weight: 600; }

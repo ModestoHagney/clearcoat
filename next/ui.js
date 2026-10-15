@@ -104,11 +104,15 @@ const MAP_TOOLS = [
 ];
 const PANELS = ['layers', 'props'];
 const WEIGHT_NAMES = { 100: 'Thin', 200: 'Extra light', 300: 'Light', 400: 'Regular', 500: 'Medium', 600: 'Semi bold', 700: 'Bold', 800: 'Extra bold', 900: 'Black' };
-// A slider with its value beside it, in a box that can be read, typed in, or
-// nudged with the arrow keys.
-const slider = (id, min, max, v) =>
-  `<span class="slide"><input id="${id}" type="range" min="${min}" max="${max}" value="${Math.round(v)}">` +
-  `<input class="nbox" data-for="${id}" type="number" min="${min}" max="${max}" step="1" value="${Math.round(v)}" aria-label="Exact value"></span>`;
+// A slider as one bar that fills up: its name inside on the left, its value
+// on the right. Dragged anywhere along it (Shift: slowly), or clicked to type.
+// The range input underneath holds the value and is what the panels listen to;
+// it still takes the arrow keys.
+const slider = (id, min, max, v, label, title = '') => {
+  const n = Math.round(v);
+  return `<div class="fillbar" style="--p:${((n - min) / (max - min)) * 100}%"${title ? ` title="${title}"` : ''}><input id="${id}" type="range" min="${min}" max="${max}" value="${n}" aria-label="${label}">` +
+    `<span class="bname">${label}</span><input class="nbox" data-for="${id}" type="number" min="${min}" max="${max}" step="1" value="${n}" aria-label="${label}: exact value" tabindex="-1"></div>`;
+};
 const hexOf = (v) => (/^#?[0-9a-f]{6}$/i.test(String(v).trim()) ? '#' + String(v).trim().replace('#', '').toLowerCase() : null);
 
 export function initUI(app, actions, version) {
@@ -297,20 +301,19 @@ export function initUI(app, actions, version) {
     const ownShape = !r || l.type !== 'fill' ? '' : l.shape === 'path' && Array.isArray(l.pts)
       ? shapeSvg({ pts: l.pts.map((q) => ({ x: q.x - l.rx, y: q.y - l.ry, ...(q.c ? { c: { x: q.c.x - l.rx, y: q.c.y - l.ry } } : {}), ...(q.m ? { m: true } : {}) })), w: l.rw, h: l.rh })
       : SHAPES[l.shape] ? svg(l.shape) : shapeSvg({ shape: l.shape, w: l.rw, h: l.rh });
-    return `<details class="more fold" id="f-repfold" name="pfold"${openFold === 'f-repfold' ? ' open' : ''}><summary>Repeat</summary>` +
-      `<label class="switch" title="Copies of this layer in a line, a grid, or scattered, starting from where it is. They follow every change to it.">Repeat<input id="f-rep-on" type="checkbox"${r ? ' checked' : ''}></label>` +
+    return fold('f-repfold', 'Repeat', `<label class="switch" title="Copies of this layer in a line, a grid, or scattered, starting from where it is. They follow every change to it.">Repeat<input id="f-rep-on" type="checkbox"${r ? ' checked' : ''}></label>` +
       (!r ? '' :
         field('Way', `<select id="f-rep-way">${[['across', 'Across'], ['down', 'Down'], ['grid', 'Grid'], ['scatter', 'Scatter']].map(([v, n]) => opt(v, n, v === way)).join('')}</select>`) +
         (scatter ?
           `<div class="note">Scattered over the panels it is trimmed to, or the whole sheet</div>` +
-          field('Amount', slider('f-rep-count', 1, 500, r.count)) +
-          field('Space', slider('f-rep-space', -400, 400, r.space)) :
+          slider('f-rep-count', 1, 500, r.count, 'Amount') +
+          slider('f-rep-space', -400, 400, r.space, 'Space') :
           `<label class="switch" title="As many as reach the edge of the sheet. Trim it to keep them to a panel.">To the edge<input id="f-rep-fill" type="checkbox"${r.fill ? ' checked' : ''}></label>` +
-          (r.fill ? '' : (across ? field(grid ? 'Across' : 'Copies', slider('f-rep-count', 1, 100, r.count)) : '') +
-            (down ? field(grid ? 'Down' : 'Copies', slider('f-rep-rows', 1, 100, r.rows)) : '')) +
-          (across ? field(grid ? 'Gap across' : 'Gap', slider('f-rep-gapX', -200, 400, r.gapX)) : '') +
-          (down ? field(grid ? 'Gap down' : 'Gap', slider('f-rep-gapY', -200, 400, r.gapY)) : '') +
-          field('Angle', slider('f-rep-angle', -180, 180, r.angle))) +
+          (r.fill ? '' : (across ? slider('f-rep-count', 1, 100, r.count, grid ? 'Across' : 'Copies') : '') +
+            (down ? slider('f-rep-rows', 1, 100, r.rows, grid ? 'Down' : 'Copies') : '')) +
+          (across ? slider('f-rep-gapX', -200, 400, r.gapX, grid ? 'Gap across' : 'Gap') : '') +
+          (down ? slider('f-rep-gapY', -200, 400, r.gapY, grid ? 'Gap down' : 'Gap') : '') +
+          slider('f-rep-angle', -180, 180, r.angle, 'Angle')) +
         // more colours, and for a shape more outlines: the copies take turns with the layer's own, or pick by their roll
         `<div class="field tiles"><span>Colours</span><span class="pair wrap">` +
           `<span class="mwrap"><input class="mini" data-repc="-1" id="f-rep-cown" type="color" value="${esc(ownColour)}" title="The layer's own colour: click to change it" aria-label="The layer's own colour">${r.colors.length ? out('data-repcdrop', -1, 'colour') : ''}</span>` +
@@ -322,12 +325,11 @@ export function initUI(app, actions, version) {
           (r.shapes.length < 6 ? `<span class="plusbox" title="Add a shape for the copies to take, along with this one"><span class="icon" aria-hidden="true">+</span><select id="f-rep-addshape" aria-label="Add a shape for the copies">${opt('', 'Add a shape…', true)}${motifOptions('', null)}</select></span>` : '') +
           '</span></div>') +
         (!several ? '' : field('Mix', `<select id="f-rep-mix">${opt('turn', 'In turn', r.mix === 'turn')}${opt('random', 'Random', r.mix === 'random')}</select>`)) +
-        field('Random size', slider('f-rep-rSize', 0, 100, r.rSize)) +
-        field('Random turn', slider('f-rep-rTurn', 0, 100, r.rTurn)) +
-        (scatter || r.rSize || r.rTurn || (several && r.mix === 'random') ? '<div class="acts"><button class="btn" data-act="repeatReroll" title="Roll again">Re-roll</button></div>' : '') +
+        slider('f-rep-rSize', 0, 100, r.rSize, 'Random size') +
+        slider('f-rep-rTurn', 0, 100, r.rTurn, 'Random turn') +
+        `<div class="acts"><button class="btn" data-act="repeatReroll" title="Roll again"${scatter || r.rSize || r.rTurn || (several && r.mix === 'random') ? '' : ' disabled'}>Re-roll</button></div>` +
         `<label class="switch" title="The copies get fainter the further they are from the layer">Fade out<input id="f-rep-fadeOut" type="checkbox"${r.fadeOut ? ' checked' : ''}></label>` +
-        `<label class="switch" title="The copies get smaller the further they are from the layer">Shrink<input id="f-rep-shrink" type="checkbox"${r.shrink ? ' checked' : ''}></label>`) +
-      `</details>`;
+        `<label class="switch" title="The copies get smaller the further they are from the layer">Shrink<input id="f-rep-shrink" type="checkbox"${r.shrink ? ' checked' : ''}></label>`), r ? 'On' : 'Off');
   }
   // what a repeat's copies can take or a stamp place: the ready-made shapes,
   // then the library's. `current`: its key; `kept`: a shape of its own that
@@ -350,13 +352,15 @@ export function initUI(app, actions, version) {
   }
   // Place, Look and Repeat fold away, and only one is open at a time (the
   // browser closes the others: they share a name). An empty one is left out.
-  const fold = (id, title, body) => (!body ? '' : `<details class="more fold" id="${id}" name="pfold"${openFold === id ? ' open' : ''}><summary>${title}</summary>${body}</details>`);
+  // a fold opens and closes by itself; `state`: a word shown on its title, such as On or Off
+  const fold = (id, title, body, state = '') => (!body ? '' : `<details class="more fold" id="${id}"${openFolds.has(id) ? ' open' : ''}><summary>${title}<span class="st">${state}</span></summary>${body}</details>`);
   // where the selection's top-left corner is on the sheet, typed to move it there
   const posBoxes = () => {
     const at = actions.selCorner();
-    return !at ? '' : `<div class="field" title="Where its top-left corner is on the sheet, in pixels. Type a number to move it there."><span>Position</span><span class="pair"><label class="inline">X<input id="f-pos-x" class="num" type="number" step="1" value="${at.x}"></label><label class="inline">Y<input id="f-pos-y" class="num" type="number" step="1" value="${at.y}"></label></span></div>`;
+    const box = (k, v) => `<label class="field"><span>${k.toUpperCase()}</span><input id="f-pos-${k}" class="num" type="number" step="1" value="${v}"></label>`;
+    return !at ? '' : `<div class="two" title="Where its top-left corner is on the sheet, in pixels. Type a number to move it there.">${box('x', at.x)}${box('y', at.y)}</div>`;
   };
-  const mirroredSwitch = (on) => `<label class="switch" title="Paint it on the twin panel too, or across the centreline (Ctrl+M)">Mirrored<input id="f-mirrored" type="checkbox"${on ? ' checked' : ''}></label>`;
+  const mirroredBtn = (on) => `<button class="btn" data-act="mirror" aria-pressed="${!!on}" title="Paint it on the twin panel too, or across the centreline (Ctrl+M)">Mirrored</button>`;
   function propsHtml() {
     if (app.sel === 'base') return colourHead('<span class="pname">Base coat</span>');
     const many = actions.selectedLayers();
@@ -364,12 +368,13 @@ export function initUI(app, actions, version) {
       const grouped = many.some((x) => x.groupId);
       const fills = many.filter((x) => x.type === 'fill' && !x.specOnly);
       return colourHead(`<span class="pname">${many.length} layers</span>`) +
-        fold('f-place', 'Place', posBoxes() + mirroredSwitch(many.some((x) => x.mirrored))) +
+        fold('f-place', 'Place', posBoxes() + `<div class="acts">${mirroredBtn(many.some((x) => x.mirrored))}</div>`) +
         fold('f-look', 'Look', fills.length ? fadeHtml(fills.find((x) => x.fillType === 'linear' || x.fillType === 'radial') || fills[0]) : '') +
         repeatHtml(many.find((x) => x.repeat) || many[0]) +
         `<div class="acts"><button class="btn" data-act="merge" title="Join them into one. It asks first if they differ in colour or kind. (Ctrl+E)">Merge</button>` +
-        (shapeCan().wrap ? '<button class="btn" data-act="wrap" title="One shape pulled tight round them, like a rubber band: two circles become a slot">Wrap</button>' : '') +
-        `<button class="btn" data-act="${grouped ? 'ungroup' : 'group'}" title="${grouped ? 'They stop being picked up together (Ctrl+Shift+G)' : 'Pick them up together from now on (Ctrl+G)'}">${grouped ? 'Ungroup' : 'Group'}</button></div>`;
+        `<button class="btn" data-act="wrap" title="One shape pulled tight round them, like a rubber band: two circles become a slot"${shapeCan().wrap ? '' : ' disabled'}>Wrap</button>` +
+        `<button class="btn" data-act="group" title="Pick them up together from now on (Ctrl+G)"${grouped ? ' disabled' : ''}>Group</button>` +
+        `<button class="btn" data-act="ungroup" title="They stop being picked up together (Ctrl+Shift+G)"${grouped ? '' : ' disabled'}>Ungroup</button></div>`;
     }
     const l = app.doc.layers.find((x) => x.id === app.sel);
     if (!l) return colourHead('<span class="pname muted">New shapes</span>');
@@ -384,40 +389,48 @@ export function initUI(app, actions, version) {
       field('Text', `<textarea id="f-text" rows="2" spellcheck="false" title="Enter starts a new line">${esc(l.text)}</textarea>`) +
       field('Font', `<select id="f-font">${fonts.map((f) => opt(f, f, f === l.font)).join('')}${opt('__google', 'Google font by name…', false)}${opt('__upload', 'Upload a font file…', false)}</select>`) +
       weight +
-      field('Size', slider('f-fontSize', 40, 400, l.fontSize || 160)));
+      slider('f-fontSize', 40, 400, l.fontSize || 160, 'Size'));
     const inPieces = Array.isArray(l.pts) && l.pts.some((q) => q.m);
     const place = l.locked ? '' : posBoxes() +
-      (isPic ? field('Turn', slider('f-rotation', -180, 180, Math.round(l.rotation || 0))) :
-        l.type === 'fill' ? field('Turn', slider('f-turn', -180, 180, ((l.turn || 0) % 360 + 540) % 360 - 180)) : '') +
-      mirroredSwitch(l.mirrored) +
-      (l.mirrored && isPic ? `<label class="switch" title="Off: it reads the right way round on both sides. On: a true mirror image.">Reverse the other side<input id="f-mirrorFlip" type="checkbox"${l.mirrorFlip ? ' checked' : ''}></label>` : '') +
+      (isPic ? slider('f-rotation', -180, 180, Math.round(l.rotation || 0), 'Turn') :
+        l.type === 'fill' ? slider('f-turn', -180, 180, ((l.turn || 0) % 360 + 540) % 360 - 180, 'Turn') : '') +
+      (isPic ? `<label class="switch" title="Off: it reads the right way round on both sides. On: a true mirror image.">Reverse the other side<input id="f-mirrorFlip" type="checkbox"${l.mirrorFlip ? ' checked' : ''}${l.mirrored ? '' : ' disabled'}></label>` : '') +
       `<label class="switch" title="Where it hangs over an edge linked in Map, it carries on onto the panel that edge meets">Continue across edges<input id="f-continues" type="checkbox"${l.continues ? ' checked' : ''}></label>` +
-      `<div class="acts">${trimButtons(l)}${l.mirrored ? '<button class="btn" data-act="separate" title="Make the mirrored side a layer of its own">Separate</button>' : ''}</div>`;
+      `<div class="acts">${trimButtons(l)}${mirroredBtn(l.mirrored)}<button class="btn" data-act="separate" title="Make the mirrored side a layer of its own"${l.mirrored ? '' : ' disabled'}>Separate</button>${trimClear(l)}</div>`;
     // a shape's fill can fade to a second colour, or to nothing
     const look = (l.type !== 'fill' ? '' : fadeHtml(l)) +
       (!isText ? '' :
-      field('Outline', `<span class="pair">${slider('f-outlineWidth', 0, 30, l.outlineWidth || 0)}<input id="f-outlineColor" type="color" value="${esc(hexOf(l.outlineColor || '') || '#000000')}" aria-label="Outline colour"></span>`) +
-      field('Spacing', slider('f-letterSpacing', 0, 40, l.letterSpacing || 0)) +
-      field('Curve', slider('f-curve', -180, 180, l.curve || 0)) +
-      (!lined ? '' : field('Line spacing', slider('f-lineSpacing', 60, 300, l.lineSpacing || 120)) +
+      `<div class="with">${slider('f-outlineWidth', 0, 30, l.outlineWidth || 0, 'Outline')}<input id="f-outlineColor" type="color" value="${esc(hexOf(l.outlineColor || '') || '#000000')}" aria-label="Outline colour"></div>` +
+      slider('f-letterSpacing', 0, 40, l.letterSpacing || 0, 'Spacing') +
+      slider('f-curve', -180, 180, l.curve || 0, 'Curve') +
+      (!lined ? '' : slider('f-lineSpacing', 60, 300, l.lineSpacing || 120, 'Line spacing') +
         field('Lines', `<select id="f-align">${[['left', 'Left'], ['center', 'Centred'], ['right', 'Right']].map(([v, n]) => opt(v, n, v === (l.align || 'center'))).join('')}</select>`)) +
       `<label class="switch">Italic<input id="f-italic" type="checkbox"${l.italic ? ' checked' : ''}></label>`) +
       (!isPic ? '' :
-      field('Shadow', `<span class="pair">${slider('f-fx-shadow', 0, 60, fx.shadow || 0)}<input id="f-fx-shadowColor" type="color" value="${esc(hexOf(fx.shadowColor || '') || '#000000')}" aria-label="Shadow colour"></span>`) +
-      field('Shadow at', `<span class="pair">${slider('f-fx-shadowDX', -60, 60, fx.shadowDX ?? 8)}${slider('f-fx-shadowDY', -60, 60, fx.shadowDY ?? 8)}</span>`)) +
-      field('Opacity', slider('f-opacity', 0, 100, (l.opacity ?? 1) * 100)) +
+      `<div class="with">${slider('f-fx-shadow', 0, 60, fx.shadow || 0, 'Shadow')}<input id="f-fx-shadowColor" type="color" value="${esc(hexOf(fx.shadowColor || '') || '#000000')}" aria-label="Shadow colour"></div>` +
+      `<div class="two">${slider('f-fx-shadowDX', -60, 60, fx.shadowDX ?? 8, 'X', 'Where the shadow falls: across')}${slider('f-fx-shadowDY', -60, 60, fx.shadowDY ?? 8, 'Y', 'Where the shadow falls: down')}</div>`) +
+      slider('f-opacity', 0, 100, (l.opacity ?? 1) * 100, 'Opacity') +
       field('Blend', `<select id="f-blend" title="Multiply darkens what is under it, for a texture such as worn cardboard">${opt('', 'Normal', !l.blend)}${opt('multiply', 'Multiply', l.blend === 'multiply')}</select>`);
     // what turns it into something else
-    const turnInto = l.locked ? '' : `${inPieces ? '<button class="btn" data-act="split" title="Undo a merge: one shape for each piece again">Split</button>' : ''}${inPieces && hasInner(l.pts) ? '<button class="btn" data-act="fillIn" title="Make it solid: its holes are filled">Fill in</button>' : ''}${l.type === 'image' ? '<button class="btn" data-act="makeShapes" title="For a flat-colour picture such as a logo: one shape for each colour in it, with the background left out. Each shape then takes a colour like any other.">Make shapes</button>' : ''}${isText ? '<button class="btn" data-act="makeShapes" title="The lettering becomes a shape, so it can fade and be reshaped. It can no longer be retyped.">Make shapes</button>' : ''}${l.type === 'image' && l.color ? '<button class="btn" data-act="ownColours" title="Take the colour off again">Original colours</button>' : ''}`;
-    return head + fold('f-place', 'Place', place) + fold('f-look', 'Look', look) + (l.specOnly ? '' : repeatHtml(l)) + (turnInto ? `<div class="acts">${turnInto}</div>` : '');
+    const off = (can) => (can ? '' : ' disabled');
+    const shapeHow = l.type === 'image' ? 'For a flat-colour picture such as a logo: one shape for each colour in it, with the background left out. Each shape then takes a colour like any other.'
+      : isText ? 'The lettering becomes a shape, so it can fade and be reshaped. It can no longer be retyped.' : 'For a picture or text';
+    const turnInto = l.locked ? '' : `<div class="acts"><button class="btn" data-act="split" title="Undo a merge: one shape for each piece again"${off(inPieces)}>Split</button>` +
+      `<button class="btn" data-act="fillIn" title="Make it solid: its holes are filled"${off(inPieces && hasInner(l.pts))}>Fill in</button>` +
+      `<button class="btn" data-act="makeShapes" title="${shapeHow}"${off(isPic)}>Make shapes</button>` +
+      `<button class="btn" data-act="ownColours" title="Take the colour off again"${off(l.type === 'image' && l.color)}>Original colours</button></div>`;
+    return head + fold('f-place', 'Place', place) + fold('f-look', 'Look', look) + (l.specOnly ? '' : repeatHtml(l)) + fold('f-shape', 'Shape', turnInto);
   }
-  let openFold = 'f-place'; // the fold left open stays open while the panel is redrawn
+  // the folds left open stay open while the panel is redrawn, and next visit
+  const openFolds = new Set(['f-place']);
+  try { const kept = JSON.parse(localStorage.getItem('next-folds')); if (Array.isArray(kept)) { openFolds.clear(); kept.forEach((id) => openFolds.add(id)); } } catch { /* Place open */ }
   const trimCount = (l) => (Array.isArray(l.clip) ? l.clip.length : 0);
+  // Trim keeps its name: lit while panels are being picked, with how many it is trimmed to
   function trimButtons(l) {
     const n = trimCount(l);
-    return `<button class="btn${app.trimming ? ' main' : ''}" data-act="trim" title="Choose the panels it shows in">${app.trimming ? 'Done' : n ? `Trimmed to ${n}` : 'Trim to panels'}</button>` +
-      (n ? '<button class="btn" data-act="trimClear" title="Show it everywhere again">Clear trim</button>' : '');
+    return `<button class="btn" data-act="trim" aria-pressed="${!!app.trimming}" title="${app.trimming ? 'Click again when done' : 'Choose the panels it shows in'}">${n ? `Trim · ${n}` : 'Trim'}</button>`;
   }
+  const trimClear = (l) => `<button class="btn" data-act="trimClear" title="Show it everywhere again"${trimCount(l) ? '' : ' disabled'}>Clear trim</button>`;
   // ---------- Finish mode's two panels ----------
   // what has a finish of its own; everything else is gloss
   function finishesHtml() {
@@ -470,10 +483,10 @@ export function initUI(app, actions, version) {
       `<div class="ftarget">${label}<b id="f-label"></b></div>` + scope +
       `<div class="finishes">${FINISHES.map((k) => `<button data-finish="${k}" aria-pressed="${k === preset}">${finishName(k)}</button>`).join('')}</div>` +
       same +
-      field('Metallic', slider('fn-met', 0, 255, f.met)) + field('Roughness', slider('fn-rough', 0, 255, f.rough)) + field('Clearcoat', slider('fn-clear', 0, 255, f.clear)) +
-      (preset ? '' : '<div class="acts"><button class="btn" data-act="resetFinish" title="Put the three sliders back">Reset</button></div>') +
+      slider('fn-met', 0, 255, f.met, 'Metallic') + slider('fn-rough', 0, 255, f.rough, 'Roughness') + slider('fn-clear', 0, 255, f.clear, 'Clearcoat') +
+      `<div class="acts"><button class="btn" data-act="resetFinish" title="Put the three sliders back"${preset ? ' disabled' : ''}>Reset</button></div>` +
       `<label class="switch" title="Specks or chips that catch the light, over this finish">Sparkle<input id="fn-sparkle" type="checkbox"${f.sparkle ? ' checked' : ''}></label>` +
-      (!f.sparkle ? '' : field('Amount', slider('fn-amount', 1, 60, f.sparkle.amount)) + field('Size', slider('fn-size', 1, 12, f.sparkle.size)) + field('Strength', slider('fn-strength', 0, 100, f.sparkle.strength)) + `<label class="field" title="Each fleck also lightens the paint under it, so it shows bright even when it has nothing to mirror"><span>Brightness</span>${slider('fn-bright', 0, 100, f.sparkle.bright)}</label>`) +
+      (!f.sparkle ? '' : slider('fn-amount', 1, 60, f.sparkle.amount, 'Amount') + slider('fn-size', 1, 12, f.sparkle.size, 'Size') + slider('fn-strength', 0, 100, f.sparkle.strength, 'Strength') + slider('fn-bright', 0, 100, f.sparkle.bright, 'Brightness', 'Each fleck also lightens the paint under it, so it shows bright even when it has nothing to mirror')) +
       (t.kind === 'area' && layer ? `<label class="switch" title="The same area on the twin panel too, or across the centreline">Mirrored<input id="f-mirrored" type="checkbox"${layer.mirrored ? ' checked' : ''}></label>` : '');
   }
 
@@ -491,7 +504,7 @@ export function initUI(app, actions, version) {
     const top = !r ? '<div class="note">Click a panel</div>'
       : field('Name', `<input id="m-name" type="text" value="${esc(r.name)}">`) +
         field('Twin', `<select id="m-pair">${opt('', 'None', !r.mirror)}${list.filter((x) => x !== r).map((x) => opt(x.id, x.name, x.id === r.mirror)).join('')}</select>`) +
-        `<div class="acts">${r.center ? '<button class="btn" data-act="centreRemove">Remove centreline</button>' : '<button class="btn" data-act="centreStart" title="Two matching corners, one each side">Set centreline</button>'}</div>`;
+        `<div class="acts"><button class="btn" data-act="centreStart" title="Two matching corners, one each side"${r.center ? ' disabled' : ''}>Set centreline</button><button class="btn" data-act="centreRemove"${r.center ? '' : ' disabled'}>Remove centreline</button></div>`;
     return top + '<hr class="rule">' +
       `<label class="switch">Panel colours<input id="m-colours" type="checkbox"${app.mapShow.colours ? ' checked' : ''}></label>` +
       `<label class="switch" title="Paints the panel colours and names onto the car, so you can see which panel is which in the sim">Show on car<input id="m-guide" type="checkbox"${actions.guideOn() ? ' checked' : ''}></label>` +
@@ -530,10 +543,37 @@ export function initUI(app, actions, version) {
       if (!s || t.value === '' || !Number.isFinite(v)) return; // half-typed
       s.value = v;
       s.dispatchEvent(new Event('input', { bubbles: true }));
-    } else if (t.type === 'range' && e.isTrusted) {
-      const box = t.parentNode.querySelector('.nbox');
-      if (box) box.value = t.value;
+    } else if (t.type === 'range') {
+      const bar = t.closest('.fillbar'), box = bar && bar.querySelector('.nbox');
+      if (bar) bar.style.setProperty('--p', `${((t.value - t.min) / (t.max - t.min)) * 100}%`);
+      if (box && document.activeElement !== box) box.value = t.value; // not under a half-typed number
     }
+  }, true);
+  // A bar is dragged by how far the pointer moves, not to where it is, so a
+  // short bar still steps one at a time; Shift goes slower still. A click
+  // that does not move opens its box for typing.
+  document.addEventListener('pointerdown', (e) => {
+    const bar = e.button === 0 && e.target.closest && e.target.closest('.fillbar');
+    const r = bar && bar.querySelector('input[type="range"]'), box = bar && bar.querySelector('.nbox');
+    if (!r || r.disabled || document.activeElement === box) return;
+    e.preventDefault();
+    bar.setPointerCapture(e.pointerId);
+    const min = +r.min, max = +r.max, per = (max - min) / Math.max(1, bar.clientWidth);
+    let x = e.clientX, v = +r.value, went = 0;
+    const move = (m) => {
+      const dx = m.clientX - x; x = m.clientX; went += Math.abs(dx);
+      if (went < 3) return;
+      v = Math.max(min, Math.min(max, v + dx * (m.shiftKey ? Math.min(per, Math.max(per / 8, 0.05)) : per)));
+      if (Math.round(v) === +r.value) return;
+      r.value = Math.round(v);
+      r.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    const up = () => {
+      bar.removeEventListener('pointermove', move); bar.removeEventListener('pointerup', up); bar.removeEventListener('pointercancel', up);
+      if (went >= 3) r.dispatchEvent(new Event('change', { bubbles: true }));
+      else if (box) { box.focus(); box.select(); }
+    };
+    bar.addEventListener('pointermove', move); bar.addEventListener('pointerup', up); bar.addEventListener('pointercancel', up);
   }, true);
   // A box that is done with says so as its slider's 'change'. That waits until
   // the boxes are left altogether: some panels are rebuilt on it, which would
@@ -564,8 +604,8 @@ export function initUI(app, actions, version) {
     const sw = panels.layers.querySelector(`[data-layer="${CSS.escape(String(app.sel))}"] .sw`);
     if (sw && (app.sel === 'base' || (actions.selected() || {}).type === 'fill')) sw.style.background = v;
     actions.setColour(v);
-    // a picture's first colour: Properties gains "Original colours" (the colour boxes are left alone, one is in use)
-    if (app.mode === 'paint' && (actions.selected() || {}).type === 'image' && !panels.props.querySelector('[data-act="ownColours"]')) panels.props.querySelector('.body').innerHTML = propsHtml();
+    // a picture's first colour: "Original colours" comes on (the colour boxes are left alone, one is in use)
+    if (app.mode === 'paint' && (actions.selected() || {}).type === 'image' && panels.props.querySelector('[data-act="ownColours"]:disabled')) panels.props.querySelector('.body').innerHTML = propsHtml();
   });
   panels.props.addEventListener('input', (e) => {
     const t = e.target;
@@ -672,8 +712,9 @@ export function initUI(app, actions, version) {
   panels.props.addEventListener('contextmenu', editChip);
   panels.props.addEventListener('dblclick', editChip);
   panels.props.addEventListener('toggle', (e) => { // the others closing say so too
-    if (e.target.name !== 'pfold') return;
-    if (e.target.open) openFold = e.target.id; else if (openFold === e.target.id) openFold = null;
+    if (!e.target.classList.contains('fold')) return;
+    if (e.target.open) openFolds.add(e.target.id); else openFolds.delete(e.target.id);
+    try { localStorage.setItem('next-folds', JSON.stringify([...openFolds])); } catch { /* kept for this visit */ }
   }, true);
   panels.props.addEventListener('change', (e) => {
     const id = e.target.id;
