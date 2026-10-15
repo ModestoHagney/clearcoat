@@ -1463,7 +1463,8 @@ const actions = {
     const g = (app.doc.groups || []).find(x => x.id === gid);
     if (!g) return;
     g.collapsed = !g.collapsed;
-    change({ now: true });
+    // ponytail: only the list redraws; not a paint change, so no redraw, save, send or undo step. It is saved with the next edit
+    ui.refresh();
   },
   async renameLayer(id) {
     const l = app.doc.layers.find(x => x.id === id);
