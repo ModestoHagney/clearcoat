@@ -59,6 +59,13 @@ test('a layer keeps a Multiply blend through save and load; anything else is Nor
   assert.deepEqual(back.layers.map(l => l.blend), ['multiply', null]);
 });
 
+test('a hollow shape keeps its outline width through save and load; a solid one stays solid', async () => {
+  const doc = createDoc();
+  doc.layers.push({ ...createFillLayer('#123456'), id: 'A', hollow: 12 }, { ...createFillLayer('#123456'), id: 'B' });
+  const back = await deserializeDoc(JSON.parse(JSON.stringify(serializeDoc(doc))));
+  assert.deepEqual(back.layers.map(l => l.hollow), [12, 0]);
+});
+
 test('a repeat keeps its settings through save and load, cleaned; an old pattern loads as the plain shape', async () => {
   const doc = createDoc();
   const repeat = { way: 'scatter', count: 9999, space: 12, colors: ['#FF0000', 'nope'], shapes: [{ kind: 'star' }, { kind: 'nope' }], mix: 'random', seed: 7, fadeOut: true };

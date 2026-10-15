@@ -391,7 +391,8 @@ export function initUI(app, actions, version) {
       `<label class="switch" title="Where it hangs over an edge linked in Map, it carries on onto the panel that edge meets">Continue across edges<input id="f-continues" type="checkbox"${l.continues ? ' checked' : ''}></label>` +
       `<div class="acts">${trimButtons(l)}${l.mirrored ? '<button class="btn" data-act="separate" title="Make the mirrored side a layer of its own">Separate</button>' : ''}</div>`;
     // a shape's fill can fade to a second colour, or to nothing
-    const look = (l.type !== 'fill' ? '' : fadeHtml(l)) +
+    const look = (l.type !== 'fill' ? '' : fadeHtml(l) +
+      field('Hollow', slider('f-hollow', 0, 100, l.hollow || 0))) +
       (!isText ? '' :
       field('Outline', `<span class="pair">${slider('f-outlineWidth', 0, 30, l.outlineWidth || 0)}<input id="f-outlineColor" type="color" value="${esc(hexOf(l.outlineColor || '') || '#000000')}" aria-label="Outline colour"></span>`) +
       field('Spacing', slider('f-letterSpacing', 0, 40, l.letterSpacing || 0)) +
@@ -576,7 +577,7 @@ export function initUI(app, actions, version) {
     if (rep) { actions.setRepeat({ [rep[1]]: +t.value }, false); return; }
     if (t.id === 'f-turn') { actions.turnTo(+t.value); return; }
     // plain settings: the control's id names the layer setting it sets
-    const m = /^f-(fx-)?(fontSize|outlineWidth|outlineColor|letterSpacing|lineSpacing|curve|rotation|shadow|shadowColor|shadowDX|shadowDY|text)$/.exec(t.id || '');
+    const m = /^f-(fx-)?(fontSize|hollow|outlineWidth|outlineColor|letterSpacing|lineSpacing|curve|rotation|shadow|shadowColor|shadowDX|shadowDY|text)$/.exec(t.id || '');
     if (m && layer) {
       const v = t.type === 'range' ? +t.value : t.value;
       actions.setProp((m[1] ? 'fx.' : '') + m[2], v);
