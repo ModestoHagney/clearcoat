@@ -125,15 +125,20 @@ export function initTools(app, env) {
   const frameOf = (l) => frameFor(shapeBox(l));
   // Several layers selected: they turn as one, about the middle of the box
   // round them all. That box keeps the angle they have been turned to for as
-  // long as the same layers stay selected.
+  // long as the same layers stay selected; a group's box keeps it for good.
   let manyTurn = { key: '', t: 0 };
+  const groupOfMany = (ls) => {
+    const g = ls[0].groupId;
+    return g && ls.every(l => l.groupId === g) ? (app.doc.groups || []).find(x => x.id === g) || null : null;
+  };
   const selMany = () => {
     const ls = app.mode === 'paint' && app.tool === 'select' ? env.selectedLayers().filter(l => !l.locked && l.visible && !l.specOnly && (l.type === 'fill' || isPic(l))) : [];
     return ls.length > 1 ? ls : null;
   };
   function manyBox(ls) {
     const key = ls.map(l => l.id).join();
-    if (manyTurn.key !== key) manyTurn = { key, t: 0 };
+    const g = groupOfMany(ls);
+    if (manyTurn.key !== key) manyTurn = { key, t: g ? (g.turn || 0) * Math.PI / 180 : 0 };
     return boxAt(ls.flatMap(outlineOf), manyTurn.t);
   }
   // A shape with a great many points (an icon, a wrapped slot) would be a
@@ -147,7 +152,7 @@ export function initTools(app, env) {
   };
   // a turn begins: about the middle of the box b round the layers, from where the pointer is now
   const spinFrom = (ls, p, b) => ({
-    kind: 'spin', c: b.c, a0: Math.atan2(p.y - b.c.y, p.x - b.c.x), t0: b.t, many: ls.length > 1,
+    kind: 'spin', c: b.c, a0: Math.atan2(p.y - b.c.y, p.x - b.c.x), t0: b.t, many: ls.length > 1, group: ls.length > 1 ? groupOfMany(ls) : null,
     layers: ls.map(l => ({ l, pts0: null, fade0: l.fadeFrom && l.fadeTo ? [{ ...l.fadeFrom }, { ...l.fadeTo }] : null, turn0: l.turn || 0, x0: l.x, y0: l.y, r0: l.rotation || 0 })),
   });
   // a turn, ang radians from where the layers were when it began
@@ -172,6 +177,7 @@ export function initTools(app, env) {
       l.turn = (d.turn0 + deg) % 360;
     }
     if (drag.many) manyTurn.t = drag.t0 + ang;
+    if (drag.group) drag.group.turn = Math.round(((manyTurn.t * 180 / Math.PI) % 360 + 540) % 360 - 180);
   }
   // the shape, and the fade line that belongs to it, put through f from how they were when the drag began
   function reshape(l, d, f) {
@@ -201,17 +207,20 @@ export function initTools(app, env) {
   function trimAt(p) {
     const l = selLayer();
     if (!l || p.x < 0 || p.y < 0 || p.x > SIZE || p.y > SIZE) { env.endTrim(); return; } // a click off the sheet is Done
-    const polys = clipPolys(l).slice(), ats = [].concat(l.clipAt || []);
-    const had = polys.findIndex(poly => pointInPolygon(poly, p.x, p.y));
-    if (had !== -1) { polys.splice(had, 1); ats.splice(had, 1); }
-    else {
-      const r = pieceAt(app.doc.regionMap, p.x, p.y);
-      if (!r) { env.say('Click inside a panel'); return; }
-      polys.push(trimShape(r, p.x, p.y));
-      ats.push({ x: Math.round(p.x), y: Math.round(p.y) }); // the spot picked: says which panel (and half) this is
+    // several selected: the click goes to each of them, as it does to the one clicked first
+    const r = pieceAt(app.doc.regionMap, p.x, p.y), out = clipPolys(l).some(poly => pointInPolygon(poly, p.x, p.y));
+    if (!out && !r) { env.say('Click inside a panel'); return; }
+    for (const x of env.selectedLayers()) {
+      const polys = clipPolys(x).slice(), ats = [].concat(x.clipAt || []);
+      const had = polys.findIndex(poly => pointInPolygon(poly, p.x, p.y));
+      if (had !== -1) { if (out) { polys.splice(had, 1); ats.splice(had, 1); } }
+      else if (!out) {
+        polys.push(trimShape(r, p.x, p.y));
+        ats.push({ x: Math.round(p.x), y: Math.round(p.y) }); // the spot picked: says which panel (and half) this is
+      }
+      x.clip = polys.length ? polys : null;
+      x.clipAt = polys.length ? ats : null;
     }
-    l.clip = polys.length ? polys : null;
-    l.clipAt = polys.length ? ats : null;
     change({ now: true });
   }
 
@@ -836,10 +845,21 @@ export function initTools(app, env) {
   }
 
   // the Turn box in Place: the shape goes round its own middle to stand at deg
+  // several selected: the angle their box is turned to, in degrees (null: none of them can turn), and turning them there
+  function manyTurnNow() {
+    const ls = selMany();
+    return ls ? Math.round(((manyBox(ls).t * 180 / Math.PI) % 360 + 540) % 360 - 180) : null;
+  }
+  function turnManyTo(deg) {
+    const ls = selMany();
+    if (!ls) return;
+    const b = manyBox(ls);
+    spinBy(spinFrom(ls, { x: 0, y: 0 }, b), deg * Math.PI / 180 - b.t);
+  }
   function turnTo(l, deg) {
     spinBy(spinFrom([l], { x: 0, y: 0 }, shapeBox(l)), (deg - (l.turn || 0)) * Math.PI / 180);
     l.turn = deg; // exact, so two shapes typed to the same angle match
   }
 
-  return { down, move, up, key, context, cancel, hint, drawOverlay, turnTo, drawing: () => !!(draft && draft.length) };
+  return { down, move, up, key, context, cancel, hint, drawOverlay, turnTo, turnManyTo, manyTurnNow, drawing: () => !!(draft && draft.length) };
 }

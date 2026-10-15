@@ -367,9 +367,14 @@ export function initUI(app, actions, version) {
     if (many.length > 1) { // several: what can be done to them together
       const grouped = many.some((x) => x.groupId);
       const fills = many.filter((x) => x.type === 'fill' && !x.specOnly);
+      const l0 = many.find((x) => x.id === app.sel) || many[0], turn = actions.manyTurn(); // null: nothing among them can turn
       return colourHead(`<span class="pname">${many.length} layers</span>`) +
-        fold('f-place', 'Place', posBoxes() + `<div class="acts">${mirroredBtn(many.some((x) => x.mirrored))}</div>`) +
-        fold('f-look', 'Look', fills.length ? fadeHtml(fills.find((x) => x.fillType === 'linear' || x.fillType === 'radial') || fills[0]) : '') +
+        fold('f-place', 'Place', posBoxes() + (turn === null ? '' : slider('f-turn', -180, 180, turn, 'Turn', 'They turn as one, about their middle. A group keeps its angle; a loose selection starts at 0 each time.')) +
+          `<label class="switch" title="Where they hang over an edge linked in Map, they carry on onto the panel that edge meets">Continue across edges<input id="f-continues" type="checkbox"${many.some((x) => x.continues) ? ' checked' : ''}></label>` +
+          `<div class="acts">${trimButtons(l0)}${mirroredBtn(many.some((x) => x.mirrored))}${trimClear(many.find((x) => trimCount(x)) || l0)}</div>`) +
+        fold('f-look', 'Look', (fills.length ? fadeHtml(fills.find((x) => x.fillType === 'linear' || x.fillType === 'radial') || fills[0]) : '') +
+          slider('f-opacity', 0, 100, (l0.opacity ?? 1) * 100, 'Opacity') +
+          field('Blend', `<select id="f-blend" title="Multiply darkens what is under it, for a texture such as worn cardboard">${opt('', 'Normal', !l0.blend)}${opt('multiply', 'Multiply', l0.blend === 'multiply')}</select>`)) +
         repeatHtml(many.find((x) => x.repeat) || many[0]) +
         `<div class="acts"><button class="btn" data-act="merge" title="Join them into one. It asks first if they differ in colour or kind. (Ctrl+E)">Merge</button>` +
         `<button class="btn" data-act="wrap" title="One shape pulled tight round them, like a rubber band: two circles become a slot"${shapeCan().wrap ? '' : ' disabled'}>Wrap</button>` +
@@ -627,7 +632,7 @@ export function initUI(app, actions, version) {
       return;
     }
     if (t.id === 'f-opacity' && layer) {
-      layer.opacity = t.value / 100;
+      for (const x of actions.selectedLayers()) x.opacity = t.value / 100;
       actions.change({ panels: false });
     }
   });

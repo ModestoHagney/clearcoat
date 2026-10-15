@@ -1126,9 +1126,21 @@ const actions = {
   // Continues: what hangs over a linked edge of the layer's panel is painted
   // on the panel that edge meets, and follows every edit
   continues() {
-    const l = actions.selected();
+    const l = actions.selected(), ls = selectedLayers();
     if (!l || !canChange()) return;
-    if (l.continues) { l.continues = false; change({ now: true }); return; }
+    if (ls.some(x => x.continues)) { for (const x of ls) x.continues = false; change({ now: true }); return; }
+    if (ls.length > 1) { // each that sits on a panel with a linked edge
+      let done = 0, first = null;
+      for (const x of ls) {
+        const s = seamsOf(app.doc.regionMap, x);
+        if (s.error) first = first || s.error;
+        else { x.continues = s.home.id; done++; }
+      }
+      if (!done) { ui.say(first, true); ui.refresh(); return; }
+      ui.say(first ? `${done} of ${ls.length} continue across edges. ${first}` : `${done} layers continue across edges`, !!first);
+      change({ now: true });
+      return;
+    }
     const s = seamsOf(app.doc.regionMap, l);
     if (s.error) { ui.say(s.error, true); ui.refresh(); return; }
     l.continues = s.home.id;
@@ -1180,9 +1192,8 @@ const actions = {
   },
   endTrim() { if (!app.trimming) return; app.trimming = false; toolChanged(); requestDraw(); ui.refresh(); },
   trimClear() {
-    const l = actions.selected();
-    if (!l) return;
-    l.clip = null; l.clipAt = null;
+    if (!actions.selected()) return;
+    for (const l of selectedLayers()) { l.clip = null; l.clipAt = null; }
     app.trimming = false;
     toolChanged();
     change({ now: true });
@@ -1292,7 +1303,7 @@ const actions = {
       if (n.get(l.groupId) < 2) { l.groupId = null; continue; }
       if (!to.has(l.groupId)) {
         const g = (app.doc.groups || []).find(x => x.id === l.groupId), id = 'g' + newId();
-        app.doc.groups = [...(app.doc.groups || []), { id, name: (g ? g.name : 'Group') + ' copy', collapsed: true }];
+        app.doc.groups = [...(app.doc.groups || []), { id, name: (g ? g.name : 'Group') + ' copy', collapsed: true, turn: g ? g.turn || 0 : 0 }];
         to.set(l.groupId, id);
       }
       l.groupId = to.get(l.groupId);
@@ -1566,20 +1577,24 @@ const actions = {
   // the selected shape, turned round its middle to stand at deg
   turnTo(deg) {
     const l = actions.selected();
-    if (!l || l.type !== 'fill' || !Number.isFinite(deg)) return;
-    tools.turnTo(l, deg);
+    if (!Number.isFinite(deg)) return;
+    if (selectedLayers().length > 1) tools.turnManyTo(deg);
+    else if (l && l.type === 'fill') tools.turnTo(l, deg);
+    else return;
     change({ panels: false });
   },
-  // one setting of the selected layer; text settings redraw the text
+  manyTurn: () => (tools ? tools.manyTurnNow() : null),
+  // one setting of the selected layer (or of each selected); text settings redraw the text
   setProp(key, value) {
-    const l = actions.selected();
-    if (!l) return;
-    if (key.startsWith('fx.')) l.fx = { ...(l.fx || {}), [key.slice(3)]: value };
-    else l[key] = value;
-    if (l.type === 'text' && TEXT_KEYS.has(key)) {
-      if (key === 'text') l.name = String(value).split('\n')[0].trim().slice(0, 24) || 'Text';
-      regenerateText(l);
-      if (key === 'fontWeight' || key === 'italic') ensureDocFonts(); // that face of the font may still have to be fetched
+    if (!actions.selected()) return;
+    for (const l of selectedLayers()) {
+      if (key.startsWith('fx.')) l.fx = { ...(l.fx || {}), [key.slice(3)]: value };
+      else l[key] = value;
+      if (l.type === 'text' && TEXT_KEYS.has(key)) {
+        if (key === 'text') l.name = String(value).split('\n')[0].trim().slice(0, 24) || 'Text';
+        regenerateText(l);
+        if (key === 'fontWeight' || key === 'italic') ensureDocFonts(); // that face of the font may still have to be fetched
+      }
     }
     change({ panels: false });
   },

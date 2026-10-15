@@ -130,7 +130,7 @@ export function createDoc() {
     baseMaterial: 'gloss',
     baseMatParams: null,
     layers: [],          // bottom → top: shapes (fills), text and pictures
-    groups: [],          // flat layer groups: { id, name, collapsed }; members carry layer.groupId
+    groups: [],          // flat layer groups: { id, name, collapsed, turn }; members carry layer.groupId; turn: the angle its box stands at, in degrees
     template: null,      // { img, src } — viewport reference only
     customFonts: [],            // { name, data (base64) } — uploaded fonts travel with the project
     googleFonts: [],            // names of Google fonts added by name, beyond the built-in list
@@ -1091,7 +1091,7 @@ export function serializeDoc(doc) {
     baseRef: doc.baseRef || null,
     googleFonts: (doc.googleFonts || []).filter(f => typeof f === 'string' && f).slice(0, 60),
     finishRules: cleanFinishRules(doc.finishRules),
-    groups: (doc.groups || []).map(g => ({ id: g.id, name: g.name, collapsed: !!g.collapsed })),
+    groups: (doc.groups || []).map(g => ({ id: g.id, name: g.name, collapsed: !!g.collapsed, ...(g.turn ? { turn: g.turn } : {}) })),
     layers: doc.layers.map(l => ({
       id: l.id, type: l.type, name: l.name,
       groupId: l.groupId || null,
@@ -1352,7 +1352,7 @@ export async function deserializeDoc(data) {
   for (const g of (Array.isArray(data.groups) ? data.groups : [])) {
     if (!g || typeof g.id !== 'string' || !g.id || declared.has(g.id)) continue;
     declared.add(g.id);
-    groups.push({ id: g.id, name: typeof g.name === 'string' && g.name ? g.name : 'Group', collapsed: !!g.collapsed });
+    groups.push({ id: g.id, name: typeof g.name === 'string' && g.name ? g.name : 'Group', collapsed: !!g.collapsed, ...(Number.isFinite(g.turn) && g.turn ? { turn: g.turn } : {}) });
   }
   const used = new Set();
   for (const l of doc.layers) {
