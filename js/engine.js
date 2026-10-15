@@ -716,15 +716,8 @@ function drawLayerContent(ctx, layer) {
   }
 }
 
-// A layer's trim as a list of windows, each a list of { x, y }. `clip` is
-// stored that way; a single flat outline (how the first trims were saved) is
-// still read as one window.
-export function clipPolys(layer) {
-  const c = layer.clip;
-  if (!Array.isArray(c) || !c.length) return [];
-  const polys = Array.isArray(c[0]) ? c : [c];
-  return polys.filter(p => Array.isArray(p) && p.length >= 3);
-}
+// A layer's trim as a list of windows, each a list of { x, y }
+export const clipPolys = (layer) => (Array.isArray(layer.clip) ? layer.clip.filter(p => Array.isArray(p) && p.length >= 3) : []);
 
 export function drawLayer(ctx, layer, forSpec = false) {
   // a shadow is for text and pictures, and for the paint only: it is not part of the design's own outline

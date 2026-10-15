@@ -677,7 +677,7 @@ const TEXT_KEYS = new Set(['text', 'font', 'fontSize', 'textColor', 'outlineColo
 function cloneLayer(l) {
   const c = { ...l, id: newId() }; // still tagged with the original's group: paste gives copies a group of their own
   for (const k of ['pts', 'clipAt']) if (Array.isArray(l[k])) c[k] = structuredClone(l[k]);
-  if (Array.isArray(l.clip)) c.clip = l.clip.map(poly => (Array.isArray(poly) ? poly.map(q => ({ ...q })) : { ...poly }));
+  if (Array.isArray(l.clip)) c.clip = l.clip.map(poly => poly.map(q => ({ ...q })));
   for (const k of ['matParams', 'fx', 'fadeFrom', 'fadeTo']) if (l[k]) c[k] = { ...l[k] };
   return c;
 }
@@ -1026,7 +1026,7 @@ const actions = {
     else if (scope === 'colour' && t.kind === 'layer') {
       const l = actions.finishLayer(), c = l && layerColour(l);
       if (!c) return;
-      if (l.finishOwn || hasOwnFinish(l)) { l.finishOwn = false; l.material = 'gloss'; l.matParams = null; change({ now: true }); } // it follows its colour again
+      if (hasOwnFinish(l)) { l.finishOwn = false; l.material = 'gloss'; l.matParams = null; change({ now: true }); } // it follows its colour again
       app.ftarget = { kind: 'colour', colour: c, layerId: l.id };
     }
     requestDraw();

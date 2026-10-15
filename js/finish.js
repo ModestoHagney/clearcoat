@@ -61,8 +61,8 @@ export const layerColour = (l) => hex(l.type === 'fill' || l.type === 'image' ? 
 // every colour it paints: its own, and its Repeat's extra ones
 export const layerColours = (l) => [...new Set([layerColour(l), ...((l.repeat && l.repeat.colors) || []).map(hex)])].filter(Boolean);
 export const isArea = (l) => !!l && !!l.specOnly;
-// a layer whose finish was set for itself (older projects: any finish but gloss)
-export const hasOwnFinish = (l) => !!l.finishOwn || (!!l.material && l.material !== 'gloss');
+// a layer whose finish was set for itself
+export const hasOwnFinish = (l) => !!l.finishOwn;
 
 export function ruleFor(doc, colour) {
   const c = hex(colour);
