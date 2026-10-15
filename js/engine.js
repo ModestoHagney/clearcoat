@@ -463,7 +463,7 @@ export const isRegionLayer = (l) => l.type === 'fill';
 
 // ---------- Repeat: copies of a layer in a line, a grid, or scattered ----------
 // layer.repeat = { way: across | down | grid | scatter, count, rows, fill,
-// gapX, gapY, angle, space, colors, shapes, mix, rSize, rTurn, seed, fadeOut, shrink, mirrorX, mirrorY }.
+// gapX, gapY, angle, space, colors, shapes, mix, rSize, rTurn, seed, fadeOut, shrink, aim, mirrorX, mirrorY }.
 // The layer itself is the first copy; the rest step on from it along its own
 // axes (so a turned layer repeats the way it is turned), tilted by angle.
 // A step is the item's own size, so copies sit snug, plus the gap. Scattered
@@ -487,8 +487,22 @@ export function cleanRepeat(r) {
     rSize: num(r.rSize, 0, 100, 0), rTurn: num(r.rTurn, 0, 100, 0), // how much each copy's size and turn vary
     seed: Number.isFinite(+r.seed) ? +r.seed | 0 : 1,
     fadeOut: !!r.fadeOut, shrink: !!r.shrink, // the copies fade, or get smaller, the further they are from the layer
+    aim: cleanAim(r.aim), // where that runs from and to, as offsets from the layer's middle; none: out from the layer to its furthest copy
     mirrorX: !!r.mirrorX, mirrorY: !!r.mirrorY, // a mirrored side's: its copies run back along its own across, or down (see mirror.js)
   };
+}
+const isPt = (q) => !!q && Number.isFinite(+q.x) && Number.isFinite(+q.y);
+const cleanAim = (a) => (a && isPt(a.a) && isPt(a.b) ? { a: { x: +a.a.x, y: +a.a.y }, b: { x: +a.b.x, y: +a.b.y } } : null);
+// → { a, b } on the sheet: copies fade (or shrink) to nothing as they get as far from a as b is
+function aimOf(r, cx, cy, list) {
+  if (r.aim) return { a: { x: cx + r.aim.a.x, y: cy + r.aim.a.y }, b: { x: cx + r.aim.b.x, y: cy + r.aim.b.y } };
+  let b = { x: 1, y: 0 };
+  for (const o of list) if (Math.hypot(o.x, o.y) > Math.hypot(b.x, b.y)) b = o;
+  return { a: { x: cx, y: cy }, b: { x: cx + b.x, y: cy + b.y } };
+}
+export function repeatAim(layer) {
+  const { cx, cy, list } = repeatOffsets(layer);
+  return aimOf(layer.repeat, cx, cy, list);
 }
 // the item's own across and down on the sheet, as unit vectors: what its
 // copies step along. A shape stands at the angle it was last turned to
@@ -640,8 +654,7 @@ function drawCopies(ctx, layer) {
   const r = layer.repeat;
   if (!r) return drawLayerContent(ctx, layer);
   const { cx, cy, W, H, list } = repeatOffsets(layer);
-  let far = 1;
-  for (const o of list) far = Math.max(far, Math.hypot(o.x, o.y));
+  const aim = aimOf(r, cx, cy, list), far = Math.max(1, Math.hypot(aim.b.x - aim.a.x, aim.b.y - aim.a.y));
   const ns = isRegionLayer(layer) ? 1 + r.shapes.length : 1;
   const looks = new Map();
   const look = (c, s) => {
@@ -657,7 +670,7 @@ function drawCopies(ctx, layer) {
     let size = 1, turn = 0;
     if (k && r.rSize) size += (roll() * 2 - 1) * 0.75 * r.rSize / 100;
     if (k && r.rTurn) turn = (roll() * 2 - 1) * Math.PI * r.rTurn / 100 * (r.mirrorX !== r.mirrorY ? -1 : 1); // a mirror image turns each the other way
-    const t = Math.hypot(o.x, o.y) / far; // 0 at the layer, 1 at the furthest copy
+    const t = Math.min(1, Math.hypot(cx + o.x - aim.a.x, cy + o.y - aim.a.y) / far); // 0 at the aim's start, 1 at its end and beyond
     if (r.shrink) size *= 1 - t;
     const a = r.fadeOut ? 1 - t : 1;
     if (size <= 0.01 || a <= 0.01) return;

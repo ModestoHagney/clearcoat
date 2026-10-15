@@ -205,3 +205,15 @@ test('a scattered Repeat lands on the other side in the original\'s spots, mirro
     assert.ok(Math.abs(its.cy + o.y - (800 - mine.cy - mine.list[k].y)) < 1e-6);
   });
 });
+
+test('a Repeat\'s fade dots are kept, and carried across as their mirror image', async () => {
+  const { cleanRepeat, repeatAim } = await import('../js/engine.js');
+  const l = shape([{ x: 50, y: 20 }, { x: 150, y: 20 }, { x: 50, y: 60 }]);
+  l.repeat = cleanRepeat({ way: 'across', count: 4, fadeOut: true });
+  const d = repeatAim(l); // none set: out from the layer's middle to its furthest copy
+  assert.deepEqual(d.a, { x: l.rx + l.rw / 2, y: l.ry + l.rh / 2 });
+  assert.ok(Math.abs(d.b.x - d.a.x - 300) < 1e-6);
+  l.repeat = cleanRepeat({ ...l.repeat, aim: { a: { x: 10, y: 5 }, b: { x: 200, y: 30 } } });
+  const mine = repeatAim(l), its = repeatAim(mirrorLayer(map(), l).copy); // the twin is a top/bottom reflection about y = 400
+  for (const e of ['a', 'b']) assert.ok(Math.abs(its[e].x - mine[e].x) < 1e-6 && Math.abs(its[e].y - (800 - mine[e].y)) < 1e-6, e);
+});
