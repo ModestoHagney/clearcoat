@@ -384,7 +384,8 @@ export function initUI(app, actions, version) {
       field('Size', slider('f-fontSize', 40, 400, l.fontSize || 160)));
     const inPieces = Array.isArray(l.pts) && l.pts.some((q) => q.m);
     const place = l.locked ? '' : posBoxes() +
-      (!isPic ? '' : field('Turn', slider('f-rotation', -180, 180, Math.round(l.rotation || 0)))) +
+      (isPic ? field('Turn', slider('f-rotation', -180, 180, Math.round(l.rotation || 0))) :
+        l.type === 'fill' ? field('Turn', slider('f-turn', -180, 180, ((l.turn || 0) % 360 + 540) % 360 - 180)) : '') +
       mirroredSwitch(l.mirrored) +
       (l.mirrored && isPic ? `<label class="switch" title="Off: it reads the right way round on both sides. On: a true mirror image.">Reverse the other side<input id="f-mirrorFlip" type="checkbox"${l.mirrorFlip ? ' checked' : ''}></label>` : '') +
       `<label class="switch" title="Where it hangs over an edge linked in Map, it carries on onto the panel that edge meets">Continue across edges<input id="f-continues" type="checkbox"${l.continues ? ' checked' : ''}></label>` +
@@ -573,6 +574,7 @@ export function initUI(app, actions, version) {
     if (t.dataset.repc !== undefined) { if (+t.dataset.repc < 0) actions.setColour(t.value); else actions.repeatColour(+t.dataset.repc, t.value); return; } // -1: the layer's own colour
     const rep = /^f-rep-(count|rows|gapX|gapY|angle|space|rSize|rTurn)$/.exec(t.id || '');
     if (rep) { actions.setRepeat({ [rep[1]]: +t.value }, false); return; }
+    if (t.id === 'f-turn') { actions.turnTo(+t.value); return; }
     // plain settings: the control's id names the layer setting it sets
     const m = /^f-(fx-)?(fontSize|outlineWidth|outlineColor|letterSpacing|lineSpacing|curve|rotation|shadow|shadowColor|shadowDX|shadowDY|text)$/.exec(t.id || '');
     if (m && layer) {

@@ -147,6 +147,29 @@ export function initTools(app, env) {
     kind: 'spin', c: b.c, a0: Math.atan2(p.y - b.c.y, p.x - b.c.x), t0: b.t, many: ls.length > 1,
     layers: ls.map(l => ({ l, pts0: null, fade0: l.fadeFrom && l.fadeTo ? [{ ...l.fadeFrom }, { ...l.fadeTo }] : null, turn0: l.turn || 0, x0: l.x, y0: l.y, r0: l.rotation || 0 })),
   });
+  // a turn, ang radians from where the layers were when it began
+  function spinBy(drag, ang) {
+    const cos = Math.cos(ang), sin = Math.sin(ang), c = drag.c, deg = ang * 180 / Math.PI;
+    const f = (q) => ({ x: c.x + (q.x - c.x) * cos - (q.y - c.y) * sin, y: c.y + (q.x - c.x) * sin + (q.y - c.y) * cos });
+    for (const d of drag.layers) {
+      const l = d.l;
+      if (isPic(l)) { const q = f({ x: d.x0, y: d.y0 }); l.x = q.x; l.y = q.y; l.rotation = d.r0 + deg; continue; } // text and pictures turn about their own middle, which goes round with the rest
+      if (!d.pts0) {
+        // A ready-made box is drawn from its box, which cannot turn: from here
+        // on it is an outline like any other shape (a flip it carried goes into the outline).
+        if (isBox(l)) {
+          const cx = l.rx + l.rw / 2, cy = l.ry + l.rh / 2, fh = !!l.flipH, fv = !!l.flipV;
+          const pts = mapped(boxOutline(l.shape, l.rx, l.ry, l.rw, l.rh), q => ({ x: fh ? 2 * cx - q.x : q.x, y: fv ? 2 * cy - q.y : q.y }));
+          l.shape = 'path'; l.flipH = l.flipV = false;
+          setShape(l, pts);
+        }
+        d.pts0 = structuredClone(l.pts);
+      }
+      reshape(l, d, f);
+      l.turn = (d.turn0 + deg) % 360;
+    }
+    if (drag.many) manyTurn.t = drag.t0 + ang;
+  }
   // the shape, and the fade line that belongs to it, put through f from how they were when the drag began
   function reshape(l, d, f) {
     setShape(l, mapped(d.pts0, f));
@@ -484,26 +507,7 @@ export function initTools(app, env) {
       let ang = Math.atan2(p.y - drag.c.y, p.x - drag.c.x) - drag.a0;
       const step = Math.PI / 12;
       if (e.shiftKey) ang = Math.round((drag.t0 + ang) / step) * step - drag.t0; // to 15° steps
-      const cos = Math.cos(ang), sin = Math.sin(ang), c = drag.c, deg = ang * 180 / Math.PI;
-      const f = (q) => ({ x: c.x + (q.x - c.x) * cos - (q.y - c.y) * sin, y: c.y + (q.x - c.x) * sin + (q.y - c.y) * cos });
-      for (const d of drag.layers) {
-        const l = d.l;
-        if (isPic(l)) { const q = f({ x: d.x0, y: d.y0 }); l.x = q.x; l.y = q.y; l.rotation = d.r0 + deg; continue; } // text and pictures turn about their own middle, which goes round with the rest
-        if (!d.pts0) {
-          // A ready-made box is drawn from its box, which cannot turn: from here
-          // on it is an outline like any other shape (a flip it carried goes into the outline).
-          if (isBox(l)) {
-            const cx = l.rx + l.rw / 2, cy = l.ry + l.rh / 2, fh = !!l.flipH, fv = !!l.flipV;
-            const pts = mapped(boxOutline(l.shape, l.rx, l.ry, l.rw, l.rh), q => ({ x: fh ? 2 * cx - q.x : q.x, y: fv ? 2 * cy - q.y : q.y }));
-            l.shape = 'path'; l.flipH = l.flipV = false;
-            setShape(l, pts);
-          }
-          d.pts0 = structuredClone(l.pts);
-        }
-        reshape(l, d, f);
-        l.turn = (d.turn0 + deg) % 360;
-      }
-      if (drag.many) manyTurn.t = drag.t0 + ang;
+      spinBy(drag, ang);
       change({ panels: false });
       return;
     }
@@ -810,5 +814,11 @@ export function initTools(app, env) {
     fadeDots();
   }
 
-  return { down, move, up, key, context, cancel, hint, drawOverlay, drawing: () => !!(draft && draft.length) };
+  // the Turn box in Place: the shape goes round its own middle to stand at deg
+  function turnTo(l, deg) {
+    spinBy(spinFrom([l], { x: 0, y: 0 }, shapeBox(l)), (deg - (l.turn || 0)) * Math.PI / 180);
+    l.turn = deg; // exact, so two shapes typed to the same angle match
+  }
+
+  return { down, move, up, key, context, cancel, hint, drawOverlay, turnTo, drawing: () => !!(draft && draft.length) };
 }

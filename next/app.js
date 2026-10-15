@@ -1515,6 +1515,13 @@ const actions = {
     // type straight away — once this press is over, or the sheet takes the focus back
     setTimeout(() => ui.focusField('f-text'), 0);
   },
+  // the selected shape, turned round its middle to stand at deg
+  turnTo(deg) {
+    const l = actions.selected();
+    if (!l || l.type !== 'fill' || !Number.isFinite(deg)) return;
+    tools.turnTo(l, deg);
+    change({ panels: false });
+  },
   // one setting of the selected layer; text settings redraw the text
   setProp(key, value) {
     const l = actions.selected();
