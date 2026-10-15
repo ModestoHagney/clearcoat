@@ -1301,6 +1301,10 @@ const actions = {
     const id = 'g' + newId();
     app.doc.groups = [...(app.doc.groups || []), { id, name: 'Group', collapsed: true }]; // one row in the Layers list until it is opened
     for (const l of ls) l.groupId = id;
+    // gathered together in the stack, where the front one is, so the Layers list shows them under the group
+    const L = app.doc.layers, rest = L.filter(l => l.groupId !== id);
+    rest.splice(L.indexOf(ls[ls.length - 1]) - ls.length + 1, 0, ...ls);
+    app.doc.layers = rest;
     pruneGroups();
     change({ now: true });
   },
