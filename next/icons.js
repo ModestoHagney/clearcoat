@@ -88,13 +88,14 @@ const words = (name) => name.replace(/[-_]+/g, ' ').replace(/^./, ch => ch.toUpp
 // The service limits how often it may be asked, so the drawings come in one
 // request for each set rather than one for each icon, and a find already
 // holds its own drawing: picking it asks for nothing more.
-export async function searchIcons(query, limit = 64) {
+// prefixes: which of SETS to search (all of them unless narrowed).
+export async function searchIcons(query, prefixes = SETS, limit = 64) {
   const get = async (url) => {
     const res = await fetch(url);
     if (!res.ok) throw new Error('The icon search did not answer');
     return res.json();
   };
-  const data = await get(`${API}/search?query=${encodeURIComponent(query)}&limit=${limit}&prefixes=${SETS.join(',')}`);
+  const data = await get(`${API}/search?query=${encodeURIComponent(query)}&limit=${limit}&prefixes=${prefixes.join(',')}`);
   const sets = data.collections || {}, ids = data.icons || [], bySet = new Map();
   for (const id of ids) { const [prefix, name] = id.split(':'); bySet.set(prefix, [...(bySet.get(prefix) || []), name]); }
   const drawn = new Map(); // id → the icon's SVG
