@@ -214,10 +214,12 @@ export function mirrorLayer(map, sel) {
     const m0 = isRegionLayer(sel) ? { x: sel.rx + sel.rw / 2, y: sel.ry + sel.rh / 2 } : { x: sel.x, y: sel.y };
     const back = (e, sign, f) => { const p = pt(m0), q = pt({ x: m0.x + e.x * sign * 50, y: m0.y + e.y * sign * 50 }); return (q.x - p.x) * f.x + (q.y - p.y) * f.y < 0; };
     copy.repeat = { ...r, mirrorX: back(A.ex, r.mirrorX ? -1 : 1, B.ex), mirrorY: back(A.ey, r.mirrorY ? -1 : 1, B.ey) };
+    const c0 = isRegionLayer(copy) ? { x: copy.rx + copy.rw / 2, y: copy.ry + copy.rh / 2 } : { x: copy.x, y: copy.y };
+    const across = (o) => { const q = pt({ x: m0.x + o.x, y: m0.y + o.y }); return { x: q.x - c0.x, y: q.y - c0.y }; };
+    if (r.aim) copy.repeat.aim = { a: across(r.aim.a), b: across(r.aim.b) }; // the fade's dots, carried across too
     if (r.way === 'scatter') {
       // spots picked at random would not be the mirror image: the original's are carried across
-      const { cx, cy, list } = repeatOffsets(sel), c0 = isRegionLayer(copy) ? { x: copy.rx + copy.rw / 2, y: copy.ry + copy.rh / 2 } : { x: copy.x, y: copy.y };
-      copy.repeat.at = list.map((o) => { const q = pt({ x: cx + o.x, y: cy + o.y }); return { x: q.x - c0.x, y: q.y - c0.y }; });
+      copy.repeat.at = repeatOffsets(sel).list.map(across);
     }
   }
   return { copy, dst };

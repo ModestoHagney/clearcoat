@@ -20,7 +20,7 @@
 import { SIZE, createFillLayer, isRegionLayer, toLocal, layerCorners, regenerateText } from '../js/engine.js';
 import { bounds, flatten, contains, moved, mapped, segmentAt, midOf, bendTo, insertAt, removeAt, snapAngle, nextIndex, SHAPES, aspect, boxOutline, placed, joined } from '../js/shapes.js';
 import { regionOutline, snapToOutline, trimShape, growOutline, pointInPolygon } from '../js/regions.js';
-import { clipPolys, fadeStyleOf, repeatOffsets, copyLook } from '../js/engine.js';
+import { clipPolys, fadeStyleOf, repeatOffsets, copyLook, repeatAim } from '../js/engine.js';
 import { pieceAt } from '../js/mirror.js';
 
 const GRAB = 9;        // px: how close counts as "on" a point or dot
@@ -83,6 +83,9 @@ export function initTools(app, env) {
   // first one's that has one. They share it: dragging a dot moves it for them all.
   const fadeMates = () => (app.mode === 'paint' ? env.selectedLayers().filter(l => hasAim(l) && !l.locked && l.visible) : []);
   const selFade = () => fadeMates()[0] || null;
+  // the selected layer's Repeat, when its copies fade out or shrink: two dots of its own aim that.
+  // ponytail: the dots stay put when the layer turns; turn them with it if that's ever missed
+  const selRepAim = () => { const l = selLayer(); return app.mode === 'paint' && editable(l) && l.repeat && (l.repeat.fadeOut || l.repeat.shrink) ? l : null; };
   // where the turn handle sits: out from the middle of the top edge
   function turnHandle(l) {
     const c = layerCorners(l).map(onScreen), top = { x: (c[0].x + c[1].x) / 2, y: (c[0].y + c[1].y) / 2 }, mid = onScreen(l);
@@ -388,6 +391,11 @@ export function initTools(app, env) {
       const ends = fadeEnds(faded);
       for (const end of ['b', 'a']) if (far(onScreen(ends[end]), s) <= GRAB) { drag = { kind: 'fade', layer: faded, end }; return; }
     }
+    const rep = selRepAim();
+    if (rep) {
+      const ends = repeatAim(rep);
+      for (const end of ['b', 'a']) if (far(onScreen(ends[end]), s) <= GRAB) { drag = { kind: 'repAim', layer: rep, end }; return; }
+    }
     const many = selMany();
     if (many && far(frameFor(manyBox(many)).turn, s) <= GRAB) { drag = spinFrom(many, p, manyBox(many)); return; }
     const shape = selShape();
@@ -470,6 +478,14 @@ export function initTools(app, env) {
       const q = e.shiftKey ? snapAngle(other, p) : p;
       const from = drag.end === 'a' ? { x: q.x, y: q.y } : { ...ends.a }, to = drag.end === 'b' ? { x: q.x, y: q.y } : { ...ends.b };
       for (const m of fadeMates()) { m.fadeFrom = { ...from }; m.fadeTo = { ...to }; } // every selected shape that fades takes the same line
+      change({ panels: false });
+      return;
+    }
+    if (drag.kind === 'repAim') { // kept as offsets from the layer's middle, so they go where it goes
+      const ends = repeatAim(l), q = e.shiftKey ? snapAngle(drag.end === 'a' ? ends.b : ends.a, p) : p;
+      ends[drag.end] = q;
+      const { cx, cy } = repeatOffsets(l), off = (o) => ({ x: o.x - cx, y: o.y - cy });
+      l.repeat.aim = { a: off(ends.a), b: off(ends.b) };
       change({ panels: false });
       return;
     }
@@ -613,6 +629,7 @@ export function initTools(app, env) {
     }
     if (app.tool === 'piece') return 'Click a panel to fill it';
     if (app.tool === 'text') return 'Click where the text goes';
+    if (app.tool === 'select' && selRepAim() && !selFade()) return 'Drag the two dots: the copies fade or shrink to nothing as far from the ring as the dot is · Shift holds 45°';
     if (app.tool === 'select' && selFade()) return fadeMates().length > 1 ? 'Drag the two dots to aim the fade for all of them · Shift holds 45°' : 'Drag the two dots to aim the fade · Shift holds 45°';
     if (app.tool === 'select' && env.selectedLayers().length > 1) return `${env.selectedLayers().length} layers · drag to move them · the round handle turns them · ${env.selectedLayers().every(l => l.groupId && l.groupId === env.selectedLayers()[0].groupId) ? 'double-click one to pick it alone' : 'Ctrl+G groups'}`;
     if (app.tool === 'select' && selPic()) return 'Drag a corner to resize · the round handle turns it · Shift turns in steps';
@@ -783,9 +800,12 @@ export function initTools(app, env) {
     };
     if (selMany()) frameLine(frameFor(manyBox(selMany())));
     const fadeDots = () => { // where the fade starts (a ring) and where it ends (a dot)
-      const faded = app.tool === 'select' ? selFade() : null;
-      if (!faded) return;
-      const ends = fadeEnds(faded), A = onScreen(ends.a), B = onScreen(ends.b);
+      const faded = app.tool === 'select' ? selFade() : null, rep = app.tool === 'select' ? selRepAim() : null;
+      if (rep) dots(repeatAim(rep));
+      if (faded) dots(fadeEnds(faded));
+    };
+    const dots = (ends) => {
+      const A = onScreen(ends.a), B = onScreen(ends.b);
       ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y);
       ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 4; ctx.stroke();
       ctx.strokeStyle = '#101114'; ctx.lineWidth = 1.5; ctx.setLineDash([6, 4]); ctx.stroke(); ctx.setLineDash([]);
