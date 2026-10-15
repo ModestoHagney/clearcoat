@@ -125,15 +125,20 @@ export function initTools(app, env) {
   const frameOf = (l) => frameFor(shapeBox(l));
   // Several layers selected: they turn as one, about the middle of the box
   // round them all. That box keeps the angle they have been turned to for as
-  // long as the same layers stay selected.
+  // long as the same layers stay selected; a group's box keeps it for good.
   let manyTurn = { key: '', t: 0 };
+  const groupOfMany = (ls) => {
+    const g = ls[0].groupId;
+    return g && ls.every(l => l.groupId === g) ? (app.doc.groups || []).find(x => x.id === g) || null : null;
+  };
   const selMany = () => {
     const ls = app.mode === 'paint' && app.tool === 'select' ? env.selectedLayers().filter(l => !l.locked && l.visible && !l.specOnly && (l.type === 'fill' || isPic(l))) : [];
     return ls.length > 1 ? ls : null;
   };
   function manyBox(ls) {
     const key = ls.map(l => l.id).join();
-    if (manyTurn.key !== key) manyTurn = { key, t: 0 };
+    const g = groupOfMany(ls);
+    if (manyTurn.key !== key) manyTurn = { key, t: g ? (g.turn || 0) * Math.PI / 180 : 0 };
     return boxAt(ls.flatMap(outlineOf), manyTurn.t);
   }
   // A shape with a great many points (an icon, a wrapped slot) would be a
@@ -147,7 +152,7 @@ export function initTools(app, env) {
   };
   // a turn begins: about the middle of the box b round the layers, from where the pointer is now
   const spinFrom = (ls, p, b) => ({
-    kind: 'spin', c: b.c, a0: Math.atan2(p.y - b.c.y, p.x - b.c.x), t0: b.t, many: ls.length > 1,
+    kind: 'spin', c: b.c, a0: Math.atan2(p.y - b.c.y, p.x - b.c.x), t0: b.t, many: ls.length > 1, group: ls.length > 1 ? groupOfMany(ls) : null,
     layers: ls.map(l => ({ l, pts0: null, fade0: l.fadeFrom && l.fadeTo ? [{ ...l.fadeFrom }, { ...l.fadeTo }] : null, turn0: l.turn || 0, x0: l.x, y0: l.y, r0: l.rotation || 0 })),
   });
   // a turn, ang radians from where the layers were when it began
@@ -172,6 +177,7 @@ export function initTools(app, env) {
       l.turn = (d.turn0 + deg) % 360;
     }
     if (drag.many) manyTurn.t = drag.t0 + ang;
+    if (drag.group) drag.group.turn = Math.round(((manyTurn.t * 180 / Math.PI) % 360 + 540) % 360 - 180);
   }
   // the shape, and the fade line that belongs to it, put through f from how they were when the drag began
   function reshape(l, d, f) {

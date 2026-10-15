@@ -369,7 +369,7 @@ export function initUI(app, actions, version) {
       const fills = many.filter((x) => x.type === 'fill' && !x.specOnly);
       const l0 = many.find((x) => x.id === app.sel) || many[0], turn = actions.manyTurn(); // null: nothing among them can turn
       return colourHead(`<span class="pname">${many.length} layers</span>`) +
-        fold('f-place', 'Place', posBoxes() + (turn === null ? '' : slider('f-turn', -180, 180, turn, 'Turn', 'They turn as one, about their middle. Back to 0 each time they are picked up again.')) +
+        fold('f-place', 'Place', posBoxes() + (turn === null ? '' : slider('f-turn', -180, 180, turn, 'Turn', 'They turn as one, about their middle. A group keeps its angle; a loose selection starts at 0 each time.')) +
           `<label class="switch" title="Where they hang over an edge linked in Map, they carry on onto the panel that edge meets">Continue across edges<input id="f-continues" type="checkbox"${many.some((x) => x.continues) ? ' checked' : ''}></label>` +
           `<div class="acts">${trimButtons(l0)}${mirroredBtn(many.some((x) => x.mirrored))}${trimClear(many.find((x) => trimCount(x)) || l0)}</div>`) +
         fold('f-look', 'Look', (fills.length ? fadeHtml(fills.find((x) => x.fillType === 'linear' || x.fillType === 'radial') || fills[0]) : '') +

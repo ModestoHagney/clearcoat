@@ -1303,7 +1303,7 @@ const actions = {
       if (n.get(l.groupId) < 2) { l.groupId = null; continue; }
       if (!to.has(l.groupId)) {
         const g = (app.doc.groups || []).find(x => x.id === l.groupId), id = 'g' + newId();
-        app.doc.groups = [...(app.doc.groups || []), { id, name: (g ? g.name : 'Group') + ' copy', collapsed: true }];
+        app.doc.groups = [...(app.doc.groups || []), { id, name: (g ? g.name : 'Group') + ' copy', collapsed: true, turn: g ? g.turn || 0 : 0 }];
         to.set(l.groupId, id);
       }
       l.groupId = to.get(l.groupId);
