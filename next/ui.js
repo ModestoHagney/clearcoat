@@ -3,7 +3,7 @@
 // app state and calls back into `actions`; it holds no livery state itself.
 
 import { pieces, hue } from './map.js';
-import { SHAPES, PLAIN_SHAPES, roundedOf, plainOf, softened, boxOutline, aspect, hasInner } from '../js/shapes.js';
+import { SHAPES, PLAIN_SHAPES, roundedOf, plainOf, hollowOf, hollowed, softened, boxOutline, aspect, hasInner } from '../js/shapes.js';
 import { TEXT_FONTS, GOOGLE_FONTS, fadeStyleOf } from '../js/engine.js';
 import { FINISHES, finishName, finishLabel, finishList, layerColour, isArea, readFinish, presetOf } from '../js/finish.js';
 import { renderTile } from './preview.js';
@@ -59,7 +59,9 @@ for (const kind of Object.keys(SHAPES)) {
   if (I[kind]) continue;
   const a = aspect(kind), w = a > 1 ? 14 / a : 14, h = a > 1 ? 14 : 14 * a, x = 10 - w / 2, y = 10 - h / 2, f = (v) => +v.toFixed(2);
   // a rounded one is drawn rounder than it really is: at this size its true corners would not show
-  const pts = plainOf(kind) ? softened(plainOf(kind), x, y, w, h, 2.3) : boxOutline(kind, x, y, w, h);
+  // and a hollow one's band is drawn thicker, so its two edges stand apart
+  const solid = PLAIN_SHAPES.find((k) => hollowOf(k) === kind);
+  const pts = plainOf(kind) ? softened(plainOf(kind), x, y, w, h, 2.3) : solid ? hollowed(solid, x, y, w, h, 3) : boxOutline(kind, x, y, w, h);
   I[kind] = `<path d="${pathData(pts, f)}"/>`;
 }
 const svg = (name) => `<svg viewBox="0 0 20 20">${I[name]}</svg>`;
@@ -198,9 +200,10 @@ export function initUI(app, actions, version) {
     // the armed tool's own choices sit right beside the strip
     const opts = $('toolopts');
     if (app.tool === 'shape') {
-      // the plain shapes in a row, and under each one its round-cornered version (a gap where there is none)
+      // the plain shapes in a row, under each one its round-cornered version,
+      // and under that its hollow version (a gap where there is none)
       const pick = (k, up) => (k ? `<button class="tool${up ? ' up' : ''}" data-kind="${k}" data-tip="${SHAPES[k]}" aria-label="${SHAPES[k]}" aria-pressed="${app.shapeKind === k}">${svg(k)}</button>` : '<span></span>');
-      opts.innerHTML = PLAIN_SHAPES.map((k) => pick(k, true)).join('') + PLAIN_SHAPES.map((k) => pick(roundedOf(k), false)).join('');
+      opts.innerHTML = PLAIN_SHAPES.map((k) => pick(k, true)).join('') + PLAIN_SHAPES.map((k) => pick(roundedOf(k), false)).join('') + PLAIN_SHAPES.map((k) => pick(hollowOf(k), false)).join('');
       opts.style.gridTemplateColumns = `repeat(${PLAIN_SHAPES.length}, auto)`;
     } else if (app.tool === 'band') {
       opts.innerHTML = `<label class="optrow"><span>Width</span><input id="f-band" type="range" min="4" max="300" value="${app.bandWidth}"><output id="f-band-n" class="num">${app.bandWidth}</output></label>`;
@@ -331,9 +334,9 @@ export function initUI(app, actions, version) {
   // has since left the library, so the list can still name it.
   const motifOptions = (current, kept) => {
     const own = actions.ownShapes();
-    const rounds = PLAIN_SHAPES.map(roundedOf).filter(Boolean);
+    const group = (label, keys) => `<optgroup label="${label}">${keys.filter(Boolean).map((k) => opt(k, SHAPES[k].replace(label + ' ', '').replace(/^./, (ch) => ch.toUpperCase()), k === current)).join('')}</optgroup>`;
     return PLAIN_SHAPES.map((k) => opt(k, SHAPES[k], k === current)).join('') +
-      `<optgroup label="Rounded">${rounds.map((k) => opt(k, SHAPES[k].replace(/^Rounded /, '').replace(/^./, (ch) => ch.toUpperCase()), k === current)).join('')}</optgroup>` +
+      group('Rounded', PLAIN_SHAPES.map(roundedOf)) + group('Hollow', PLAIN_SHAPES.map(hollowOf)) +
       (own.length || kept ? `<optgroup label="Your shapes">${own.map((it) => opt('own:' + it.id, it.name, 'own:' + it.id === current)).join('')}${kept && !own.some((it) => 'own:' + it.id === current) ? opt(current, kept, true) : ''}</optgroup>` : '');
   };
   // The top of Properties: the colour, big, and the name beside it; then the

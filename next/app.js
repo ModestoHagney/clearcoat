@@ -1301,6 +1301,10 @@ const actions = {
     const id = 'g' + newId();
     app.doc.groups = [...(app.doc.groups || []), { id, name: 'Group', collapsed: true }]; // one row in the Layers list until it is opened
     for (const l of ls) l.groupId = id;
+    // gathered together in the stack, where the front one is, so the Layers list shows them under the group
+    const L = app.doc.layers, rest = L.filter(l => l.groupId !== id);
+    rest.splice(L.indexOf(ls[ls.length - 1]) - ls.length + 1, 0, ...ls);
+    app.doc.layers = rest;
     pruneGroups();
     change({ now: true });
   },
@@ -1459,7 +1463,8 @@ const actions = {
     const g = (app.doc.groups || []).find(x => x.id === gid);
     if (!g) return;
     g.collapsed = !g.collapsed;
-    change({ now: true });
+    // ponytail: only the list redraws; not a paint change, so no redraw, save, send or undo step. It is saved with the next edit
+    ui.refresh();
   },
   async renameLayer(id) {
     const l = app.doc.layers.find(x => x.id === id);
