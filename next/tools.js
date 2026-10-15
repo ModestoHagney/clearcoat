@@ -201,17 +201,20 @@ export function initTools(app, env) {
   function trimAt(p) {
     const l = selLayer();
     if (!l || p.x < 0 || p.y < 0 || p.x > SIZE || p.y > SIZE) { env.endTrim(); return; } // a click off the sheet is Done
-    const polys = clipPolys(l).slice(), ats = [].concat(l.clipAt || []);
-    const had = polys.findIndex(poly => pointInPolygon(poly, p.x, p.y));
-    if (had !== -1) { polys.splice(had, 1); ats.splice(had, 1); }
-    else {
-      const r = pieceAt(app.doc.regionMap, p.x, p.y);
-      if (!r) { env.say('Click inside a panel'); return; }
-      polys.push(trimShape(r, p.x, p.y));
-      ats.push({ x: Math.round(p.x), y: Math.round(p.y) }); // the spot picked: says which panel (and half) this is
+    // several selected: the click goes to each of them, as it does to the one clicked first
+    const r = pieceAt(app.doc.regionMap, p.x, p.y), out = clipPolys(l).some(poly => pointInPolygon(poly, p.x, p.y));
+    if (!out && !r) { env.say('Click inside a panel'); return; }
+    for (const x of env.selectedLayers()) {
+      const polys = clipPolys(x).slice(), ats = [].concat(x.clipAt || []);
+      const had = polys.findIndex(poly => pointInPolygon(poly, p.x, p.y));
+      if (had !== -1) { if (out) { polys.splice(had, 1); ats.splice(had, 1); } }
+      else if (!out) {
+        polys.push(trimShape(r, p.x, p.y));
+        ats.push({ x: Math.round(p.x), y: Math.round(p.y) }); // the spot picked: says which panel (and half) this is
+      }
+      x.clip = polys.length ? polys : null;
+      x.clipAt = polys.length ? ats : null;
     }
-    l.clip = polys.length ? polys : null;
-    l.clipAt = polys.length ? ats : null;
     change({ now: true });
   }
 
@@ -836,10 +839,21 @@ export function initTools(app, env) {
   }
 
   // the Turn box in Place: the shape goes round its own middle to stand at deg
+  // several selected: the angle their box is turned to, in degrees (null: none of them can turn), and turning them there
+  function manyTurnNow() {
+    const ls = selMany();
+    return ls ? Math.round(((manyBox(ls).t * 180 / Math.PI) % 360 + 540) % 360 - 180) : null;
+  }
+  function turnManyTo(deg) {
+    const ls = selMany();
+    if (!ls) return;
+    const b = manyBox(ls);
+    spinBy(spinFrom(ls, { x: 0, y: 0 }, b), deg * Math.PI / 180 - b.t);
+  }
   function turnTo(l, deg) {
     spinBy(spinFrom([l], { x: 0, y: 0 }, shapeBox(l)), (deg - (l.turn || 0)) * Math.PI / 180);
     l.turn = deg; // exact, so two shapes typed to the same angle match
   }
 
-  return { down, move, up, key, context, cancel, hint, drawOverlay, turnTo, drawing: () => !!(draft && draft.length) };
+  return { down, move, up, key, context, cancel, hint, drawOverlay, turnTo, turnManyTo, manyTurnNow, drawing: () => !!(draft && draft.length) };
 }
