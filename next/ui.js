@@ -356,7 +356,7 @@ export function initUI(app, actions, version) {
     const at = actions.selCorner();
     return !at ? '' : `<div class="field" title="Where its top-left corner is on the sheet, in pixels. Type a number to move it there."><span>Position</span><span class="pair"><label class="inline">X<input id="f-pos-x" class="num" type="number" step="1" value="${at.x}"></label><label class="inline">Y<input id="f-pos-y" class="num" type="number" step="1" value="${at.y}"></label></span></div>`;
   };
-  const mirroredSwitch = (on) => `<label class="switch" title="Paint it on the twin panel too, or across the centreline (Ctrl+M)">Mirrored<input id="f-mirrored" type="checkbox"${on ? ' checked' : ''}></label>`;
+  const mirroredBtn = (on) => `<button class="btn${on ? ' main' : ''}" data-act="mirror" aria-pressed="${!!on}" title="Paint it on the twin panel too, or across the centreline (Ctrl+M)">Mirrored</button>`;
   function propsHtml() {
     if (app.sel === 'base') return colourHead('<span class="pname">Base coat</span>');
     const many = actions.selectedLayers();
@@ -364,7 +364,7 @@ export function initUI(app, actions, version) {
       const grouped = many.some((x) => x.groupId);
       const fills = many.filter((x) => x.type === 'fill' && !x.specOnly);
       return colourHead(`<span class="pname">${many.length} layers</span>`) +
-        fold('f-place', 'Place', posBoxes() + mirroredSwitch(many.some((x) => x.mirrored))) +
+        fold('f-place', 'Place', posBoxes() + `<div class="acts">${mirroredBtn(many.some((x) => x.mirrored))}</div>`) +
         fold('f-look', 'Look', fills.length ? fadeHtml(fills.find((x) => x.fillType === 'linear' || x.fillType === 'radial') || fills[0]) : '') +
         repeatHtml(many.find((x) => x.repeat) || many[0]) +
         `<div class="acts"><button class="btn" data-act="merge" title="Join them into one. It asks first if they differ in colour or kind. (Ctrl+E)">Merge</button>` +
@@ -389,10 +389,9 @@ export function initUI(app, actions, version) {
     const place = l.locked ? '' : posBoxes() +
       (isPic ? field('Turn', slider('f-rotation', -180, 180, Math.round(l.rotation || 0))) :
         l.type === 'fill' ? field('Turn', slider('f-turn', -180, 180, ((l.turn || 0) % 360 + 540) % 360 - 180)) : '') +
-      mirroredSwitch(l.mirrored) +
       (l.mirrored && isPic ? `<label class="switch" title="Off: it reads the right way round on both sides. On: a true mirror image.">Reverse the other side<input id="f-mirrorFlip" type="checkbox"${l.mirrorFlip ? ' checked' : ''}></label>` : '') +
       `<label class="switch" title="Where it hangs over an edge linked in Map, it carries on onto the panel that edge meets">Continue across edges<input id="f-continues" type="checkbox"${l.continues ? ' checked' : ''}></label>` +
-      `<div class="acts">${trimButtons(l)}${l.mirrored ? '<button class="btn" data-act="separate" title="Make the mirrored side a layer of its own">Separate</button>' : ''}</div>`;
+      `<div class="acts">${trimButtons(l)}${mirroredBtn(l.mirrored)}${l.mirrored ? '<button class="btn" data-act="separate" title="Make the mirrored side a layer of its own">Separate</button>' : ''}</div>`;
     // a shape's fill can fade to a second colour, or to nothing
     const look = (l.type !== 'fill' ? '' : fadeHtml(l)) +
       (!isText ? '' :
