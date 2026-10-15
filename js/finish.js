@@ -58,9 +58,11 @@ export function finishLabel(material, params) {
 const hex = (c) => (typeof c === 'string' ? c.toLowerCase() : null);
 // the one colour a layer is, if it has one (a picture only once it is given one)
 export const layerColour = (l) => hex(l.type === 'fill' || l.type === 'image' ? l.color : l.type === 'text' ? l.textColor : null);
+// every colour it paints: its own, and its Repeat's extra ones
+export const layerColours = (l) => [...new Set([layerColour(l), ...((l.repeat && l.repeat.colors) || []).map(hex)])].filter(Boolean);
 export const isArea = (l) => !!l && !!l.specOnly;
-// a layer whose finish was set for itself (older projects: any finish but gloss)
-export const hasOwnFinish = (l) => !!l.finishOwn || (!!l.material && l.material !== 'gloss');
+// a layer whose finish was set for itself
+export const hasOwnFinish = (l) => !!l.finishOwn;
 
 export function ruleFor(doc, colour) {
   const c = hex(colour);
@@ -74,6 +76,15 @@ export function finishSpec(doc, layer) {
   return r ? { material: r.material, params: r.params || null } : { material: 'gloss', params: null };
 }
 export const finishOf = (doc, layer) => finishSpec(doc, layer).material;
+// a Repeat's copies in its extra colours take those colours' finishes:
+// → [the layer's own, then one per extra colour], or null when all match
+function copyFinishes(doc, l, own) {
+  const cs = (l.repeat && l.repeat.colors) || [];
+  if (!cs.length) return null;
+  const fs = [own, ...cs.map((c) => { const r = ruleFor(doc, c); return r ? { material: r.material, params: r.params || null } : { material: 'gloss', params: null }; })];
+  const key = (f) => f.material + JSON.stringify(f.params);
+  return fs.some(f => key(f) !== key(own)) ? fs : null;
+}
 export function baseSpec(doc) {
   if (doc.baseMaterial && doc.baseMaterial !== 'gloss') return { material: doc.baseMaterial, params: doc.baseMatParams || null };
   const r = ruleFor(doc, doc.baseColor);
@@ -87,11 +98,11 @@ export function withFinishes(doc) {
   if (!(doc.finishRules || []).length) return doc;
   let changed = false;
   const layers = doc.layers.map((l) => {
-    if (isArea(l) || hasOwnFinish(l)) return l; // it already carries its own
-    const f = finishSpec(doc, l);
-    if (f.material === (l.material || 'gloss') && !f.params) return l;
+    if (isArea(l) || hasOwnFinish(l)) return l; // it already carries its own, copies and all
+    const f = finishSpec(doc, l), copies = copyFinishes(doc, l, f);
+    if (f.material === (l.material || 'gloss') && !f.params && !copies) return l;
     changed = true;
-    return { ...l, material: f.material, matParams: f.params };
+    return copies ? { ...l, material: f.material, matParams: f.params, copyFinishes: copies } : { ...l, material: f.material, matParams: f.params };
   });
   const base = baseSpec(doc), ownBase = doc.baseMaterial && doc.baseMaterial !== 'gloss';
   if (!changed && (ownBase || base.material === 'gloss')) return doc;
@@ -124,7 +135,7 @@ export function finishList(doc) {
   const used = new Map(); // colour → count, base coat first, then back to front
   const count = (c) => { if (c) used.set(c, (used.get(c) || 0) + 1); };
   count(hex(doc.baseColor));
-  for (const l of doc.layers) if (l.visible !== false && !isArea(l) && !hasOwnFinish(l)) count(layerColour(l));
+  for (const l of doc.layers) if (l.visible !== false && !isArea(l) && !hasOwnFinish(l)) layerColours(l).forEach(count);
   const out = [];
   for (const [colour, n] of used) {
     const r = ruleFor(doc, colour);

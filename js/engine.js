@@ -463,7 +463,7 @@ export const isRegionLayer = (l) => l.type === 'fill';
 
 // ---------- Repeat: copies of a layer in a line, a grid, or scattered ----------
 // layer.repeat = { way: across | down | grid | scatter, count, rows, fill,
-// gapX, gapY, angle, space, colors, shapes, mix, rSize, rTurn, seed, fadeOut, shrink }.
+// gapX, gapY, angle, space, colors, shapes, mix, rSize, rTurn, seed, fadeOut, shrink, mirrorX, mirrorY }.
 // The layer itself is the first copy; the rest step on from it along its own
 // axes (so a turned layer repeats the way it is turned), tilted by angle.
 // A step is the item's own size, so copies sit snug, plus the gap. Scattered
@@ -487,7 +487,16 @@ export function cleanRepeat(r) {
     rSize: num(r.rSize, 0, 100, 0), rTurn: num(r.rTurn, 0, 100, 0), // how much each copy's size and turn vary
     seed: Number.isFinite(+r.seed) ? +r.seed | 0 : 1,
     fadeOut: !!r.fadeOut, shrink: !!r.shrink, // the copies fade, or get smaller, the further they are from the layer
+    mirrorX: !!r.mirrorX, mirrorY: !!r.mirrorY, // a mirrored side's: its copies run back along its own across, or down (see mirror.js)
   };
+}
+// the item's own across and down on the sheet, as unit vectors: what its
+// copies step along. A shape stands at the angle it was last turned to
+// (layer.turn); text and pictures at their rotation.
+export function repeatAxes(layer) {
+  const t = (isRegionLayer(layer) ? layer.turn || 0 : layer.rotation || 0) * Math.PI / 180, c = Math.cos(t), s = Math.sin(t);
+  const fh = layer.flipH ? -1 : 1, fv = layer.flipV ? -1 : 1;
+  return { ex: { x: c * fh, y: s * fh }, ey: { x: -s * fv, y: c * fv } };
 }
 // where a picture's own pixels are, as fractions of it: text and logos carry
 // see-through margins that would leave gaps between copies
@@ -516,13 +525,10 @@ function inkBox(img) {
 export function repeatOffsets(layer) {
   const r = layer.repeat;
   // the item's own axes on the sheet, and its size along them
-  let ex, ey, W, H, cx, cy;
+  let { ex, ey } = repeatAxes(layer), W, H, cx, cy;
   if (isRegionLayer(layer)) {
-    // a shape stands at the angle it was last turned to (layer.turn): its box
-    // and axes are taken that way, as its frame on screen is
+    // a shape's box is taken at the angle it stands at, as its frame on screen is
     const t = (layer.turn || 0) * Math.PI / 180, c = Math.cos(t), s = Math.sin(t);
-    const fh = layer.flipH ? -1 : 1, fv = layer.flipV ? -1 : 1;
-    ex = { x: c * fh, y: s * fh }; ey = { x: -s * fv, y: c * fv };
     if (t && Array.isArray(layer.pts) && layer.pts.length >= 3) {
       let u0 = Infinity, v0 = Infinity, u1 = -Infinity, v1 = -Infinity;
       for (const q of flatten(layer.pts)) {
@@ -536,12 +542,15 @@ export function repeatOffsets(layer) {
     const m = layerMatrix(layer), o = m.transformPoint(new DOMPoint(0, 0));
     const a = m.transformPoint(new DOMPoint(1, 0)), b = m.transformPoint(new DOMPoint(0, 1));
     const la = Math.hypot(a.x - o.x, a.y - o.y) || 1, lb = Math.hypot(b.x - o.x, b.y - o.y) || 1;
-    ex = { x: (a.x - o.x) / la, y: (a.y - o.y) / la }; ey = { x: (b.x - o.x) / lb, y: (b.y - o.y) / lb };
+    ex = { x: (a.x - o.x) / la, y: (a.y - o.y) / la }; ey = { x: (b.x - o.x) / lb, y: (b.y - o.y) / lb }; // skew and all
     const ink = inkBox(layer.img);
     W = (ink.x1 - ink.x0) * layer.img.width * la; H = (ink.y1 - ink.y0) * layer.img.height * lb;
     cx = layer.x; cy = layer.y;
   }
-  if (r.way === 'scatter') return { cx, cy, W, H, list: scattered(layer, r, cx, cy, W, H, ex, ey) };
+  if (r.mirrorX) ex = { x: -ex.x, y: -ex.y };
+  if (r.mirrorY) ey = { x: -ey.x, y: -ey.y };
+  // r.at: a Mirrored side's scatter, the original's spots carried across (mirror.js)
+  if (r.way === 'scatter') return { cx, cy, W, H, list: r.at || scattered(layer, r, cx, cy, W, H, ex, ey) };
   const t = r.angle * Math.PI / 180, c = Math.cos(t), s = Math.sin(t);
   // one step in the direction (dc, ds) of the item's axes: as far as the box reaches that way, plus the gap
   const step = (dc, ds, gap) => {
@@ -596,7 +605,7 @@ function scattered(layer, r, cx, cy, W, H, ex, ey) {
 const recoloured = new WeakMap(); // a picture → Map(colour → it in that colour)
 function lookOf(layer, colour, shape, cx, cy, size) {
   let v = layer;
-  if (shape) v = { ...v, shape: 'path', pts: placed(shape, cx, cy, size, layer.turn || 0) };
+  if (shape) v = { ...v, shape: 'path', pts: placed(shape, cx, cy, size, layer.turn || 0, { x: layer.repeat.mirrorX, y: layer.repeat.mirrorY }) };
   if (colour && layer.type === 'fill') v = { ...v, color: colour };
   else if (colour) {
     const byColour = recoloured.get(layer.img) || new Map();
@@ -618,6 +627,14 @@ function lookOf(layer, colour, shape, cx, cy, size) {
   }
   return v;
 }
+// copy k's colour and outline (0 the layer's own, n the nth extra), and its
+// roll for what else varies; the layer itself (k 0) is as it is
+export function copyLook(r, k, ns = 1) {
+  const roll = mulberry32((r.seed ^ Math.imul(k + 1, 0x9E3779B1)) | 0);
+  const pick = (n) => (!k ? 0 : r.mix === 'random' ? Math.floor(roll() * n) : k % n);
+  const c = pick(1 + r.colors.length), s = pick(ns);
+  return { c, s, roll };
+}
 // the layer and its copies, each varied as its settings say
 function drawCopies(ctx, layer) {
   const r = layer.repeat;
@@ -625,7 +642,7 @@ function drawCopies(ctx, layer) {
   const { cx, cy, W, H, list } = repeatOffsets(layer);
   let far = 1;
   for (const o of list) far = Math.max(far, Math.hypot(o.x, o.y));
-  const nc = 1 + r.colors.length, ns = isRegionLayer(layer) ? 1 + r.shapes.length : 1;
+  const ns = isRegionLayer(layer) ? 1 + r.shapes.length : 1;
   const looks = new Map();
   const look = (c, s) => {
     const key = c * 8 + s;
@@ -635,13 +652,11 @@ function drawCopies(ctx, layer) {
   const alpha = ctx.globalAlpha, from = layer.carry && layer.carry.from; // carried from one panel: only the copies on it
   list.forEach((o, k) => {
     if (from && !contains(from, cx + o.x, cy + o.y)) return;
-    // the layer itself (k 0) is drawn as it is; each copy by its own roll
-    const roll = mulberry32((r.seed ^ Math.imul(k + 1, 0x9E3779B1)) | 0);
-    const pick = (n) => (!k ? 0 : r.mix === 'random' ? Math.floor(roll() * n) : k % n);
-    const c = pick(nc), s = pick(ns);
+    const { c, s, roll } = copyLook(r, k, ns);
+    if (layer.only && !layer.only.has(c)) return; // the finish map stamps each colour's copies with that colour's finish
     let size = 1, turn = 0;
     if (k && r.rSize) size += (roll() * 2 - 1) * 0.75 * r.rSize / 100;
-    if (k && r.rTurn) turn = (roll() * 2 - 1) * Math.PI * r.rTurn / 100;
+    if (k && r.rTurn) turn = (roll() * 2 - 1) * Math.PI * r.rTurn / 100 * (r.mirrorX !== r.mirrorY ? -1 : 1); // a mirror image turns each the other way
     const t = Math.hypot(o.x, o.y) / far; // 0 at the layer, 1 at the furthest copy
     if (r.shrink) size *= 1 - t;
     const a = r.fadeOut ? 1 - t : 1;
@@ -701,15 +716,8 @@ function drawLayerContent(ctx, layer) {
   }
 }
 
-// A layer's trim as a list of windows, each a list of { x, y }. `clip` is
-// stored that way; a single flat outline (how the first trims were saved) is
-// still read as one window.
-export function clipPolys(layer) {
-  const c = layer.clip;
-  if (!Array.isArray(c) || !c.length) return [];
-  const polys = Array.isArray(c[0]) ? c : [c];
-  return polys.filter(p => Array.isArray(p) && p.length >= 3);
-}
+// A layer's trim as a list of windows, each a list of { x, y }
+export const clipPolys = (layer) => (Array.isArray(layer.clip) ? layer.clip.filter(p => Array.isArray(p) && p.length >= 3) : []);
 
 export function drawLayer(ctx, layer, forSpec = false) {
   // a shadow is for text and pictures, and for the paint only: it is not part of the design's own outline
@@ -960,6 +968,19 @@ export function renderPaintWithDrag(doc, cache) {
   return paintCanvas;
 }
 
+// a Repeat whose copies take other colours' finishes (finish.js): a stamp for
+// each finish, of only the copies that have it
+// ponytail: where copies of two finishes overlap, the later stamp wins, not the copy in front
+function byCopyFinish(l) {
+  if (!l.copyFinishes) return [l];
+  const by = new Map();
+  l.copyFinishes.forEach((f, c) => {
+    const key = f.material + JSON.stringify(f.params);
+    if (!by.has(key)) by.set(key, { ...l, material: f.material, matParams: f.params, only: new Set() });
+    by.get(key).only.add(c);
+  });
+  return [...by.values()];
+}
 export function renderSpec(doc) {
   const ctx = specCanvas.getContext('2d');
   const base = MATERIALS[doc.baseMaterial] || MATERIALS.gloss;
@@ -981,7 +1002,7 @@ export function renderSpec(doc) {
   // touches only the box its layers lie in.
   const sctx = scratch.getContext('2d');
   sctx.clearRect(0, 0, SIZE, SIZE);
-  const stamped = doc.layers.filter(l => l.visible);
+  const stamped = doc.layers.filter(l => l.visible).flatMap(byCopyFinish);
   const finishKey = (l) => (l.material || 'gloss') + '|' + JSON.stringify(l.matParams || null);
   for (let i = 0; i < stamped.length;) {
     const layer = stamped[i], key = finishKey(layer);

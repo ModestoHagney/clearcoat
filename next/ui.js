@@ -412,7 +412,7 @@ export function initUI(app, actions, version) {
     return head + fold('f-place', 'Place', place) + fold('f-look', 'Look', look) + (l.specOnly ? '' : repeatHtml(l)) + (turnInto ? `<div class="acts">${turnInto}</div>` : '');
   }
   let openFold = 'f-place'; // the fold left open stays open while the panel is redrawn
-  const trimCount = (l) => (Array.isArray(l.clip) ? (Array.isArray(l.clip[0]) ? l.clip.length : 1) : 0);
+  const trimCount = (l) => (Array.isArray(l.clip) ? l.clip.length : 0);
   function trimButtons(l) {
     const n = trimCount(l);
     return `<button class="btn${app.trimming ? ' main' : ''}" data-act="trim" title="Choose the panels it shows in">${app.trimming ? 'Done' : n ? `Trimmed to ${n}` : 'Trim to panels'}</button>` +

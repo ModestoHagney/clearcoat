@@ -228,3 +228,9 @@ test('a hollow shape is its outline with the middle cut out, a band of even thic
   for (const p of inner) assert.equal([0, 1, 2].filter(i => near(dist(p, o[i], o[(i + 1) % 3]), 10)).length, 2);
   assert.ok(SHAPES['star-h'] && !SHAPES['ring-h']); // a ring is already hollow
 });
+
+test('contains: a hollow shape\'s middle is a hole, its band is not', () => {
+  const pts = boxOutline('ellipse-h', 0, 0, 100, 100);
+  assert.equal(contains(pts, 50, 50), false);
+  assert.equal(contains(pts, 50, 3), true);
+});
