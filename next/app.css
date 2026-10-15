@@ -172,8 +172,9 @@ input[type="color"].mini { width: 24px; height: 24px; }
 .pair .num { font: 12px var(--mono); min-width: 30px; text-align: right; }
 .field textarea { resize: vertical; font: inherit; line-height: 1.35; }
 dialog input[type="text"], dialog select { width: 100%; min-width: 0; padding: 4px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--bar); }
-/* inside a row the box is the row: the control itself has no frame, and sits on the right */
-.field input[type="text"], .field input.num, .field select { width: 100%; min-width: 0; padding: 4px 6px; border: 0; border-radius: 4px; background: transparent; color: var(--fg); text-align: right; text-align-last: right; }
+/* inside a row the box is the row: the control itself has no frame, and sits on the right.
+   Its background is the panel's own colour, not transparent: an open list takes it, so it follows dark mode */
+.field input[type="text"], .field input.num, .field select { width: 100%; min-width: 0; padding: 4px 6px; border: 0; border-radius: 4px; background: var(--panel); color: var(--fg); text-align: right; text-align-last: right; }
 .field input.num { font: 12px var(--mono); appearance: textfield; -moz-appearance: textfield; }
 .field input.num::-webkit-inner-spin-button, .field input.num::-webkit-outer-spin-button { appearance: none; margin: 0; }
 .field textarea { width: 100%; min-width: 0; padding: 4px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--bar); }
