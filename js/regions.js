@@ -511,6 +511,22 @@ export function linkLength(map, link) {
 // the result is already in the map (a link that spans the centreline is its
 // own twin).
 export function twinLink(map, link) {
+  const out = carriedLink(map, link);
+  return out && !(map.links || []).some(l => sameLink(l, out, 2)) ? out : null;
+}
+// the link already in the map that is this one's twin (made with it, and maybe
+// nudged a little since), or null
+export function twinOf(map, link) {
+  const out = carriedLink(map, link);
+  return (out && (map.links || []).find(l => l !== link && sameLink(l, out, 30))) || null;
+}
+// the same two stretches, either way round, ends within tol px
+function sameLink(l, o, tol) {
+  const near = (p, q) => Math.hypot(p.x - q.x, p.y - q.y) < tol;
+  const same = (s, t) => s.region === t.region && ((near(s.from, t.from) && near(s.to, t.to)) || (near(s.from, t.to) && near(s.to, t.from)));
+  return (same(l.a, o.a) && same(l.b, o.b)) || (same(l.a, o.b) && same(l.b, o.a));
+}
+function carriedLink(map, link) {
   const out = {};
   for (const side of ['a', 'b']) {
     const src = regionById(map, link[side].region);
@@ -531,9 +547,6 @@ export function twinLink(map, link) {
     e.dir = off(1) <= off(-1) ? 1 : -1;
     out[side] = e;
   }
-  const near = (p, q) => Math.hypot(p.x - q.x, p.y - q.y) < 2;
-  const same = (s, t) => s.region === t.region && ((near(s.from, t.from) && near(s.to, t.to)) || (near(s.from, t.to) && near(s.to, t.from)));
-  if ((map.links || []).some(l => (same(l.a, out.a) && same(l.b, out.b)) || (same(l.a, out.b) && same(l.b, out.a)))) return null;
   return out;
 }
 

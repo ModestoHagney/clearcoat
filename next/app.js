@@ -22,7 +22,7 @@ import { initTools, isShape, isBox, moveLayer, setShape, fadeEnds, hasFade, hasA
 import { moved, joined, boxOutline, placed, pieces, SHAPES, hasInner, outerOnly, wrapped, bounds as shapeBounds, mapped as shapeMapped } from '../js/shapes.js';
 import { searchIcons, iconShape, svgToShape } from './icons.js';
 import { traceImage } from '../js/trace.js';
-import { finishSpec, finishList, withFinishes, setRule, clearRule, ruleFor, layerColour, isArea, hasOwnFinish, readFinish, writeFinish, presetOf, FINISHES, SPARKLE } from '../js/finish.js';
+import { finishSpec, finishList, withFinishes, setRule, clearRule, ruleFor, layerColour, layerColours, isArea, hasOwnFinish, readFinish, writeFinish, presetOf, FINISHES, SPARKLE } from '../js/finish.js';
 import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors, withSeams, seamsOf } from '../js/mirror.js';
 import { regionOutline, parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
@@ -618,6 +618,19 @@ function groupOf(id) {
   const l = app.doc.layers.find(x => x.id === id);
   return l && l.groupId ? app.doc.layers.filter(x => x.groupId === l.groupId).map(x => x.id) : [id];
 }
+// after a move: a layer put between two of a group's layers joins that group;
+// one moved away from the rest of its own leaves it
+function settleGroups(ids) {
+  const L = app.doc.layers;
+  for (const id of ids) {
+    const i = L.findIndex(l => l.id === id);
+    if (i === -1) continue;
+    const g = L[i].groupId, a = (L[i - 1] || {}).groupId, b = (L[i + 1] || {}).groupId;
+    if (a && a === b) L[i].groupId = a;
+    else if (g && a !== g && b !== g) L[i].groupId = null;
+  }
+  pruneGroups();
+}
 // a group needs two members to mean anything
 function pruneGroups() {
   const d = app.doc, n = new Map();
@@ -662,7 +675,7 @@ const TEXT_KEYS = new Set(['text', 'font', 'fontSize', 'textColor', 'outlineColo
 // a copy that shares nothing editable with the original (pictures are shared:
 // they are never changed in place)
 function cloneLayer(l) {
-  const c = { ...l, id: newId(), groupId: null }; // a copy does not join the original's group
+  const c = { ...l, id: newId() }; // still tagged with the original's group: paste gives copies a group of their own
   for (const k of ['pts', 'clipAt']) if (Array.isArray(l[k])) c[k] = structuredClone(l[k]);
   if (Array.isArray(l.clip)) c.clip = l.clip.map(poly => (Array.isArray(poly) ? poly.map(q => ({ ...q })) : { ...poly }));
   for (const k of ['matParams', 'fx', 'fadeFrom', 'fadeTo']) if (l[k]) c[k] = { ...l[k] };
@@ -1152,6 +1165,7 @@ const actions = {
     if (res.error) { ui.say(res.error, true); return; }
     l.mirrored = false;
     res.copy.mirrored = false;
+    if (res.copy.repeat) delete res.copy.repeat.at; // its own scatter from now on: only a Mirrored side's follows the original's
     app.doc.layers.splice(app.doc.layers.indexOf(l) + 1, 0, res.copy);
     app.sel = res.copy.id;
     change({ now: true });
@@ -1270,6 +1284,19 @@ const actions = {
       moveLayer(l, 40, 40);
       return l;
     });
+    // copies of two or more of a group's layers make a group of their own; a lone one joins none
+    const n = new Map(), to = new Map();
+    for (const l of made) if (l.groupId) n.set(l.groupId, (n.get(l.groupId) || 0) + 1);
+    for (const l of made) {
+      if (!l.groupId) continue;
+      if (n.get(l.groupId) < 2) { l.groupId = null; continue; }
+      if (!to.has(l.groupId)) {
+        const g = (app.doc.groups || []).find(x => x.id === l.groupId), id = 'g' + newId();
+        app.doc.groups = [...(app.doc.groups || []), { id, name: (g ? g.name : 'Group') + ' copy', collapsed: true }];
+        to.set(l.groupId, id);
+      }
+      l.groupId = to.get(l.groupId);
+    }
     // a second paste lands beside the first, not on top of it
     if (from === app.clipboard) for (const src of from) moveLayer(src, 40, 40);
     app.doc.layers.push(...made);
@@ -1448,7 +1475,7 @@ const actions = {
       L.splice(dir > 0 ? k - run.length + 1 : k, 0, ...run);
       moved = true;
     }
-    if (moved) change({ now: true });
+    if (moved) { settleGroups(on); change({ now: true }); }
   },
   // to the very front (+1) or the very back (-1), every selected layer in the order they were in
   orderEnd(dir) {
@@ -1456,6 +1483,7 @@ const actions = {
     if (!on.size || !canChange()) return;
     const taken = app.doc.layers.filter(l => on.has(l.id)), rest = app.doc.layers.filter(l => !on.has(l.id));
     app.doc.layers = dir > 0 ? [...rest, ...taken] : [...taken, ...rest];
+    settleGroups(on);
     change({ now: true });
   },
   front: () => actions.orderEnd(+1),
@@ -1470,7 +1498,7 @@ const actions = {
     const at = targetId === 'base' ? -1 : rest.findIndex(x => x.id === targetId);
     rest.splice(targetId === 'base' ? 0 : at === -1 ? rest.length : at + (inFront ? 1 : 0), 0, ...taken);
     app.doc.layers = rest;
-    if (whole) { app.sel = id; app.sels = taken.length > 1 ? taken.map(l => l.id) : []; } else { app.sel = id; }
+    if (whole) { app.sel = id; app.sels = taken.length > 1 ? taken.map(l => l.id) : []; } else { app.sel = id; settleGroups([id]); }
     change({ now: true });
   },
   // a group as one row in the Layers list, or as a row for each of its layers
@@ -2099,13 +2127,13 @@ async function boot() {
       app.ftarget = { kind: 'area', id: layer.id };
     },
     // Finish mode: a click on the sheet says what the finish applies to
-    finishPick(hit, p) {
+    finishPick(hit, p, colour = null) { // colour: a Repeat copy's own, when one was clicked
       if (!hit) {
         const inSheet = p.x >= 0 && p.y >= 0 && p.x <= SIZE && p.y <= SIZE;
         app.ftarget = inSheet ? { kind: 'colour', colour: app.doc.baseColor.toLowerCase() } : null;
         app.sel = null;
       } else {
-        const c = layerColour(hit);
+        const c = colour || layerColour(hit);
         app.sel = hit.id;
         app.ftarget = isArea(hit) ? { kind: 'area', id: hit.id }
           : c && !hasOwnFinish(hit) ? { kind: 'colour', colour: c, layerId: hit.id } // by colour is the quick way in
@@ -2118,7 +2146,7 @@ async function boot() {
     finishTargets() {
       const t = app.ftarget;
       if (!t) return () => false;
-      if (t.kind === 'colour') return (l) => !isArea(l) && !hasOwnFinish(l) && layerColour(l) === t.colour;
+      if (t.kind === 'colour') return (l) => !isArea(l) && !hasOwnFinish(l) && layerColours(l).includes(t.colour);
       return (l) => l.id === t.id;
     },
     mirrorImage: (l) => (l.mirrored && app.doc.regionMap ? mirrorImage(app.doc.regionMap, l) : null),

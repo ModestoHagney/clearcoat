@@ -5,7 +5,7 @@
 // corrected.
 
 import { SIZE, createImageLayer, loadImage } from '../js/engine.js';
-import { regionOutline, regionById, centerLine, snapToOutline, labelPoint, linkPoints, linkLength, linkDir, matchPoint, twinLink } from '../js/regions.js';
+import { regionOutline, regionById, centerLine, snapToOutline, labelPoint, linkPoints, linkLength, linkDir, matchPoint, twinLink, twinOf } from '../js/regions.js';
 import { pieceAt } from '../js/mirror.js';
 
 export const GUIDE = 'Panel guide'; // the layer that puts the panel colours on the car
@@ -155,14 +155,20 @@ export function initMap(app, env) {
     return null;
   }
   const nameOf = (id) => (regionById(map(), id) || { name: id }).name;
+  // a link goes with its twin on the other side of the car, as they were made: → the twin removed, or null
+  function dropLink(m, link) {
+    const twin = twinOf(m, link);
+    for (const l of [link, twin]) if (l) m.links.splice(m.links.indexOf(l), 1);
+    return twin;
+  }
   function linkClick(p, remove) {
     const m = map();
     if (remove) {
       const hit = matchPoint(m, p.x, p.y, 12 / app.view.zoom);
       if (!hit) { env.say('No link there to remove'); return; }
-      m.links.splice(hit.index, 1);
+      const twin = dropLink(m, m.links[hit.index]);
       seam = null;
-      env.mapChanged('Link removed');
+      env.mapChanged(twin ? 'Link removed, and its twin on the other side' : 'Link removed');
       return;
     }
     const n = ends.length, hit = linkSnap(p);
@@ -245,7 +251,7 @@ export function initMap(app, env) {
   function key(e) {
     if (app.tool === 'mlink' && e.key === 'Backspace') { // takes back the last click, or the last link made
       if (ends.length) { ends.pop(); requestDraw(); env.refreshChrome(); }
-      else if (map() && (map().links || []).length) { map().links.pop(); seam = null; env.mapChanged('Last link removed'); }
+      else if (map() && (map().links || []).length) { const m = map(), twin = dropLink(m, m.links[m.links.length - 1]); seam = null; env.mapChanged(twin ? 'Last link removed, and its twin' : 'Last link removed'); }
       return true;
     }
     if (e.key !== 'Escape') return false;

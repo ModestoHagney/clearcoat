@@ -159,3 +159,14 @@ test('a picture has a colour only once it is given one, and then follows that co
   assert.equal(finishOf(doc, { type: 'image', color: '#FF0000' }), 'matte');
 });
 
+
+test('a Repeat\'s extra colours are listed, and their copies take those colours\' finishes', () => {
+  const d = doc();
+  d.layers[2].repeat = { colors: ['#00A651', '#111214'] };
+  assert.deepEqual(finishList(d).map(f => [f.colour, f.used]), [['#ffffff', 1], ['#111214', 3], ['#d7263d', 1], ['#00a651', 1]]);
+  assert.equal(withFinishes(d).layers[2].copyFinishes, undefined, 'all gloss: nothing to split');
+  setRule(d, '#00a651', 'chrome');
+  assert.deepEqual(withFinishes(d).layers[2].copyFinishes.map(f => f.material), ['gloss', 'chrome', 'gloss']);
+  d.layers[2].material = 'matte'; d.layers[2].finishOwn = true; // finished by itself: every copy with it
+  assert.equal(withFinishes(d).layers[2].copyFinishes, undefined);
+});

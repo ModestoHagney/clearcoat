@@ -549,7 +549,8 @@ export function repeatOffsets(layer) {
   }
   if (r.mirrorX) ex = { x: -ex.x, y: -ex.y };
   if (r.mirrorY) ey = { x: -ey.x, y: -ey.y };
-  if (r.way === 'scatter') return { cx, cy, W, H, list: scattered(layer, r, cx, cy, W, H, ex, ey) };
+  // r.at: a Mirrored side's scatter, the original's spots carried across (mirror.js)
+  if (r.way === 'scatter') return { cx, cy, W, H, list: r.at || scattered(layer, r, cx, cy, W, H, ex, ey) };
   const t = r.angle * Math.PI / 180, c = Math.cos(t), s = Math.sin(t);
   // one step in the direction (dc, ds) of the item's axes: as far as the box reaches that way, plus the gap
   const step = (dc, ds, gap) => {
@@ -626,6 +627,14 @@ function lookOf(layer, colour, shape, cx, cy, size) {
   }
   return v;
 }
+// copy k's colour and outline (0 the layer's own, n the nth extra), and its
+// roll for what else varies; the layer itself (k 0) is as it is
+export function copyLook(r, k, ns = 1) {
+  const roll = mulberry32((r.seed ^ Math.imul(k + 1, 0x9E3779B1)) | 0);
+  const pick = (n) => (!k ? 0 : r.mix === 'random' ? Math.floor(roll() * n) : k % n);
+  const c = pick(1 + r.colors.length), s = pick(ns);
+  return { c, s, roll };
+}
 // the layer and its copies, each varied as its settings say
 function drawCopies(ctx, layer) {
   const r = layer.repeat;
@@ -633,7 +642,7 @@ function drawCopies(ctx, layer) {
   const { cx, cy, W, H, list } = repeatOffsets(layer);
   let far = 1;
   for (const o of list) far = Math.max(far, Math.hypot(o.x, o.y));
-  const nc = 1 + r.colors.length, ns = isRegionLayer(layer) ? 1 + r.shapes.length : 1;
+  const ns = isRegionLayer(layer) ? 1 + r.shapes.length : 1;
   const looks = new Map();
   const look = (c, s) => {
     const key = c * 8 + s;
@@ -643,10 +652,8 @@ function drawCopies(ctx, layer) {
   const alpha = ctx.globalAlpha, from = layer.carry && layer.carry.from; // carried from one panel: only the copies on it
   list.forEach((o, k) => {
     if (from && !contains(from, cx + o.x, cy + o.y)) return;
-    // the layer itself (k 0) is drawn as it is; each copy by its own roll
-    const roll = mulberry32((r.seed ^ Math.imul(k + 1, 0x9E3779B1)) | 0);
-    const pick = (n) => (!k ? 0 : r.mix === 'random' ? Math.floor(roll() * n) : k % n);
-    const c = pick(nc), s = pick(ns);
+    const { c, s, roll } = copyLook(r, k, ns);
+    if (layer.only && !layer.only.has(c)) return; // the finish map stamps each colour's copies with that colour's finish
     let size = 1, turn = 0;
     if (k && r.rSize) size += (roll() * 2 - 1) * 0.75 * r.rSize / 100;
     if (k && r.rTurn) turn = (roll() * 2 - 1) * Math.PI * r.rTurn / 100 * (r.mirrorX !== r.mirrorY ? -1 : 1); // a mirror image turns each the other way
@@ -968,6 +975,19 @@ export function renderPaintWithDrag(doc, cache) {
   return paintCanvas;
 }
 
+// a Repeat whose copies take other colours' finishes (finish.js): a stamp for
+// each finish, of only the copies that have it
+// ponytail: where copies of two finishes overlap, the later stamp wins, not the copy in front
+function byCopyFinish(l) {
+  if (!l.copyFinishes) return [l];
+  const by = new Map();
+  l.copyFinishes.forEach((f, c) => {
+    const key = f.material + JSON.stringify(f.params);
+    if (!by.has(key)) by.set(key, { ...l, material: f.material, matParams: f.params, only: new Set() });
+    by.get(key).only.add(c);
+  });
+  return [...by.values()];
+}
 export function renderSpec(doc) {
   const ctx = specCanvas.getContext('2d');
   const base = MATERIALS[doc.baseMaterial] || MATERIALS.gloss;
@@ -989,7 +1009,7 @@ export function renderSpec(doc) {
   // touches only the box its layers lie in.
   const sctx = scratch.getContext('2d');
   sctx.clearRect(0, 0, SIZE, SIZE);
-  const stamped = doc.layers.filter(l => l.visible);
+  const stamped = doc.layers.filter(l => l.visible).flatMap(byCopyFinish);
   const finishKey = (l) => (l.material || 'gloss') + '|' + JSON.stringify(l.matParams || null);
   for (let i = 0; i < stamped.length;) {
     const layer = stamped[i], key = finishKey(layer);

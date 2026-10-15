@@ -20,7 +20,7 @@
 import { SIZE, createFillLayer, isRegionLayer, toLocal, layerCorners, regenerateText } from '../js/engine.js';
 import { bounds, flatten, contains, moved, mapped, segmentAt, midOf, bendTo, insertAt, removeAt, snapAngle, nextIndex, SHAPES, aspect, boxOutline, placed, joined } from '../js/shapes.js';
 import { regionOutline, snapToOutline, trimShape, growOutline, pointInPolygon } from '../js/regions.js';
-import { clipPolys, fadeStyleOf } from '../js/engine.js';
+import { clipPolys, fadeStyleOf, repeatOffsets, copyLook } from '../js/engine.js';
 import { pieceAt } from '../js/mirror.js';
 
 const GRAB = 9;        // px: how close counts as "on" a point or dot
@@ -291,28 +291,28 @@ export function initTools(app, env) {
   const far = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
   const onScreen = (p) => docToScreen(p.x, p.y);
 
-  // the top layer under a doc point
+  // the top layer under a doc point, on the layer itself or one of its Repeat's copies
   function layerAt(p) {
     for (let i = app.doc.layers.length - 1; i >= 0; i--) {
       const l = app.doc.layers[i];
       if (!l.visible || l.locked) continue;
       if (l.specOnly && app.mode !== 'finish') continue; // an area belongs to Finish mode
-      if (isShape(l)) { if (contains(l.pts, p.x, p.y)) return l; continue; }
-      if (isRegionLayer(l)) {
-        // ponytail: a sheet-sized layer would swallow every click, so it is
-        // only picked from the Layers panel; give it a real hit shape later
-        if (l.rw * l.rh > BIG * SIZE * SIZE && l.id !== app.sel) continue;
-        if (p.x >= l.rx && p.x <= l.rx + l.rw && p.y >= l.ry && p.y <= l.ry + l.rh) return l;
-        continue;
-      }
-      if (!l.img) continue;
-      const q = toLocal(l, p.x, p.y), hw = l.img.width / 2, hh = l.img.height / 2;
-      if (Math.abs(q.x) <= hw && Math.abs(q.y) <= hh) {
-        if (4 * hw * hh / (l.img.res || 1) ** 2 * (l.scale || 1) * (l.scaleY ?? l.scale ?? 1) > BIG * SIZE * SIZE && l.id !== app.sel) continue;
-        return l;
-      }
+      // ponytail: a sheet-sized box or picture would swallow every click, so it
+      // is only picked from the Layers panel; give it a real hit shape later
+      const big = isShape(l) ? false : isRegionLayer(l) ? l.rw * l.rh > BIG * SIZE * SIZE
+        : !!l.img && l.img.width * l.img.height / (l.img.res || 1) ** 2 * (l.scale || 1) * (l.scaleY ?? l.scale ?? 1) > BIG * SIZE * SIZE;
+      if (big && l.id !== app.sel) continue;
+      if (onLayer(l, p) || copyAt(l, p) > 0) return l;
     }
     return null;
+  }
+  // which of a Repeat's copies a doc point falls on (0 the layer itself), or -1
+  // ponytail: each copy is taken as the layer moved there, without its random size and turn or other outline
+  function copyAt(l, p) {
+    if (!l.repeat) return -1;
+    const wins = clipPolys(l);
+    if (wins.length && !wins.some(w => pointInPolygon(w, p.x, p.y))) return -1; // trimmed away there
+    try { return repeatOffsets(l).list.findIndex(o => onLayer(l, { x: p.x - o.x, y: p.y - o.y })); } catch { return -1; }
   }
 
   // does a doc point fall on this layer's own picture?
@@ -328,7 +328,7 @@ export function initTools(app, env) {
       const l = app.doc.layers[i];
       if (!l.mirrored || !l.visible || l.locked) continue;
       const img = env.mirrorImage(l);
-      if (img && onLayer(img, p)) return l;
+      if (img && (onLayer(img, p) || copyAt(img, p) > 0)) return l;
     }
     return null;
   }
@@ -426,7 +426,8 @@ export function initTools(app, env) {
     }
     const hit = layerAt(p);
     if (app.mode === 'finish') {
-      env.finishPick(hit, p);               // what the finish will apply to
+      const k = hit ? copyAt(hit, p) : -1, c = k > 0 && copyLook(hit.repeat, k).c; // a copy in one of the Repeat's other colours
+      env.finishPick(hit, p, c ? hit.repeat.colors[c - 1] : null); // what the finish will apply to
       if (!hit || !hit.specOnly) return;    // and only an area can be dragged here
     }
     const adding = e.shiftKey || e.ctrlKey || e.metaKey;

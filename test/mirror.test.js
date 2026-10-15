@@ -191,3 +191,17 @@ test('a Repeat is carried across as its mirror image: the copies run the way the
     }
   }
 });
+
+test('a scattered Repeat lands on the other side in the original\'s spots, mirrored', async () => {
+  const { cleanRepeat, repeatOffsets } = await import('../js/engine.js');
+  const l = shape([{ x: 50, y: 20 }, { x: 70, y: 20 }, { x: 50, y: 40 }]);
+  l.clip = [box(0, 0, 400, 200)]; l.clipAt = [{ x: 150, y: 50 }];
+  l.repeat = cleanRepeat({ way: 'scatter', count: 12, seed: 3 });
+  const { copy } = mirrorLayer(map(), l), mine = repeatOffsets(l), its = repeatOffsets(copy);
+  assert.equal(its.list.length, mine.list.length);
+  // each copy is where the original's lands: the twin is a top/bottom reflection about y = 400
+  its.list.forEach((o, k) => {
+    assert.ok(Math.abs(its.cx + o.x - (mine.cx + mine.list[k].x)) < 1e-6);
+    assert.ok(Math.abs(its.cy + o.y - (800 - mine.cy - mine.list[k].y)) < 1e-6);
+  });
+});
