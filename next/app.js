@@ -1117,8 +1117,8 @@ const actions = {
     const s = seamsOf(app.doc.regionMap, l);
     if (s.error) { ui.say(s.error, true); ui.refresh(); return; }
     l.continues = s.home.id;
-    const names = [...new Set(s.links.map(({ link, side }) => (regionById(app.doc.regionMap, link[side === 'a' ? 'b' : 'a'].region) || {}).name))];
-    ui.say(`Continues onto ${names.join(', ')} where it hangs over the edge`);
+    const names = [...new Set(s.links.map(({ link, side }) => (regionById(app.doc.regionMap, link[side === 'a' ? 'b' : 'a'].region) || {}).name))].filter(n => !s.homes.some(h => h.name === n));
+    ui.say(names.length ? `Continues onto ${names.join(', ')} where it hangs over the edge` : 'Continues across the linked edges between its panels');
     change({ now: true });
   },
   // ---- fades ----

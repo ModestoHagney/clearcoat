@@ -67,26 +67,32 @@ export function mirrorImage(map, layer) {
 // turned. Like Mirrored, it is worked out when painting, so both parts follow
 // every edit.
 
-// → { home, links: [{ link, side }] } (the layer's panel and its linked
-// edges) or { error }. The panel is the one it was on when switched on
-// (`continues` holds its id), so it can be slid mostly over the edge and
-// still belong there; before that, the one under its middle.
+// → { home, homes, links: [{ link, side, from }] } (the layer's panel, every
+// panel it is on, and their linked edges) or { error }. Its panel is the one
+// it was on when switched on (`continues` holds its id), so it can be slid
+// mostly over the edge and still belong there; before that, the one under its
+// middle. A layer with copies (Repeat) that is trimmed to several panels is on
+// each of them, and carries on from the edges of every one.
 export function seamsOf(map, layer) {
   if (!map) return { error: 'Load a template first.' };
   const cx = isRegionLayer(layer) ? layer.rx + layer.rw / 2 : layer.x;
   const cy = isRegionLayer(layer) ? layer.ry + layer.rh / 2 : layer.y;
   const home = (typeof layer.continues === 'string' && regionById(map, layer.continues)) || homeOf(map, layer, cx, cy);
   if (!home) return { error: `${layer.name} is not on a panel.` };
+  const ats = layer.repeat && clipPolys(layer).length > 1 ? [].concat(layer.clipAt || []) : [];
+  const homes = [...new Set([home, ...ats.map(q => pieceAt(map, q.x, q.y)).filter(Boolean)])];
   const links = [];
-  for (const link of map.links || []) for (const side of ['a', 'b']) if (link[side].region === home.id) links.push({ link, side });
-  if (!links.length) return { error: `${home.name} has no linked edges yet. Link them in Map.` };
-  return { home, links };
+  for (const from of homes) for (const link of map.links || []) for (const side of ['a', 'b']) if (link[side].region === from.id) links.push({ link, side, from });
+  if (!links.length) return { error: `${homes.map(r => r.name).join(', ')} ${homes.length > 1 ? 'have' : 'has'} no linked edges yet. Link them in Map.` };
+  return { home, homes, links };
 }
 
 // The doc as it is painted: a Continues layer is trimmed to its own panel and
 // followed by one carried copy for each linked edge of that panel, each
 // trimmed to the panel across that edge. (A copy that nothing reaches is
-// simply trimmed away.)
+// simply trimmed away.) On several panels, each carried copy takes only the
+// copies standing on the panel whose edge it crosses (carry.from), so one
+// panel's copies are not carried over another panel's edge.
 // ponytail: the copy's shadow offset is carried too, so it points another
 // way on a turned panel; work it out separately if that shows.
 export function withSeams(doc) {
@@ -98,9 +104,10 @@ export function withSeams(doc) {
     if (!s || s.error) { layers.push(l); continue; }
     const own = clipPolys(l).length ? l : { ...l, clip: trimTo(s.home), clipAt: null };
     layers.push(own);
-    s.links.forEach(({ link, side }, i) => {
+    s.links.forEach(({ link, side, from }, i) => {
       const m = seamMatrix(map, link, side), to = regionById(map, link[side === 'a' ? 'b' : 'a'].region);
-      if (m) layers.push({ ...own, id: `${l.id}~s${i}`, continues: false, carry: { ...m, clip: trimTo(to) } });
+      const only = s.homes.length > 1 ? trimTo(from)[0] : null;
+      if (m) layers.push({ ...own, id: `${l.id}~s${i}`, continues: false, carry: { ...m, clip: trimTo(to), from: only } });
     });
   }
   return { ...doc, layers };
