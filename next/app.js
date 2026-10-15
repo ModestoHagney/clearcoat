@@ -916,7 +916,7 @@ const actions = {
     const tab = window.open('https://www.tradingpaints.com/upload', '_blank'), blocked = !tab;
     if (tab) tab.opener = null;
     const car = app.doc.target === 'car' && validCustid(app.custid);
-    const name = safeName() + '.png'; // Trading Paints takes any file name; the upload page asks for the car and number
+    const name = safeName() + '.png'; // Trading Paints takes any file name (the .mip too); the upload page asks for the car and number
     const blob = await new Promise(done => exportPaintCanvas(app.doc, paint()).toBlob(done, 'image/png'));
     if (!blob) { ui.say('The paint could not be exported', true); return; }
     download(blob, name);
@@ -926,11 +926,11 @@ const actions = {
       mip = dir && await persist.readFileFromFolder(dir, `car_spec_${app.custid}.mip`);
       const tga = mip && await persist.readFileFromFolder(dir, `car_spec_${app.custid}.tga`);
       old = !!tga && mip.lastModified < tga.lastModified; // made before the finishes last changed
-      if (mip && !old) download(mip, mip.name);
+      if (mip && !old) download(mip, safeName() + '_spec.mip');
     } catch { /* no folder linked: the paint alone still uploads */ }
     if (blocked) ui.say('Allow pop-ups for this site, then send again', true);
     else if (old) ui.say(`${name} downloaded. Finish file is out of date: open the car in iRacing once, then send again.`, true);
-    else ui.say(mip ? `Downloaded ${name} (paint) and ${mip.name} (finish)` : `Downloaded ${name}. Upload it as the paint.`);
+    else ui.say(mip ? `Downloaded ${name} (paint) and ${safeName()}_spec.mip (finish)` : `Downloaded ${name}. Upload it as the paint.`);
   },
 
   setMode(mode) {
@@ -1301,6 +1301,10 @@ const actions = {
     const id = 'g' + newId();
     app.doc.groups = [...(app.doc.groups || []), { id, name: 'Group', collapsed: true }]; // one row in the Layers list until it is opened
     for (const l of ls) l.groupId = id;
+    // gathered together in the stack, where the front one is, so the Layers list shows them under the group
+    const L = app.doc.layers, rest = L.filter(l => l.groupId !== id);
+    rest.splice(L.indexOf(ls[ls.length - 1]) - ls.length + 1, 0, ...ls);
+    app.doc.layers = rest;
     pruneGroups();
     change({ now: true });
   },
@@ -1459,7 +1463,8 @@ const actions = {
     const g = (app.doc.groups || []).find(x => x.id === gid);
     if (!g) return;
     g.collapsed = !g.collapsed;
-    change({ now: true });
+    // ponytail: only the list redraws; not a paint change, so no redraw, save, send or undo step. It is saved with the next edit
+    ui.refresh();
   },
   async renameLayer(id) {
     const l = app.doc.layers.find(x => x.id === id);
