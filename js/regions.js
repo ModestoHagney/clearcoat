@@ -505,6 +505,38 @@ export function linkLength(map, link) {
   return Math.max(a ? a.len : 0, b ? b.len : 0);
 }
 
+// The same link on the other side of the car: each side carried to its
+// panel's twin (or, for a panel with no twin, across its own centreline) and
+// landed on that panel's edge. Null when a side's panel has neither, or when
+// the result is already in the map (a link that spans the centreline is its
+// own twin).
+export function twinLink(map, link) {
+  const out = {};
+  for (const side of ['a', 'b']) {
+    const src = regionById(map, link[side].region);
+    const dst = src && (src.mirror ? regionById(map, src.mirror) : centerLine(src) ? src : null);
+    if (!dst) return null;
+    const kind = MIRROR_KINDS.includes(src.mirrorKind) ? src.mirrorKind : src.mirror && guessMirrorKind(src, dst);
+    const pts = regionOutline(dst);
+    const carry = (q) => {
+      const p = src.mirror ? mirrorPointKind(src, dst, q.x, q.y, kind) : mirrorAcross(src, q.x, q.y);
+      const s = snapToOutline(pts, p.x, p.y);
+      return { x: Math.round(s.x * 10) / 10, y: Math.round(s.y * 10) / 10 };
+    };
+    const e = { region: dst.id, from: carry(link[side].from), to: carry(link[side].to) };
+    if (Math.hypot(e.from.x - e.to.x, e.from.y - e.to.y) < 2) return null;
+    // run round the outline the way that passes where the original's middle lands
+    const mid = carry(linkPoints(map, link, side, 0.5, 0.5)[0]);
+    const off = (dir) => { const q = linkPoints(map, { [side]: { ...e, dir } }, side, 0.5, 0.5)[0]; return Math.hypot(q.x - mid.x, q.y - mid.y); };
+    e.dir = off(1) <= off(-1) ? 1 : -1;
+    out[side] = e;
+  }
+  const near = (p, q) => Math.hypot(p.x - q.x, p.y - q.y) < 2;
+  const same = (s, t) => s.region === t.region && ((near(s.from, t.from) && near(s.to, t.to)) || (near(s.from, t.to) && near(s.to, t.from)));
+  if ((map.links || []).some(l => (same(l.a, out.a) && same(l.b, out.b)) || (same(l.a, out.b) && same(l.b, out.a)))) return null;
+  return out;
+}
+
 // Where does the spot at (x, y) meet the other piece? If (x, y) is within
 // maxDist of a linked stretch, returns { index, side, t, at, partner } — `at`
 // is the spot on that stretch, `partner` the spot it meets on the other side.

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { REGIONS_FORMAT, createRegionMap, parseRegionMap, regionById, regionAt, mirrorPoint, uniqueRegionId, detectPieces, piecesRegionMap, simplifyOutline, renameRegion, labelPoint, pointInPolygon, snapToOutline, matchPoint, linkPoints, linkLength, linkDir, seamMatrix, seamPieces, centerLine, mirrorAcross, setMirror, trimShape, growOutline, guessMirrorKind } from '../js/regions.js';
+import { REGIONS_FORMAT, createRegionMap, parseRegionMap, regionById, regionAt, mirrorPoint, uniqueRegionId, detectPieces, piecesRegionMap, simplifyOutline, renameRegion, labelPoint, pointInPolygon, snapToOutline, matchPoint, linkPoints, linkLength, linkDir, twinLink, seamMatrix, seamPieces, centerLine, mirrorAcross, setMirror, trimShape, growOutline, guessMirrorKind } from '../js/regions.js';
 
 // Convenience builder: a valid raw map with two mirrored door rectangles.
 function rawMap(overrides = {}) {
@@ -469,6 +469,34 @@ test('a link side runs the shorter way by default, and keeps a stored dir past h
   assert.equal(linkLength(map, { a: side, b: side }), 150);
   side.dir = -1;
   assert.equal(parseRegionMap(map).links[0].a.dir, -1); // dir survives a save and load
+});
+
+test('twinLink links the matching edges on the other side of the car, and not twice', () => {
+  const map = parseRegionMap(rawMap({
+    regions: [
+      { id: 'ld', x: 0, y: 0, w: 100, h: 100, mirror: 'rd', mirrorKind: 'flip' },
+      { id: 'rd', x: 300, y: 0, w: 100, h: 100, mirror: 'ld', mirrorKind: 'flip' },
+      { id: 'lq', x: 0, y: 200, w: 100, h: 100, mirror: 'rq', mirrorKind: 'flip' },
+      { id: 'rq', x: 300, y: 200, w: 100, h: 100, mirror: 'lq', mirrorKind: 'flip' },
+      { id: 'roof', x: 600, y: 0, w: 200, h: 100, center: { a: { x: 600, y: 0 }, b: { x: 800, y: 0 } } },
+      { id: 'lone', x: 600, y: 300, w: 100, h: 100 },
+    ],
+    links: [{ a: { region: 'ld', from: { x: 0, y: 100 }, to: { x: 100, y: 100 } }, b: { region: 'lq', from: { x: 0, y: 200 }, to: { x: 100, y: 200 } } }] }));
+  const t = twinLink(map, map.links[0]);
+  assert.deepEqual([t.a.region, t.a.from, t.a.to], ['rd', { x: 400, y: 100 }, { x: 300, y: 100 }]);
+  assert.deepEqual([t.b.region, t.b.from, t.b.to], ['rq', { x: 400, y: 200 }, { x: 300, y: 200 }]);
+  // it runs along the bottom edge, not round the other three sides
+  assert.equal(linkLength(map, t), 100);
+  map.links.push(t);
+  assert.equal(twinLink(map, map.links[0]), null); // already there
+  assert.equal(twinLink(map, t), null);            // and linking the other side finds the first
+  // a panel with only a centreline is carried across it: left half of the roof's front edge to the right half
+  const roof = { a: { region: 'ld', from: { x: 100, y: 0 }, to: { x: 100, y: 50 } }, b: { region: 'roof', from: { x: 600, y: 100 }, to: { x: 650, y: 100 } } };
+  const r = twinLink(map, roof);
+  assert.deepEqual([r.b.region, r.b.from, r.b.to], ['roof', { x: 800, y: 100 }, { x: 750, y: 100 }]);
+  assert.deepEqual([r.a.region, r.a.from, r.a.to], ['rd', { x: 300, y: 0 }, { x: 300, y: 50 }]);
+  // a panel with neither has no other side
+  assert.equal(twinLink(map, { a: roof.a, b: { region: 'lone', from: { x: 600, y: 300 }, to: { x: 700, y: 300 } } }), null);
 });
 
 // ---------------------------------------------------------------- centerline
