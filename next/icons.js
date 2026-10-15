@@ -11,8 +11,9 @@ import { parsePath, evenOddPieces, asOutline } from '../js/svgpath.js';
 import { bounds, joined, mapped } from '../js/shapes.js';
 
 // The sets searched: filled icons whose licences allow this use. Game Icons
-// asks for a credit, which is why every icon brought in carries one.
-export const SETS = ['game-icons', 'material-symbols', 'mdi', 'bi'];
+// asks for a credit, which is why every icon brought in carries one. Simple
+// Icons is brand logos, one colour each; the brands own their trademarks.
+export const SETS = ['game-icons', 'material-symbols', 'mdi', 'bi', 'simple-icons'];
 const API = 'https://api.iconify.design';
 const SIZE_ON_SHEET = 300; // px along the longer side when first placed
 

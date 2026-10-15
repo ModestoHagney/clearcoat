@@ -859,7 +859,8 @@ export function initUI(app, actions, version) {
       $('dlg-body').innerHTML = `<div class="tabs">${tabs.map(([k, name]) => `<button type="button" data-libtab="${k}" aria-pressed="${k === tab}">${name}</button>`).join('')}${side}</div>` +
         (tab === 'search'
           ? `<input id="lib-q" type="text" placeholder="Search icons" value="${esc(query)}" spellcheck="false" autocomplete="off" aria-label="Search icons"><div id="lib-found">${results()}</div>` +
-            '<div class="note small">They come in as shapes. From Game Icons (credit kept with the livery), Material Symbols, Material Design Icons and Bootstrap Icons.</div>'
+            '<div class="note small">They come in as shapes. From Game Icons (credit kept with the livery), Material Symbols, Material Design Icons, Bootstrap Icons and Simple Icons (brand logos).</div>' +
+            '<div class="note small">More logos, old versions too: <a href="https://www.brandsoftheworld.com" target="_blank" rel="noopener">Brands of the World</a>, <a href="https://commons.wikimedia.org/wiki/Category:Logos" target="_blank" rel="noopener">Wikimedia Commons</a> and <a href="https://logos.fandom.com" target="_blank" rel="noopener">Logopedia</a>. Bring a download in with Shape from an SVG file or Picture from a file.</div>'
           : grid ? `<div class="tiles">${grid}</div>` : `<div class="note">${empty}</div>`);
       if (tab === 'search') $('lib-q').focus();
     };
