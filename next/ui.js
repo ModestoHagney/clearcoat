@@ -161,7 +161,7 @@ export function initUI(app, actions, version) {
   const menuDefs = () => ({
     File: [
       ['New', '', 'newLivery'], ['Open…', '', 'open'], ['Save', 'Ctrl+S', 'save'], 0,
-      ['Load template…', '', 'pickTemplate'], ['Get a template…', '', 'getTemplate'], ['Car setup…', '', 'carSetup'], ['Link iRacing paints folder…', '', 'linkFolder'], ['Save to iRacing', '', 'saveIracing'], 0,
+      ['Load template…', '', 'pickTemplate'], ['Get a template…', '', 'getTemplate'], ['Car setup…', '', 'carSetup'], ['Palettes…', '', 'openPalettes'], ['Link iRacing paints folder…', '', 'linkFolder'], ['Save to iRacing', '', 'saveIracing'], 0,
       ['Export TGA', '', 'exportTga'], ['Export PNG', '', 'exportPng'], ['Send to Trading Paints', '', 'sendTp'],
     ],
     Edit: [
@@ -348,7 +348,7 @@ export function initUI(app, actions, version) {
     const linked = app.sel === 'base' ? d.baseRef : sel ? sel.colorRef : null;
     const saved = d.palette.map((c) => `<span class="chipwrap"><button class="chip${c.id === linked ? ' on' : ''}" data-pal="${esc(c.id)}"><i style="background:${esc(c.color)}"></i>${esc(c.name)}</button><button class="chipedit" data-edit="${esc(c.id)}" title="Rename or change" aria-label="Edit ${esc(c.name)}">${svg('edit')}</button></span>`).join('');
     return `<div class="phead"><input data-colour="pick" id="c-pick" type="color" value="${esc(actions.currentColour())}" title="Choose a colour" aria-label="Colour">${name}</div>` +
-      `<div class="chips">${used.map((c) => `<button class="dot" data-col="${c}" style="background:${c}" title="${c.toUpperCase()}" aria-label="${c}"></button>`).join('')}${saved}<button class="chip add" data-act="saveColour" title="Save the current colour with this livery">+ Save</button><button class="chip add" data-act="openPalettes" title="Colours kept for every livery: save this livery's, use one, or import and export them as files">Palettes</button></div>`;
+      `<div class="chips">${used.map((c) => `<button class="dot" data-col="${c}" style="background:${c}" title="${c.toUpperCase()}" aria-label="${c}"></button>`).join('')}${saved}<button class="chip add" data-act="saveColour" title="Save the current colour with this livery">+ Save</button></div>`;
   }
   // Place, Look and Repeat fold away, and only one is open at a time (the
   // browser closes the others: they share a name). An empty one is left out.
