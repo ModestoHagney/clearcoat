@@ -1864,7 +1864,7 @@ const actions = {
   // Palettes: sets of colours kept in this browser, for any livery to use,
   // and as files to share or keep somewhere safe
   async openPalettes() {
-    const pick = await ui.palettes(library.palettes, app.doc.palette.length);
+    const pick = await ui.palettes(library.palettes);
     const p = pick && library.palettes[pick.i];
     if (!pick) return;
     if (pick.act === 'save') return actions.savePalette();
@@ -1888,7 +1888,10 @@ const actions = {
   async savePalette() {
     const name = await ui.askText({ title: "Save this livery's colours as a palette", label: 'Name', value: app.doc.name || 'My palette', ok: 'Save' });
     if (!name) return;
-    actions.keepPalettes([{ name: name.slice(0, 40), colors: app.doc.palette.map(c => ({ name: c.name, color: c.color })) }]);
+    // its saved colours by name, then every other colour it uses
+    const colors = app.doc.palette.map(c => ({ name: c.name, color: c.color }));
+    for (const color of ui.usedColours(Infinity)) if (!colors.some(c => c.color === color)) colors.push({ name: 'Colour ' + (colors.length + 1), color });
+    actions.keepPalettes([{ name: name.slice(0, 40), colors }]);
     ui.say(`Palette "${name}" saved. Any livery can use it from Palettes.`);
   },
   // its colours join this livery's saved colours; one already there is not added twice
