@@ -336,6 +336,8 @@ dialog.lib .dbody { height: 60vh; } /* the same size whichever tab is open */
 
 /* Finish mode */
 .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; margin: 4px 6px; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+#lib-only { grid-auto-columns: auto; } /* each filter as wide as its name and count */
+#lib-only button { white-space: nowrap; padding: 6px 8px; }
 .ftile { display: block; width: calc(100% - 12px); height: auto; margin: 6px 6px 2px; }
 .ftarget { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; padding: 6px 6px 2px; color: var(--muted); font-size: 12px; }
 .ftarget b { margin-left: auto; color: var(--fg); font-size: 14px; font-weight: 600; }
