@@ -5,7 +5,7 @@
 // corrected.
 
 import { SIZE, createImageLayer, loadImage } from '../js/engine.js';
-import { regionOutline, regionById, centerLine, snapToOutline, labelPoint, linkPoints, linkLength, linkDir, matchPoint, twinLink, twinOf } from '../js/regions.js';
+import { regionOutline, regionById, centerLine, snapToOutline, slideAlong, labelPoint, linkPoints, linkLength, linkDir, matchPoint, twinLink, twinOf } from '../js/regions.js';
 import { pieceAt } from '../js/mirror.js';
 
 export const GUIDE = 'Panel guide'; // the layer that puts the panel colours on the car
@@ -108,26 +108,27 @@ export function initMap(app, env) {
   let ends = [];        // the ends clicked so far for the link being made: { region, x, y }
   let seam = null;      // near a linked edge: that spot and the one it meets, { at, partner }
   let slide = null;     // a link's end being slid along its edge: { region, ends, start, moved }
+  let picked = null;    // the link end last grabbed, for the arrow keys to nudge: { region, ends }
 
   const map = () => app.doc.regionMap;
   const sel = () => (map() && app.piece ? regionById(map(), app.piece) : null);
 
-  // the nearest spot on a panel's edge, corners preferred
-  function edgeSnap(p, only, reach = 14 / app.view.zoom) {
+  // the nearest spot on a panel's edge, corners preferred (free: no corner pull)
+  function edgeSnap(p, only, reach = 14 / app.view.zoom, free = false) {
     let best = null;
     for (const r of pieces(map())) {
       if (only && r.id !== only) continue;
-      const q = snapToOutline(regionOutline(r), p.x, p.y, 10 / app.view.zoom);
+      const q = snapToOutline(regionOutline(r), p.x, p.y, free ? 0 : 4 / app.view.zoom);
       if (q.d <= reach && (!best || q.d < best.d)) best = { region: r.id, x: q.x, y: q.y, d: q.d };
     }
     return best;
   }
   const centreTarget = () => (pending ? pending.region : app.centreFor);
   // the second end of a stretch stays on the first end's panel; an end of a link already on that edge is landed on exactly
-  // (skip: ends not to land on, the ones being slid)
-  function linkSnap(p, only = ends.length % 2 ? ends[ends.length - 1].region : null, reach, skip = []) {
-    const hit = edgeSnap(p, only, reach);
-    if (!hit) return null;
+  // (skip: ends not to land on, the ones being slid; free: no pull to corners or ends, Alt held while sliding)
+  function linkSnap(p, only = ends.length % 2 ? ends[ends.length - 1].region : null, reach, skip = [], free = false) {
+    const hit = edgeSnap(p, only, reach, free);
+    if (!hit || free) return hit;
     for (const l of map().links || []) for (const sd of [l.a, l.b]) {
       if (sd.region !== hit.region) continue;
       for (const end of [sd.from, sd.to]) if (!skip.includes(end) && Math.hypot(end.x - hit.x, end.y - hit.y) <= 10 / app.view.zoom) return { region: hit.region, x: end.x, y: end.y };
@@ -154,11 +155,31 @@ export function initMap(app, env) {
     }
     return null;
   }
+  // would moving these ends to `to` land them on the other end of their own stretch?
+  const clashes = (moving, to) => map().links.some(l => [l.a, l.b].some(sd =>
+    (moving.includes(sd.from) ? [sd.to] : moving.includes(sd.to) ? [sd.from] : []).some(o => Math.hypot(o.x - to.x, o.y - to.y) < 2)));
+  const place = (moving, to) => { for (const end of moving) { end.x = Math.round(to.x * 10) / 10; end.y = Math.round(to.y * 10) / 10; } };
+  // the arrow keys: the picked end `step` px along its panel's edge, whichever way
+  // round goes most with the arrow (Right on an upright edge: on round the outline)
+  function nudge([ax, ay], step) {
+    const m = map(), r = picked && regionById(m, picked.region);
+    // gone if the link was removed or the map replaced (undo)
+    if (!r || !(m.links || []).some(l => [l.a, l.b].some(sd => picked.ends.includes(sd.from) || picked.ends.includes(sd.to)))) { picked = null; requestDraw(); return; }
+    const e0 = picked.ends[0], pts = regionOutline(r);
+    const fwd = slideAlong(pts, e0.x, e0.y, step), back = slideAlong(pts, e0.x, e0.y, -step);
+    const with_ = (q) => (q.x - e0.x) * ax + (q.y - e0.y) * ay;
+    const to = Math.abs(with_(fwd) - with_(back)) > step / 10 ? (with_(fwd) > with_(back) ? fwd : back) : ax + ay > 0 ? fwd : back;
+    if (clashes(picked.ends, to)) { env.say('The two ends need to be apart'); return; }
+    place(picked.ends, to);
+    seam = null;
+    env.mapChanged();
+  }
   const nameOf = (id) => (regionById(map(), id) || { name: id }).name;
   // a link goes with its twin on the other side of the car, as they were made: → the twin removed, or null
   function dropLink(m, link) {
     const twin = twinOf(m, link);
     for (const l of [link, twin]) if (l) m.links.splice(m.links.indexOf(l), 1);
+    picked = null;
     return twin;
   }
   function linkClick(p, remove) {
@@ -191,7 +212,7 @@ export function initMap(app, env) {
     if (app.tool === 'mlink') {
       // a press on a link's end: a drag slides it along the edge, a plain click still counts as a click there
       const grab = !e.altKey && !ends.length ? linkEndAt(s) : null;
-      if (grab) slide = { ...grab, start: s, moved: false };
+      if (grab) { slide = { ...grab, start: s, moved: false }; picked = grab; }
       else linkClick(p, e.altKey);
       return;
     }
@@ -220,11 +241,9 @@ export function initMap(app, env) {
       if (slide) {
         if (!slide.moved && Math.hypot(s.x - slide.start.x, s.y - slide.start.y) < 4) return;
         slide.moved = true;
-        const to = linkSnap(p, slide.region, Infinity, slide.ends);
+        const to = linkSnap(p, slide.region, Infinity, slide.ends, e.altKey);
         // an end may not land on the other end of its own stretch
-        const clash = to && map().links.some(l => [l.a, l.b].some(sd =>
-          (slide.ends.includes(sd.from) ? [sd.to] : slide.ends.includes(sd.to) ? [sd.from] : []).some(o => Math.hypot(o.x - to.x, o.y - to.y) < 2)));
-        if (to && !clash) for (const end of slide.ends) { end.x = Math.round(to.x * 10) / 10; end.y = Math.round(to.y * 10) / 10; }
+        if (to && !clashes(slide.ends, to)) place(slide.ends, to);
         snap = seam = null;
         requestDraw();
         return;
@@ -244,11 +263,13 @@ export function initMap(app, env) {
     if (!slide) return;
     const d = slide;
     slide = null;
-    if (d.moved) env.mapChanged();
-    else linkClick(screenToDoc(d.start.x, d.start.y), false);
+    if (d.moved) { env.mapChanged(); env.refreshChrome(); }
+    else { picked = null; linkClick(screenToDoc(d.start.x, d.start.y), false); }
   }
 
   function key(e) {
+    const arrow = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+    if (app.tool === 'mlink' && picked && !ends.length && arrow) { nudge(arrow, e.shiftKey ? 10 : 1); return true; }
     if (app.tool === 'mlink' && e.key === 'Backspace') { // takes back the last click, or the last link made
       if (ends.length) { ends.pop(); requestDraw(); env.refreshChrome(); }
       else if (map() && (map().links || []).length) { const m = map(), twin = dropLink(m, m.links[m.links.length - 1]); seam = null; env.mapChanged(twin ? 'Last link removed, and its twin' : 'Last link removed'); }
@@ -256,18 +277,19 @@ export function initMap(app, env) {
     }
     if (e.key !== 'Escape') return false;
     if (pending) { pending = null; requestDraw(); env.refreshChrome(); }
+    else if (picked && app.tool === 'mlink') { picked = null; requestDraw(); env.refreshChrome(); }
     else if (ends.length) { ends = []; requestDraw(); env.refreshChrome(); }
     else if (app.tool === 'mcentre' || app.tool === 'mlink') env.setTool('mpick');
     else env.pickPiece(null);
     return true;
   }
-  function cancel() { pending = snap = seam = slide = null; ends = []; }
+  function cancel() { pending = snap = seam = slide = picked = null; ends = []; }
 
   const hint = () => {
     if (app.tool === 'hand') return 'Drag to move the sheet · wheel zooms · H or Esc puts it down';
     if (!map()) return 'Load a template to get a map';
     if (app.tool === 'mcentre') return pending ? 'Click the matching corner on the other side' : 'Click a corner, then its match on the other side';
-    if (app.tool === 'mlink') return ['Click one end of an edge that meets another panel · drag a link\'s end to move it · Alt+click removes a link', 'Click the other end, on the same panel', 'Now the spot on the other panel that meets end 1', 'And the spot that meets end 2'][ends.length] + (ends.length ? ' · Backspace takes one back' : '');
+    if (app.tool === 'mlink') return [(picked ? 'Arrow keys nudge the end you moved (Shift: 10 px) · Esc lets go · ' : '') + 'Click one end of an edge that meets another panel · drag a link\'s end to move it (hold Alt to skip snapping) · Alt+click removes a link', 'Click the other end, on the same panel', 'Now the spot on the other panel that meets end 1', 'And the spot that meets end 2'][ends.length] + (ends.length ? ' · Backspace takes one back' : '');
     return sel() ? 'Name it, pair it or set its centreline on the right' : 'Click a panel';
   };
 
@@ -342,6 +364,7 @@ export function initMap(app, env) {
         ctx.setLineDash([3, 5]); ctx.strokeStyle = '#101114'; ctx.lineWidth = 1.5; ctx.stroke(); ctx.setLineDash([]);
         for (const q of [a, b]) { ctx.beginPath(); ctx.arc(q.x, q.y, 9, 0, Math.PI * 2); ctx.strokeStyle = '#101114'; ctx.lineWidth = 5; ctx.stroke(); ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.stroke(); }
       }
+      if (picked && !ends.length) { const a = S(picked.ends[0]); ctx.beginPath(); ctx.arc(a.x, a.y, 11, 0, Math.PI * 2); ctx.strokeStyle = '#101114'; ctx.lineWidth = 5; ctx.stroke(); ctx.strokeStyle = accent; ctx.lineWidth = 2.5; ctx.stroke(); } // the end the arrow keys move
       if (snap) { const a = S(snap); ctx.beginPath(); ctx.arc(a.x, a.y, 8, 0, Math.PI * 2); ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 4; ctx.stroke(); ctx.strokeStyle = accent; ctx.lineWidth = 2; ctx.stroke(); }
       ctx.font = '700 11px "IBM Plex Mono", monospace';
       ends.forEach((c, k) => { dot(c, 8, accent); const a = S(c); ctx.fillStyle = '#ffffff'; ctx.fillText(String(k % 2 + 1), a.x, a.y + 0.5); }); // 1 meets 1, 2 meets 2

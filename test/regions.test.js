@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { REGIONS_FORMAT, createRegionMap, parseRegionMap, regionById, regionAt, mirrorPoint, uniqueRegionId, detectPieces, piecesRegionMap, simplifyOutline, renameRegion, labelPoint, pointInPolygon, snapToOutline, matchPoint, linkPoints, linkLength, linkDir, twinLink, twinOf, seamMatrix, seamPieces, centerLine, mirrorAcross, setMirror, trimShape, growOutline, guessMirrorKind } from '../js/regions.js';
+import { REGIONS_FORMAT, createRegionMap, parseRegionMap, regionById, regionAt, mirrorPoint, uniqueRegionId, detectPieces, piecesRegionMap, simplifyOutline, renameRegion, labelPoint, pointInPolygon, snapToOutline, slideAlong, matchPoint, linkPoints, linkLength, linkDir, twinLink, twinOf, seamMatrix, seamPieces, centerLine, mirrorAcross, setMirror, trimShape, growOutline, guessMirrorKind } from '../js/regions.js';
 
 // Convenience builder: a valid raw map with two mirrored door rectangles.
 function rawMap(overrides = {}) {
@@ -610,4 +610,12 @@ test('setMirror records how the pair lies, and clears it when unpaired', () => {
   assert.equal(parseRegionMap(map).regions[0].mirrorKind, 'flipV'); // survives a save and load
   setMirror(map, a, null);
   assert.deepEqual([a.mirrorKind, b.mirrorKind], [undefined, undefined]);
+});
+
+test('slideAlong moves a spot round the outline, past corners', () => {
+  const sq = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 }];
+  assert.deepEqual(slideAlong(sq, 50, 0, 1), { x: 51, y: 0 });
+  assert.deepEqual(slideAlong(sq, 50, 0, -1), { x: 49, y: 0 });
+  assert.deepEqual(slideAlong(sq, 100, 0, 1), { x: 100, y: 1 }); // off a corner by 1
+  assert.deepEqual(slideAlong(sq, 0, 0, -1), { x: 0, y: 1 });    // wraps back round
 });
