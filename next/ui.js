@@ -515,15 +515,15 @@ export function initUI(app, actions, version) {
       `<label class="switch" title="Paints the panel colours and names onto the car, so you can see which panel is which in the sim">Show on car<input id="m-guide" type="checkbox"${actions.guideOn() ? ' checked' : ''}></label>` +
       '<div class="acts"><button class="btn" data-act="pickMapFile">Load map…</button><button class="btn" data-act="saveMap">Save map…</button></div>';
   }
-  // colours in use, most used first
-  function usedColours() {
+  // colours in use; `max`: how many, for the swatches
+  function usedColours(max = 14) {
     const n = new Map();
     const add = (c) => { const h = hexOf(c || ''); if (h) n.set(h, (n.get(h) || 0) + 1); };
     add(app.doc.baseColor);
     for (const l of app.doc.layers) if (l.visible) add(layerColour(l));
     // in the order they sit in the livery (base coat, then back to front), so
     // a swatch does not jump about when a colour is used more or less
-    return [...n.keys()].slice(0, 14);
+    return [...n.keys()].slice(0, max);
   }
   function drawPanels() {
     const inMap = app.mode === 'map', inFinish = app.mode === 'finish';
@@ -833,10 +833,9 @@ export function initUI(app, actions, version) {
     return del ? 'delete' : { name: $('ec-name').value.trim(), color: $('ec-pick').value };
   }
   // The saved palettes. → { act: 'save' | 'import' | 'use' | 'export' | 'delete', i } or null
-  // `colours`: how many this livery has, for saving them as one
-  async function palettes(list, colours) {
+  async function palettes(list) {
     let picked = null;
-    const body = `<div class="acts"><button type="button" class="btn" data-pp="save"${colours ? '' : ' disabled title="Save some colours with + Save first"'}>Save this livery's colours</button><button type="button" class="btn" data-pp="import">Import a file…</button></div>` +
+    const body = `<div class="acts"><button type="button" class="btn" data-pp="save" title="Its saved colours and every colour it uses">Save this livery's colours</button><button type="button" class="btn" data-pp="import">Import a file…</button></div>` +
       (!list.length ? '<div class="note">No palettes yet. Save this livery\'s colours as one, or import a palette file.</div>'
         : list.map((p, i) => `<div class="prow"><button type="button" class="pbtn" data-pp="use" data-i="${i}" title="Add these colours to this livery">${p.colors.map((c) => `<i style="background:${esc(c.color)}" title="${esc(c.name)}"></i>`).join('')}<b>${esc(p.name)}</b></button>` +
           `<button type="button" class="btn" data-pp="export" data-i="${i}" title="Download it as a file to share or keep">Export</button><button type="button" class="btn" data-pp="delete" data-i="${i}">Delete</button></div>`).join(''));
@@ -1148,5 +1147,5 @@ export function initUI(app, actions, version) {
 
   // put the cursor in a Properties box, ready to type over what is there
   const focusField = (id) => { const el = $(id); if (el) { el.focus(); if (el.select) el.select(); } };
-  return { layout, setLayout, refresh, refreshChrome, say, ask, askText, pickProject, carSetup, shortcuts, editColour, palettes, focusField, library, mergeChoice };
+  return { layout, setLayout, refresh, refreshChrome, say, ask, askText, pickProject, carSetup, shortcuts, editColour, palettes, usedColours, focusField, library, mergeChoice };
 }
