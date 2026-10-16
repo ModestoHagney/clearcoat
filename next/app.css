@@ -404,3 +404,6 @@ body.workshop .bar .brand::after { content: " · drawing a shape"; font: 400 14p
 .saved .chipwrap { min-width: 0; }
 .saved .chip { width: 100%; border-radius: 6px; }
 .saved .chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+dialog .dbody i.swatch { display: inline-block; width: 16px; height: 16px; margin-right: 6px; border-radius: 50%; border: 1px solid var(--line); vertical-align: -3px; }
+.savedarrow { margin-left: auto; padding: 0 6px; color: var(--muted); font-size: 13px; }
+.savedarrow:hover { color: var(--fg); }

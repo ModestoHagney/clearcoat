@@ -342,20 +342,18 @@ export function initUI(app, actions, version) {
       (own.length || kept ? `<optgroup label="Your shapes">${own.map((it) => opt('own:' + it.id, it.name, 'own:' + it.id === current)).join('')}${kept && !own.some((it) => 'own:' + it.id === current) ? opt(current, kept, true) : ''}</optgroup>` : '');
   };
   // The top of Properties: the colour, big, and the name beside it; then the
-  // colours the livery uses, to pick from. `name`: the markup that goes beside the colour.
+  // colours the livery uses, to pick from, and an arrow that opens its saved
+  // colours, two to a row. What is set to a saved colour follows it when it
+  // is changed. `name`: the markup that goes beside the colour.
   function colourHead(name) {
-    return `<div class="phead"><input data-colour="pick" id="c-pick" type="color" value="${esc(actions.currentColour())}" title="Choose a colour" aria-label="Colour">${name}</div>` +
-      `<div class="chips">${usedColours().map((c) => `<button class="dot" data-col="${c}" style="background:${c}" title="${c.toUpperCase()}" aria-label="${c}"></button>`).join('')}</div>`;
-  }
-  // The livery's saved colours, two to a row. What is set to one follows it
-  // when it is changed. Closed, the fold names the one this is set to.
-  function savedFold() {
-    const d = app.doc, sel = actions.selected();
-    const linked = app.sel === 'base' ? d.baseRef : sel ? sel.colorRef : null, on = d.palette.find((c) => c.id === linked);
+    const d = app.doc, sel = actions.selected(), open = openFolds.has('f-saved');
+    const linked = app.sel === 'base' ? d.baseRef : sel ? sel.colorRef : null;
     const saved = d.palette.map((c) => `<span class="chipwrap"><button class="chip${c.id === linked ? ' on' : ''}" data-pal="${esc(c.id)}" title="${esc(c.name)} · ${esc(c.color.toUpperCase())}. Set to it, and it follows when this colour is changed. Right-click to rename or change."><i style="background:${esc(c.color)}"></i><span>${esc(c.name)}</span></button><button class="chipedit" data-edit="${esc(c.id)}" title="Rename or change" aria-label="Edit ${esc(c.name)}">${svg('edit')}</button></span>`).join('');
-    return fold('f-saved', 'Saved colours', (saved ? `<div class="saved">${saved}</div>` : '') +
-      '<div class="acts"><button class="btn" data-act="saveColour" title="Save the current colour with this livery, and set what is selected to it">Save colour</button></div>',
-      on ? on.name : d.palette.length || 'None');
+    return `<div class="phead"><input data-colour="pick" id="c-pick" type="color" value="${esc(actions.currentColour())}" title="Choose a colour" aria-label="Colour">${name}</div>` +
+      `<div class="chips">${usedColours().map((c) => `<button class="dot" data-col="${c}" style="background:${c}" title="${c.toUpperCase()}" aria-label="${c}"></button>`).join('')}` +
+      `<button class="savedarrow" data-savedfold aria-expanded="${open}" title="Saved colours${d.palette.length ? ' · ' + d.palette.length : ''}" aria-label="Saved colours">${open ? '▾' : '▸'}</button></div>` +
+      (!open ? '' : (saved ? `<div class="saved">${saved}</div>` : '') +
+        '<div class="acts"><button class="btn" data-act="saveColour" title="Save the current colour with this livery, and set what is selected to it">Save colour</button></div>');
   }
   // Place, Look and Repeat fold away, and only one is open at a time (the
   // browser closes the others: they share a name). An empty one is left out.
@@ -369,13 +367,13 @@ export function initUI(app, actions, version) {
   };
   const mirroredBtn = (on) => `<button class="btn" data-act="mirror" aria-pressed="${!!on}" title="Paint it on the twin panel too, or across the centreline (Ctrl+M)">Mirrored</button>`;
   function propsHtml() {
-    if (app.sel === 'base') return colourHead('<span class="pname">Base coat</span>') + savedFold();
+    if (app.sel === 'base') return colourHead('<span class="pname">Base coat</span>');
     const many = actions.selectedLayers();
     if (many.length > 1) { // several: what can be done to them together
       const grouped = many.some((x) => x.groupId);
       const fills = many.filter((x) => x.type === 'fill' && !x.specOnly);
       const l0 = many.find((x) => x.id === app.sel) || many[0], turn = actions.manyTurn(); // null: nothing among them can turn
-      return colourHead(`<span class="pname">${many.length} layers</span>`) + savedFold() +
+      return colourHead(`<span class="pname">${many.length} layers</span>`) +
         fold('f-place', 'Place', posBoxes() + (turn === null ? '' : slider('f-turn', -180, 180, turn, 'Turn', 'They turn as one, about their middle. A group keeps its angle; a loose selection starts at 0 each time.')) +
           `<label class="switch" title="Where they hang over an edge linked in Map, they carry on onto the panel that edge meets">Continue across edges<input id="f-continues" type="checkbox"${many.some((x) => x.continues) ? ' checked' : ''}></label>` +
           `<div class="acts">${trimButtons(l0)}${mirroredBtn(many.some((x) => x.mirrored))}${trimClear(many.find((x) => trimCount(x)) || l0)}</div>`) +
@@ -389,7 +387,7 @@ export function initUI(app, actions, version) {
         `<button class="btn" data-act="ungroup" title="They stop being picked up together (Ctrl+Shift+G)"${grouped ? '' : ' disabled'}>Ungroup</button></div>`;
     }
     const l = app.doc.layers.find((x) => x.id === app.sel);
-    if (!l) return colourHead('<span class="pname muted">New shapes</span>') + savedFold();
+    if (!l) return colourHead('<span class="pname muted">New shapes</span>');
     const isText = l.type === 'text', isPic = isText || l.type === 'image';
     const fx = l.fx || {};
     const fonts = [...new Set([...TEXT_FONTS, ...GOOGLE_FONTS, ...(app.doc.googleFonts || []), ...(app.doc.customFonts || []).map((f) => f.name)])];
@@ -431,7 +429,7 @@ export function initUI(app, actions, version) {
       `<button class="btn" data-act="fillIn" title="Make it solid: its holes are filled"${off(inPieces && hasInner(l.pts))}>Fill in</button>` +
       `<button class="btn" data-act="makeShapes" title="${shapeHow}"${off(isPic)}>Make shapes</button>` +
       `<button class="btn" data-act="ownColours" title="Take the colour off again"${off(l.type === 'image' && l.color)}>Original colours</button></div>`;
-    return head + savedFold() + fold('f-place', 'Place', place) + fold('f-look', 'Look', look) + (l.specOnly ? '' : repeatHtml(l)) + fold('f-shape', 'Shape', turnInto);
+    return head + fold('f-place', 'Place', place) + fold('f-look', 'Look', look) + (l.specOnly ? '' : repeatHtml(l)) + fold('f-shape', 'Shape', turnInto);
   }
   // the folds left open stay open while the panel is redrawn, and next visit
   const openFolds = new Set(['f-place']);
@@ -839,6 +837,18 @@ export function initUI(app, actions, version) {
     if (!await p) return null;
     return del ? 'delete' : { name: $('ec-name').value.trim(), color: $('ec-pick').value };
   }
+  // Saving a palette: its name, and a name for each colour (the base coat's
+  // stays Base coat, so it goes on the base coat wherever it is used).
+  // → { name, colors } or null
+  async function savePalette(name, colors) {
+    const ok = await ask({
+      title: "Save this livery's colours", ok: 'Save',
+      body: `<label><span>Palette name</span><input id="sp-name" type="text" value="${esc(name)}"></label>` +
+        colors.map((c, k) => `<label><span><i class="swatch" style="background:${esc(c.color)}"></i>${esc(c.color.toUpperCase())}</span><input id="sp-${k}" type="text" maxlength="40" value="${esc(c.name)}"${k ? '' : ' disabled title="The base coat colour keeps this name, so it goes on the base coat wherever the palette is used"'}></label>`).join(''),
+    });
+    const named = $('sp-name').value.trim().slice(0, 40);
+    return ok && named ? { name: named, colors: colors.map((c, k) => ({ name: $('sp-' + k).value.trim() || c.name, color: c.color })) } : null;
+  }
   // The saved palettes. → { act: 'save' | 'import' | 'use' | 'export' | 'delete', i } or null
   async function palettes(list) {
     let picked = null;
@@ -1051,6 +1061,11 @@ export function initUI(app, actions, version) {
     if (t.dataset.tool === 'image') return actions.openLibrary(); // nothing to arm: it opens the library
     if (t.dataset.tool) return actions.setTool(t.dataset.tool);
     if (t.dataset.edit) return actions.editColour(t.dataset.edit);
+    if (t.dataset.savedfold !== undefined) { // the arrow by the colours: the saved ones, shown or put away
+      if (!openFolds.delete('f-saved')) openFolds.add('f-saved');
+      try { localStorage.setItem('next-folds', JSON.stringify([...openFolds])); } catch { /* kept for this visit */ }
+      return refresh();
+    }
     if (t.dataset.pal) return actions.usePalette(t.dataset.pal);
     if (t.dataset.col) return actions.applyColour(t.dataset.col);
     if (t.dataset.kind) return actions.setShapeKind(t.dataset.kind);
@@ -1154,5 +1169,5 @@ export function initUI(app, actions, version) {
 
   // put the cursor in a Properties box, ready to type over what is there
   const focusField = (id) => { const el = $(id); if (el) { el.focus(); if (el.select) el.select(); } };
-  return { layout, setLayout, refresh, refreshChrome, say, ask, askText, pickProject, carSetup, shortcuts, editColour, palettes, usedColours, focusField, library, mergeChoice };
+  return { layout, setLayout, refresh, refreshChrome, say, ask, askText, pickProject, carSetup, shortcuts, editColour, palettes, savePalette, usedColours, focusField, library, mergeChoice };
 }
