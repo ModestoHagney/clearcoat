@@ -84,19 +84,29 @@ export function svgToShape(svg) {
 
 const words = (name) => name.replace(/[-_]+/g, ' ').replace(/^./, ch => ch.toUpperCase());
 
-// → [{ id: 'set:name', name, set, author, licence, url, svg, preview }], best matches first.
+const get = async (url) => {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('The icon search did not answer');
+  return res.json();
+};
+const MOST = 999; // the most finds the service gives for one search
+
+// → { ids: ['set:name', …] best matches first, capped: whether there may be
+// more than it gave, draw(ids) → those finds, drawn }. One search over every
+// set, so each set's count comes from the same list; only the finds shown are
+// drawn. ponytail: past MOST finds the counts stop growing, shown as "999+".
+export async function searchIcons(query) {
+  const data = await get(`${API}/search?query=${encodeURIComponent(query)}&limit=${MOST}&prefixes=${SETS.join(',')}`);
+  const sets = data.collections || {}, ids = data.icons || [];
+  return { ids, capped: ids.length >= MOST, draw: (some) => drawIcons(some, sets) };
+}
+
+// → [{ id: 'set:name', name, set, author, licence, url, svg, preview }], in the order given.
 // The service limits how often it may be asked, so the drawings come in one
 // request for each set rather than one for each icon, and a find already
 // holds its own drawing: picking it asks for nothing more.
-// prefixes: which of SETS to search (all of them unless narrowed).
-export async function searchIcons(query, prefixes = SETS, limit = 64) {
-  const get = async (url) => {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error('The icon search did not answer');
-    return res.json();
-  };
-  const data = await get(`${API}/search?query=${encodeURIComponent(query)}&limit=${limit}&prefixes=${prefixes.join(',')}`);
-  const sets = data.collections || {}, ids = data.icons || [], bySet = new Map();
+async function drawIcons(ids, sets) {
+  const bySet = new Map();
   for (const id of ids) { const [prefix, name] = id.split(':'); bySet.set(prefix, [...(bySet.get(prefix) || []), name]); }
   const drawn = new Map(); // id → the icon's SVG
   await Promise.all([...bySet].map(async ([prefix, names]) => {

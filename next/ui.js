@@ -835,20 +835,26 @@ export function initUI(app, actions, version) {
   // ---------- the library ----------
   // → { kind: 'logos' | 'graphics' | 'shapes' | 'file', item } or null
   // The library: my own pictures, my own shapes, and a search of the open icon
-  // sets, whose finds come in as shapes. search(query, sets) → the finds;
+  // sets, whose finds come in as shapes. search(query) → { ids, capped, draw(ids) };
   // fetchIcon(find) → the shape made from one.
   // shapesOnly: pictures are left out (a shape is being drawn, and only shapes can join it)
   async function library(lib, { remove, search, fetchIcon, shapesOnly = false }) {
     let tab = shapesOnly ? (lib.shapes.length ? 'shapes' : 'search') : lib.logos.length ? 'logos' : lib.shapes.length ? 'shapes' : 'search', picked = null;
-    let query = '', found = null, state = ''; // found: the last search's finds; state: '' | 'busy' | a message
-    let only = ''; // the one set searched, or '' for all of them
+    let query = '', hits = null, found = null, shown = 0, state = ''; // hits: what the last search matched; found: those drawn so far; state: '' | 'busy' | a message
+    let only = '', ticket = 0; // only: the one set shown, or '' for all of them; ticket: which search or page is the latest
+    const PAGE = 64; // drawn at a time: each find's drawing has to be fetched
+    const pool = () => (!hits ? [] : only ? hits.ids.filter((id) => id.startsWith(only + ':')) : hits.ids);
+    const count = (k) => (k ? hits.ids.filter((id) => id.startsWith(k + ':')).length : hits.ids.length) + (hits.capped ? '+' : '');
     const FILTERS = [['', 'All'], ['simple-icons', 'Logos'], ['game-icons', 'Game Icons'], ['material-symbols', 'Material Symbols'], ['mdi', 'Material Design'], ['bi', 'Bootstrap']];
     const tile = (kind, it, art, own) => `<span class="tilewrap"><button type="button" class="tile" data-lib="${kind}:${esc(it.id)}" title="${esc(it.name)}">${art}<span>${esc(it.name)}</span></button>${own ? `<button type="button" class="tilex" data-libx="${kind}:${esc(it.id)}" title="Remove from the library" aria-label="Remove ${esc(it.name)}">${svg('close')}</button>` : ''}</span>`;
     const results = () => (state === 'busy' ? '<div class="note">Searching…</div>'
       : state ? `<div class="note">${esc(state)}</div>`
       : !found ? '<div class="note">Type a word and press Enter: flame, wing, skull, wrench…</div>'
       : !found.length ? '<div class="note">Nothing found for that. Try another word.</div>'
-      : `<div class="tiles">${found.map((it, k) => `<span class="tilewrap"><button type="button" class="tile" data-icon="${k}" title="${esc(it.name)} · ${esc(it.set)}${it.licence ? ' · ' + esc(it.licence) : ''}"><img alt="" loading="lazy" src="${esc(it.preview)}"><span>${esc(it.name)}</span></button></span>`).join('')}</div>`);
+      : `<div class="tiles">${found.map((it, k) => `<span class="tilewrap"><button type="button" class="tile" data-icon="${k}" title="${esc(it.name)} · ${esc(it.set)}${it.licence ? ' · ' + esc(it.licence) : ''}"><img alt="" loading="lazy" src="${esc(it.preview)}"><span>${esc(it.name)}</span></button></span>`).join('')}</div>` +
+        (shown < pool().length ? `<button type="button" class="btn" data-more>Show more · ${pool().length - shown} left</button>` : ''));
+    const filters = () => FILTERS.map(([k, name]) => `<button type="button" data-only="${k}" aria-pressed="${k === only}">${name}${hits ? ' · ' + count(k) : ''}</button>`).join('');
+    const show = () => { if (tab === 'search' && $('lib-found')) { $('lib-only').innerHTML = filters(); $('lib-found').innerHTML = results(); } };
     const draw = () => {
       const sets = shapesOnly ? [] : lib.sets || []; // several layers saved as one: not something a shape can be drawn from
       const tabs = [['logos', `Your pictures${lib.logos.length ? ' · ' + lib.logos.length : ''}`], ['shapes', `Your shapes${lib.shapes.length + sets.length ? ' · ' + (lib.shapes.length + sets.length) : ''}`], ['search', 'Search icons']].filter(([k]) => !shapesOnly || k !== 'logos');
@@ -861,20 +867,28 @@ export function initUI(app, actions, version) {
       $('dlg-body').innerHTML = `<div class="tabs">${tabs.map(([k, name]) => `<button type="button" data-libtab="${k}" aria-pressed="${k === tab}">${name}</button>`).join('')}${side}</div>` +
         (tab === 'search'
           ? `<input id="lib-q" type="text" placeholder="Search icons" value="${esc(query)}" spellcheck="false" autocomplete="off" aria-label="Search icons">` +
-            `<div class="seg">${FILTERS.map(([k, name]) => `<button type="button" data-only="${k}" aria-pressed="${k === only}">${name}</button>`).join('')}</div><div id="lib-found">${results()}</div>` +
+            `<div class="seg" id="lib-only">${filters()}</div><div id="lib-found">${results()}</div>` +
             '<div class="note small">They come in as shapes. From Game Icons (credit kept with the livery), Material Symbols, Material Design Icons, Bootstrap Icons and Simple Icons (brand logos).</div>' +
             '<div class="note small">More logos, old versions too: <a href="https://www.brandsoftheworld.com" target="_blank" rel="noopener">Brands of the World</a>, <a href="https://commons.wikimedia.org/wiki/Category:Logos" target="_blank" rel="noopener">Wikimedia Commons</a> and <a href="https://logos.fandom.com" target="_blank" rel="noopener">Logopedia</a>. Bring a download in with Shape from an SVG file or Picture from a file.</div>'
           : grid ? `<div class="tiles">${grid}</div>` : `<div class="note">${empty}</div>`);
       if (tab === 'search') $('lib-q').focus();
     };
+    const offline = 'The search could not be reached. It needs an internet connection.';
+    // the next PAGE of the finds in the set shown, drawn; dropped if another search or filter has started since
+    const page = async () => {
+      const t = ++ticket, ids = pool().slice(shown, shown + PAGE);
+      try { const got = await hits.draw(ids); if (t !== ticket) return; shown += ids.length; found = [...(found || []), ...got]; state = ''; }
+      catch { if (t !== ticket) return; state = offline; }
+      show();
+    };
     const run = async () => {
       query = $('lib-q').value.trim();
       if (!query) return;
-      state = 'busy'; $('lib-found').innerHTML = results();
-      const asked = query + '|' + only;
-      try { found = await search(query, only ? [only] : undefined); state = ''; }
-      catch { found = null; state = 'The search could not be reached. It needs an internet connection.'; }
-      if (asked === query + '|' + only && tab === 'search' && $('lib-found')) $('lib-found').innerHTML = results(); // not if another search has started since
+      const t = ++ticket;
+      hits = found = null; shown = 0; state = 'busy'; show();
+      try { const h = await search(query); if (t !== ticket) return; hits = h; }
+      catch { if (t === ticket) { state = offline; show(); } return; }
+      await page();
     };
     const p = ask({ title: 'Library', ok: null, cancel: 'Close' });
     dlg.classList.add('wide', 'lib');
@@ -884,7 +898,8 @@ export function initUI(app, actions, version) {
       const t = e.target.closest('button');
       if (!t) return;
       if (t.dataset.libtab) { tab = t.dataset.libtab; draw(); return; }
-      if (t.dataset.only !== undefined) { only = t.dataset.only; found = null; draw(); run(); return; } // the same words, searched again in the sets picked
+      if (t.dataset.only !== undefined) { only = t.dataset.only; found = null; shown = 0; if (hits) { state = 'busy'; show(); page(); } else show(); return; } // the same finds, narrowed: nothing is searched again
+      if (t.dataset.more !== undefined) { t.disabled = true; page(); return; }
       if (t.dataset.icon !== undefined) { // a find: fetched and made into a shape before the dialog closes
         const it = found[+t.dataset.icon];
         t.disabled = true;
