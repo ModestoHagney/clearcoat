@@ -399,3 +399,8 @@ body.workshop .bar .brand::after { content: " · drawing a shape"; font: 400 14p
 .pbtn:hover { background: var(--hover); }
 .pbtn i { width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--line); }
 .pbtn b { flex-basis: 100%; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* saved colours: two to a row, the name cut short if it is long */
+.saved { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 4px 6px; }
+.saved .chipwrap { min-width: 0; }
+.saved .chip { width: 100%; border-radius: 6px; }
+.saved .chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
