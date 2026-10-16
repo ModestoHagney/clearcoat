@@ -11,7 +11,7 @@ import {
   SIZE, GOOGLE_FONTS, createDoc, renderPaint, renderSpec, buildDragCache, renderPaintWithDrag,
   serializeDoc, deserializeDoc, regenerateText, textFont, TEXT_FONTS, layerCorners, layerMatrix, newId,
   createTextLayer, createImageLayer, createFillLayer, loadImage, registerCustomFont, paintLayers,
-  MATERIALS, fadeStyleOf, cleanCredits, cleanRepeat,
+  MATERIALS, fadeStyleOf, cleanCredits, cleanRepeat, readPalettes,
 } from '../js/engine.js';
 import { canvasToTGA } from '../js/tga.js';
 import * as persist from '../js/persist.js';
@@ -579,6 +579,9 @@ function ensureDocFonts() {
 
 // ---------- what the menus do ----------
 
+// the name a palette gives its base coat colour: it goes on the base coat when used
+const BASE_COAT = 'Base coat';
+
 function download(blob, name) {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -653,7 +656,7 @@ const toolChanged = () => {
 // the open hand: Space is held, or the Hand tool is armed (never in the draw-a-shape window, whose view is held still)
 const handCursor = () => cv.classList.toggle('pan', (spaceHeld || app.tool === 'hand') && !app.workshop);
 
-let library = { logos: [], shapes: [], sets: [] }; // sets: several layers kept as one thing (a badge in three colours, a logo with its lettering)
+let library = { logos: [], shapes: [], sets: [], palettes: [] }; // sets: several layers kept as one thing (a badge in three colours, a logo with its lettering)
 const saveLibrary = () => persist.saveBlob('next-library', library).catch(() => { /* quota: it still works this session */ });
 // A shape brought in from outside (an icon, an SVG file) is kept in the
 // library, so it is there for Repeat and stamps too. One already kept (the
@@ -1861,6 +1864,104 @@ const actions = {
     actions.applyColour(color, { ref: entry.id }); // what is selected now follows it
     if (!actions.selected() && app.sel !== 'base') change();
   },
+  // Palettes: sets of colours kept in this browser, for any livery to use,
+  // and as files to share or keep somewhere safe
+  async openPalettes() {
+    const pick = await ui.palettes(library.palettes);
+    const p = pick && library.palettes[pick.i];
+    if (!pick) return;
+    if (pick.act === 'save') return actions.liveryColours({ save: true });
+    if (pick.act === 'import') return $('file-palette').click();
+    if (pick.act === 'use') return actions.usePaletteSet(p);
+    if (pick.act === 'export') {
+      download(new Blob([JSON.stringify({ overspray: 'palette', ...p }, null, 2)], { type: 'application/json' }), p.name.replace(/[^\w.-]+/g, '_') + '.palette.json');
+      return;
+    }
+    if (pick.act === 'delete' && await ui.ask({ title: `Delete "${p.name}"?`, body: 'Liveries that already use its colours keep them.', ok: 'Delete' })) {
+      library.palettes.splice(pick.i, 1);
+      saveLibrary();
+    }
+    actions.openPalettes();
+  },
+  // a palette of the same name is replaced
+  keepPalettes(list) {
+    for (const p of list) library.palettes = [p, ...library.palettes.filter(x => x.name !== p.name)];
+    saveLibrary();
+  },
+  // Livery colours: every colour it has (the base coat first, then the saved
+  // ones, then the rest it uses), each named and changed in one place. A
+  // change reaches everything in that colour, its finish and repeats too, and
+  // each becomes a saved colour that what is in it follows. `save`: kept as a
+  // palette as well.
+  async liveryColours({ save = false } = {}) {
+    const d = app.doc, rows = [];
+    const add = (name, color, id) => { if (color && !rows.some(r => r.color === color)) rows.push({ name, color, id }); };
+    const base = String(d.baseColor || '').toLowerCase();
+    add(BASE_COAT, base, d.baseRef);
+    for (const c of d.palette) add(c.name, c.color, c.id);
+    for (const color of ui.usedColours(Infinity)) add('Colour ' + (rows.length + 1), color);
+    const res = await ui.liveryColours(rows, save);
+    if (!res) return;
+    const saved = new Map(); // a colour as it was → its saved colour, as it is now
+    res.colors.forEach((r, k) => {
+      const was = rows[k];
+      let c = d.palette.find(x => x.id === was.id) || d.palette.find(x => x.color === was.color);
+      if (!c) { c = { id: 'c' + newId() }; d.palette.push(c); }
+      Object.assign(c, r);
+      saved.set(was.color, c);
+    });
+    const now = (hex) => (saved.get(String(hex || '').toLowerCase()) || {}).color || hex;
+    for (const l of d.layers) {
+      const c = saved.get(layerColour(l));
+      if (c) {
+        l.colorRef = c.id;
+        if (l.type === 'text') { l.textColor = c.color; regenerateText(l); } else { l.color = c.color; if (l.type === 'fill') keepFadeOut(l); }
+      }
+      if (l.repeat && Array.isArray(l.repeat.colors)) l.repeat.colors = l.repeat.colors.map(now);
+    }
+    const b = saved.get(base);
+    if (b) { d.baseColor = b.color; d.baseRef = b.id; }
+    for (const r of d.finishRules || []) r.color = now(r.color);
+    change({ now: true });
+    if (!save) return;
+    actions.keepPalettes([{ name: res.name, colors: res.colors }]);
+    ui.say(`Palette "${res.name}" saved. Any livery can use it from Palettes.`);
+  },
+  // its colours join this livery's saved colours (one already there is not
+  // added twice), and the one named Base coat goes on the base coat
+  usePaletteSet(p) {
+    const d = app.doc;
+    let added = 0, base = null;
+    for (const c of p.colors) {
+      let saved = d.palette.find(x => x.color === c.color);
+      if (!saved) { saved = { id: 'c' + newId(), name: c.name, color: c.color }; d.palette.push(saved); added++; }
+      if (c.name.trim().toLowerCase() === BASE_COAT.toLowerCase()) base = saved;
+    }
+    if (base) { d.baseColor = base.color; d.baseRef = base.id; }
+    change({ now: true });
+    ui.say((added ? `${added} colour${added > 1 ? 's' : ''} from "${p.name}" added` : `This livery already has every colour in "${p.name}"`) + (base ? ', base coat set' : ''));
+  },
+  async loadPaletteFile(file) {
+    let list = [];
+    try { list = readPalettes(JSON.parse(await file.text()), file.name.replace(/(\.palette)?\.json$/i, '')); } catch { /* not JSON */ }
+    if (!list.length) { ui.say('No colours found in that file', true); return; }
+    actions.keepPalettes(list);
+    for (const p of list) actions.usePaletteSet(p); // and straight onto this livery
+  },
+  // the selection's colour, named from Properties: its saved colour is renamed,
+  // or it is saved under that name and what is selected is set to it
+  nameColour(name) {
+    const d = app.doc, sel = actions.selected(), color = String(actions.currentColour()).toLowerCase();
+    name = String(name).trim().slice(0, 40);
+    const ref = app.sel === 'base' ? d.baseRef : sel ? sel.colorRef : null;
+    let c = d.palette.find(x => x.id === ref) || d.palette.find(x => x.color === color);
+    if (!name) { ui.refresh(); return; }
+    if (c && c.id === ref) { c.name = name; change({ now: true }); return; }
+    if (c) c.name = name;
+    else d.palette.push(c = { id: 'c' + newId(), name, color });
+    actions.applyColour(c.color, { ref: c.id }); // what is selected now follows it
+    if (!sel && app.sel !== 'base') change();
+  },
   async editColour(id) {
     const d = app.doc, c = d.palette.find(x => x.id === id);
     if (!c) return;
@@ -2056,6 +2157,11 @@ $('file-template').addEventListener('change', (e) => {
   e.target.value = '';
   if (f) actions.loadTemplateFile(f);
 });
+$('file-palette').addEventListener('change', (e) => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if (f) actions.loadPaletteFile(f);
+});
 $('file-map').addEventListener('change', (e) => {
   const f = e.target.files[0];
   e.target.value = '';
@@ -2118,7 +2224,7 @@ async function boot() {
   dirty = true;
   try {
     const lib = await persist.loadBlob('next-library');
-    if (lib) library = { logos: Array.isArray(lib.logos) ? lib.logos : [], shapes: Array.isArray(lib.shapes) ? lib.shapes : [], sets: Array.isArray(lib.sets) ? lib.sets : [] };
+    if (lib) library = { logos: Array.isArray(lib.logos) ? lib.logos : [], shapes: Array.isArray(lib.shapes) ? lib.shapes : [], sets: Array.isArray(lib.sets) ? lib.sets : [], palettes: readPalettes(lib.palettes) };
   } catch { /* an empty library */ }
   const saved = loadView();
   takeBools(app.show, saved.show);
