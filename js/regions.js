@@ -467,6 +467,11 @@ export function snapToOutline(pts, x, y, corner = 0) {
   return best;
 }
 
+// The spot `d` px further round the outline from the outline spot nearest (x, y); negative goes back
+export function slideAlong(pts, x, y, d) {
+  return atArc(pts, arcs(pts), snapToOutline(pts, x, y).s + d);
+}
+
 // One side of a link as a run along its region's outline: where it starts,
 // how long it is and which way round it goes. Null if the region is gone.
 function linkStretch(map, link, side) {
