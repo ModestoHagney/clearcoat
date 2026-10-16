@@ -342,7 +342,7 @@ export function initUI(app, actions, version) {
       (own.length || kept ? `<optgroup label="Your shapes">${own.map((it) => opt('own:' + it.id, it.name, 'own:' + it.id === current)).join('')}${kept && !own.some((it) => 'own:' + it.id === current) ? opt(current, kept, true) : ''}</optgroup>` : '');
   };
   // The top of Properties: the colour, big, and the name beside it; then the
-  // colours the livery uses, to pick from, and an arrow that opens its saved
+  // colours the livery uses and has saved, to pick from, and an arrow that opens its saved
   // colours, two to a row. What is set to a saved colour follows it when it
   // is changed. `name`: the markup that goes beside the colour.
   function colourHead(name) {
@@ -350,7 +350,7 @@ export function initUI(app, actions, version) {
     const linked = app.sel === 'base' ? d.baseRef : sel ? sel.colorRef : null;
     const saved = d.palette.map((c) => `<span class="chipwrap"><button class="chip${c.id === linked ? ' on' : ''}" data-pal="${esc(c.id)}" title="${esc(c.name)} · ${esc(c.color.toUpperCase())}. Set to it, and it follows when this colour is changed. Right-click to rename or change."><i style="background:${esc(c.color)}"></i><span>${esc(c.name)}</span></button><button class="chipedit" data-edit="${esc(c.id)}" title="Rename or change" aria-label="Edit ${esc(c.name)}">${svg('edit')}</button></span>`).join('');
     return `<div class="phead"><input data-colour="pick" id="c-pick" type="color" value="${esc(actions.currentColour())}" title="Choose a colour" aria-label="Colour">${name}</div>` +
-      `<div class="chips">${usedColours().map((c) => `<button class="dot" data-col="${c}" style="background:${c}" title="${c.toUpperCase()}" aria-label="${c}"></button>`).join('')}` +
+      `<div class="chips">${[...new Set([...usedColours(), ...d.palette.map((c) => c.color)])].map((c) => `<button class="dot" data-col="${c}" style="background:${c}" title="${c.toUpperCase()}" aria-label="${c}"></button>`).join('')}` +
       `<button class="savedarrow" data-savedfold aria-expanded="${open}" title="Saved colours${d.palette.length ? ' · ' + d.palette.length : ''}" aria-label="Saved colours">${open ? '▾' : '▸'}</button></div>` +
       (!open ? '' : (saved ? `<div class="saved">${saved}</div>` : '') +
         '<div class="acts"><button class="btn" data-act="saveColour" title="Save the current colour with this livery, and set what is selected to it">Save colour</button></div>');
