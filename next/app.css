@@ -393,3 +393,9 @@ body.workshop .bar .brand::after { content: " · drawing a shape"; font: 400 14p
 .shapebox > header .btn { white-space: nowrap; flex: none; }
 .shapebox > header .sep { width: 1px; height: 20px; background: var(--line); }
 .shapebox > header .btn:disabled { opacity: .4; cursor: default; }
+/* Palettes: one row each, its colours and name to use it, then Export and Delete */
+.prow { display: flex; gap: 6px; align-items: center; }
+.pbtn { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 3px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; text-align: left; }
+.pbtn:hover { background: var(--hover); }
+.pbtn i { width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--line); }
+.pbtn b { flex-basis: 100%; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
