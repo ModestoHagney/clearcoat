@@ -161,7 +161,7 @@ export function initUI(app, actions, version) {
   const menuDefs = () => ({
     File: [
       ['New', '', 'newLivery'], ['Open…', '', 'open'], ['Save', 'Ctrl+S', 'save'], 0,
-      ['Load template…', '', 'pickTemplate'], ['Get a template…', '', 'getTemplate'], ['Car setup…', '', 'carSetup'], ['Palettes…', '', 'openPalettes'], ['Link iRacing paints folder…', '', 'linkFolder'], ['Save to iRacing', '', 'saveIracing'], 0,
+      ['Load template…', '', 'pickTemplate'], ['Get a template…', '', 'getTemplate'], ['Car setup…', '', 'carSetup'], ['Livery colours…', '', 'liveryColours'], ['Palettes…', '', 'openPalettes'], ['Link iRacing paints folder…', '', 'linkFolder'], ['Save to iRacing', '', 'saveIracing'], 0,
       ['Export TGA', '', 'exportTga'], ['Export PNG', '', 'exportPng'], ['Send to Trading Paints', '', 'sendTp'],
     ],
     Edit: [
@@ -342,13 +342,21 @@ export function initUI(app, actions, version) {
       (own.length || kept ? `<optgroup label="Your shapes">${own.map((it) => opt('own:' + it.id, it.name, 'own:' + it.id === current)).join('')}${kept && !own.some((it) => 'own:' + it.id === current) ? opt(current, kept, true) : ''}</optgroup>` : '');
   };
   // The top of Properties: the colour, big, and the name beside it; then the
-  // livery's colours to pick from. `name`: the markup that goes beside the colour.
+  // colours the livery uses and has saved, to pick from, and an arrow that opens its saved
+  // colours, two to a row. What is set to a saved colour follows it when it
+  // is changed. `name`: the markup that goes beside the colour.
   function colourHead(name) {
-    const d = app.doc, sel = actions.selected(), used = usedColours();
+    const d = app.doc, sel = actions.selected(), open = openFolds.has('f-saved');
     const linked = app.sel === 'base' ? d.baseRef : sel ? sel.colorRef : null;
-    const saved = d.palette.map((c) => `<span class="chipwrap"><button class="chip${c.id === linked ? ' on' : ''}" data-pal="${esc(c.id)}"><i style="background:${esc(c.color)}"></i>${esc(c.name)}</button><button class="chipedit" data-edit="${esc(c.id)}" title="Rename or change" aria-label="Edit ${esc(c.name)}">${svg('edit')}</button></span>`).join('');
-    return `<div class="phead"><input data-colour="pick" id="c-pick" type="color" value="${esc(actions.currentColour())}" title="Choose a colour" aria-label="Colour">${name}</div>` +
-      `<div class="chips">${used.map((c) => `<button class="dot" data-col="${c}" style="background:${c}" title="${c.toUpperCase()}" aria-label="${c}"></button>`).join('')}${saved}<button class="chip add" data-act="saveColour" title="Save the current colour with this livery">+ Save</button></div>`;
+    const saved = d.palette.map((c) => `<span class="chipwrap"><button class="chip${c.id === linked ? ' on' : ''}" data-pal="${esc(c.id)}" title="${esc(c.name)} · ${esc(c.color.toUpperCase())}. Set to it, and it follows when this colour is changed. Right-click to rename or change."><i style="background:${esc(c.color)}"></i><span>${esc(c.name)}</span></button><button class="chipedit" data-edit="${esc(c.id)}" title="Rename or change" aria-label="Edit ${esc(c.name)}">${svg('edit')}</button></span>`).join('');
+    // the colour's name under the selection's: its saved colour's, or the next "Colour n"
+    const cur = actions.currentColour(), named = d.palette.find((c) => c.id === linked) || d.palette.find((c) => c.color === cur);
+    const cname = `<input id="f-cname" class="cname" type="text" maxlength="40" value="${esc(named ? named.name : 'Colour ' + (d.palette.length + 1))}" title="Click to name this colour. A named colour is saved, and everything set to it changes with it." aria-label="Colour name">`;
+    return `<div class="phead"><input data-colour="pick" id="c-pick" type="color" value="${esc(cur)}" title="Choose a colour" aria-label="Colour"><span class="pnames">${name}${cname}</span></div>` +
+      `<div class="chips">${[...new Set([...usedColours(), ...d.palette.map((c) => c.color)])].map((c) => `<button class="dot" data-col="${c}" style="background:${c}" title="${c.toUpperCase()}" aria-label="${c}"></button>`).join('')}` +
+      `<button class="savedarrow" data-savedfold aria-expanded="${open}" title="Saved colours${d.palette.length ? ' · ' + d.palette.length : ''}" aria-label="Saved colours">${open ? '▾' : '▸'}</button></div>` +
+      (!open ? '' : (saved ? `<div class="saved">${saved}</div>` : '') +
+        '<div class="acts"><button class="btn" data-act="saveColour" title="Save the current colour with this livery, and set what is selected to it">Save colour</button><button class="btn" data-act="liveryColours" title="Name and change every colour in the livery, everywhere it is used (File › Livery colours)">Edit colours</button></div>');
   }
   // Place, Look and Repeat fold away, and only one is open at a time (the
   // browser closes the others: they share a name). An empty one is left out.
@@ -743,6 +751,7 @@ export function initUI(app, actions, version) {
     if (id === 'f-italic') { actions.setProp('italic', e.target.checked); return; }
     if (id === 'f-mirrorFlip') { actions.setProp('mirrorFlip', e.target.checked); return; }
     if (id === 'f-blend') { actions.setProp('blend', e.target.value || null); return; }
+    if (id === 'f-cname') return actions.nameColour(e.target.value);
     if (id === 'm-name') return actions.mapRename(e.target.value.trim());
     if (id === 'm-pair') return actions.mapPair(e.target.value);
     if (id === 'm-colours') return actions.toggleMapColours();
@@ -831,6 +840,26 @@ export function initUI(app, actions, version) {
     $('ec-del').onclick = () => { del = true; dlg.close('ok'); };
     if (!await p) return null;
     return del ? 'delete' : { name: $('ec-name').value.trim(), color: $('ec-pick').value };
+  }
+  // Livery colours: each one's colour (picker or hex) and name. The base
+  // coat's keeps its name, so it goes on the base coat wherever a palette of
+  // them is used. `save`: kept as a palette, so it asks the palette's name too.
+  // → { name, colors: [{ name, color }] } or null
+  async function liveryColours(rows, save) {
+    const p = ask({
+      title: save ? 'Save as a palette' : 'Livery colours', ok: save ? 'Save' : 'Apply',
+      body: (save ? `<label><span>Palette name</span><input id="lc-name" type="text" maxlength="40" value="${esc(app.doc.name || 'My palette')}"></label>` : '<div class="note">Change a colour here and everything in it changes too.</div>') +
+        rows.map((r, k) => `<div class="lcrow"><input id="lc-pick-${k}" type="color" value="${esc(r.color)}" title="Choose a colour" aria-label="Colour"><input id="lc-hex-${k}" class="mono" type="text" maxlength="7" spellcheck="false" value="${esc(r.color)}" aria-label="Hex">` +
+          `<input id="lc-n-${k}" type="text" maxlength="40" value="${esc(r.name)}" aria-label="Name"${k ? '' : ' disabled title="The base coat colour keeps this name, so it goes on the base coat wherever a palette of these is used"'}></div>`).join(''),
+    });
+    rows.forEach((r, k) => {
+      $('lc-pick-' + k).oninput = () => { $('lc-hex-' + k).value = $('lc-pick-' + k).value; };
+      $('lc-hex-' + k).oninput = () => { const v = hexOf($('lc-hex-' + k).value); if (v) $('lc-pick-' + k).value = v; };
+    });
+    if (!await p) return null;
+    const name = save ? $('lc-name').value.trim() : '';
+    if (save && !name) return null;
+    return { name, colors: rows.map((r, k) => ({ name: $('lc-n-' + k).value.trim() || r.name, color: hexOf($('lc-pick-' + k).value) || r.color })) };
   }
   // The saved palettes. → { act: 'save' | 'import' | 'use' | 'export' | 'delete', i } or null
   async function palettes(list) {
@@ -1044,6 +1073,11 @@ export function initUI(app, actions, version) {
     if (t.dataset.tool === 'image') return actions.openLibrary(); // nothing to arm: it opens the library
     if (t.dataset.tool) return actions.setTool(t.dataset.tool);
     if (t.dataset.edit) return actions.editColour(t.dataset.edit);
+    if (t.dataset.savedfold !== undefined) { // the arrow by the colours: the saved ones, shown or put away
+      if (!openFolds.delete('f-saved')) openFolds.add('f-saved');
+      try { localStorage.setItem('next-folds', JSON.stringify([...openFolds])); } catch { /* kept for this visit */ }
+      return refresh();
+    }
     if (t.dataset.pal) return actions.usePalette(t.dataset.pal);
     if (t.dataset.col) return actions.applyColour(t.dataset.col);
     if (t.dataset.kind) return actions.setShapeKind(t.dataset.kind);
@@ -1147,5 +1181,5 @@ export function initUI(app, actions, version) {
 
   // put the cursor in a Properties box, ready to type over what is there
   const focusField = (id) => { const el = $(id); if (el) { el.focus(); if (el.select) el.select(); } };
-  return { layout, setLayout, refresh, refreshChrome, say, ask, askText, pickProject, carSetup, shortcuts, editColour, palettes, usedColours, focusField, library, mergeChoice };
+  return { layout, setLayout, refresh, refreshChrome, say, ask, askText, pickProject, carSetup, shortcuts, editColour, palettes, liveryColours, usedColours, focusField, library, mergeChoice };
 }

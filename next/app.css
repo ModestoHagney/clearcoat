@@ -399,3 +399,23 @@ body.workshop .bar .brand::after { content: " · drawing a shape"; font: 400 14p
 .pbtn:hover { background: var(--hover); }
 .pbtn i { width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--line); }
 .pbtn b { flex-basis: 100%; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* saved colours: two to a row, the name cut short if it is long */
+.saved { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 4px 6px; }
+.saved .chipwrap { min-width: 0; }
+.saved .chip { width: 100%; border-radius: 6px; }
+.saved .chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+dialog .dbody i.swatch { display: inline-block; width: 16px; height: 16px; margin-right: 6px; border-radius: 50%; border: 1px solid var(--line); vertical-align: -3px; }
+.savedarrow { margin-left: auto; padding: 0 6px; color: var(--muted); font-size: 13px; }
+.savedarrow:hover { color: var(--fg); }
+/* Livery colours: a row each, its colour, hex and name */
+.lcrow { display: grid; grid-template-columns: 34px 84px minmax(0, 1fr); gap: 8px; align-items: center; }
+.lcrow input[type="color"] { width: 34px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: none; }
+.lcrow input[type="text"] { width: 100%; min-width: 0; padding: 4px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--bar); }
+/* the selection's name, and its colour's name under it: looks like text, a box on hover, edited on click */
+.pnames { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.pnames .pname { flex: none; }
+input.cname { width: 100%; padding: 1px 6px; border: 1px solid transparent; border-radius: 6px; background: none; font-size: 12px; color: var(--muted); cursor: text; }
+input.cname:hover, input.cname:focus { border-color: var(--line); background: var(--bar); color: var(--fg); }
+.pnames input.pname { padding-block: 0; line-height: 1.3; }
+.pnames span.pname { padding: 0 7px; line-height: 1.3; }
+.pnames input.cname { padding-block: 0; line-height: 1.3; }
