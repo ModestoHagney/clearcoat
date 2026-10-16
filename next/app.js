@@ -11,7 +11,7 @@ import {
   SIZE, GOOGLE_FONTS, createDoc, renderPaint, renderSpec, buildDragCache, renderPaintWithDrag,
   serializeDoc, deserializeDoc, regenerateText, textFont, TEXT_FONTS, layerCorners, layerMatrix, newId,
   createTextLayer, createImageLayer, createFillLayer, loadImage, registerCustomFont, paintLayers,
-  MATERIALS, fadeStyleOf, cleanCredits, cleanRepeat,
+  MATERIALS, fadeStyleOf, cleanCredits, cleanRepeat, readPalettes,
 } from '../js/engine.js';
 import { canvasToTGA } from '../js/tga.js';
 import * as persist from '../js/persist.js';
@@ -653,7 +653,7 @@ const toolChanged = () => {
 // the open hand: Space is held, or the Hand tool is armed (never in the draw-a-shape window, whose view is held still)
 const handCursor = () => cv.classList.toggle('pan', (spaceHeld || app.tool === 'hand') && !app.workshop);
 
-let library = { logos: [], shapes: [], sets: [] }; // sets: several layers kept as one thing (a badge in three colours, a logo with its lettering)
+let library = { logos: [], shapes: [], sets: [], palettes: [] }; // sets: several layers kept as one thing (a badge in three colours, a logo with its lettering)
 const saveLibrary = () => persist.saveBlob('next-library', library).catch(() => { /* quota: it still works this session */ });
 // A shape brought in from outside (an icon, an SVG file) is kept in the
 // library, so it is there for Repeat and stamps too. One already kept (the
@@ -1861,6 +1861,51 @@ const actions = {
     actions.applyColour(color, { ref: entry.id }); // what is selected now follows it
     if (!actions.selected() && app.sel !== 'base') change();
   },
+  // Palettes: sets of colours kept in this browser, for any livery to use,
+  // and as files to share or keep somewhere safe
+  async openPalettes() {
+    const pick = await ui.palettes(library.palettes, app.doc.palette.length);
+    const p = pick && library.palettes[pick.i];
+    if (!pick) return;
+    if (pick.act === 'save') return actions.savePalette();
+    if (pick.act === 'import') return $('file-palette').click();
+    if (pick.act === 'use') return actions.usePaletteSet(p);
+    if (pick.act === 'export') {
+      download(new Blob([JSON.stringify({ overspray: 'palette', ...p }, null, 2)], { type: 'application/json' }), p.name.replace(/[^\w.-]+/g, '_') + '.palette.json');
+      return;
+    }
+    if (pick.act === 'delete' && await ui.ask({ title: `Delete "${p.name}"?`, body: 'Liveries that already use its colours keep them.', ok: 'Delete' })) {
+      library.palettes.splice(pick.i, 1);
+      saveLibrary();
+    }
+    actions.openPalettes();
+  },
+  // a palette of the same name is replaced
+  keepPalettes(list) {
+    for (const p of list) library.palettes = [p, ...library.palettes.filter(x => x.name !== p.name)];
+    saveLibrary();
+  },
+  async savePalette() {
+    const name = await ui.askText({ title: "Save this livery's colours as a palette", label: 'Name', value: app.doc.name || 'My palette', ok: 'Save' });
+    if (!name) return;
+    actions.keepPalettes([{ name: name.slice(0, 40), colors: app.doc.palette.map(c => ({ name: c.name, color: c.color })) }]);
+    ui.say(`Palette "${name}" saved. Any livery can use it from Palettes.`);
+  },
+  // its colours join this livery's saved colours; one already there is not added twice
+  usePaletteSet(p) {
+    const d = app.doc, fresh = p.colors.filter(c => !d.palette.some(x => x.color === c.color));
+    for (const c of fresh) d.palette.push({ id: 'c' + newId(), name: c.name, color: c.color });
+    change({ now: true });
+    ui.say(fresh.length ? `${fresh.length} colour${fresh.length > 1 ? 's' : ''} from "${p.name}" added` : `This livery already has every colour in "${p.name}"`);
+  },
+  async loadPaletteFile(file) {
+    let list = [];
+    try { list = readPalettes(JSON.parse(await file.text()), file.name.replace(/(\.palette)?\.json$/i, '')); } catch { /* not JSON */ }
+    if (!list.length) { ui.say('No colours found in that file', true); return; }
+    actions.keepPalettes(list);
+    ui.say(list.length > 1 ? `${list.length} palettes imported` : `Palette "${list[0].name}" imported`);
+    actions.openPalettes();
+  },
   async editColour(id) {
     const d = app.doc, c = d.palette.find(x => x.id === id);
     if (!c) return;
@@ -2056,6 +2101,11 @@ $('file-template').addEventListener('change', (e) => {
   e.target.value = '';
   if (f) actions.loadTemplateFile(f);
 });
+$('file-palette').addEventListener('change', (e) => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if (f) actions.loadPaletteFile(f);
+});
 $('file-map').addEventListener('change', (e) => {
   const f = e.target.files[0];
   e.target.value = '';
@@ -2118,7 +2168,7 @@ async function boot() {
   dirty = true;
   try {
     const lib = await persist.loadBlob('next-library');
-    if (lib) library = { logos: Array.isArray(lib.logos) ? lib.logos : [], shapes: Array.isArray(lib.shapes) ? lib.shapes : [], sets: Array.isArray(lib.sets) ? lib.sets : [] };
+    if (lib) library = { logos: Array.isArray(lib.logos) ? lib.logos : [], shapes: Array.isArray(lib.shapes) ? lib.shapes : [], sets: Array.isArray(lib.sets) ? lib.sets : [], palettes: readPalettes(lib.palettes) };
   } catch { /* an empty library */ }
   const saved = loadView();
   takeBools(app.show, saved.show);

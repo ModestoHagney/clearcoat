@@ -19,6 +19,7 @@ const {
   deserializeDoc,
   resolveParams,
   defaultParams,
+  readPalettes,
 } = await import('../js/engine.js');
 
 // Layers built by hand (factory functions for image/text need real canvas).
@@ -123,4 +124,14 @@ test('deserializeDoc restores scaleY on image layers (stretch survived reload)',
   });
   assert.equal(doc.layers[0].scaleY, 2.5);
   assert.equal(doc.layers[1].scaleY, null);
+});
+
+test('readPalettes: one palette, a list of them, or just colours', () => {
+  const one = { overspray: 'palette', name: 'Team', colors: [{ name: 'Main', color: '#FF0000' }, { name: 'Bad', color: 'red' }, { color: 'abc' }] };
+  assert.deepEqual(readPalettes(one), [{ name: 'Team', colors: [{ name: 'Main', color: '#ff0000' }, { name: 'Colour 3', color: '#aabbcc' }] }]);
+  assert.equal(readPalettes([one, { name: 'Empty', colors: [] }]).length, 1); // a palette with no colour is left out
+  assert.deepEqual(readPalettes({ palettes: [one] })[0].name, 'Team');
+  assert.deepEqual(readPalettes(['#000000', '#fff'], 'gulf'), [{ name: 'gulf', colors: [{ name: 'Colour 1', color: '#000000' }, { name: 'Colour 2', color: '#ffffff' }] }]);
+  assert.deepEqual(readPalettes(null), []);
+  assert.deepEqual(readPalettes('nonsense'), []);
 });
