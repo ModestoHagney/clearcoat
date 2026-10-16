@@ -411,3 +411,8 @@ dialog .dbody i.swatch { display: inline-block; width: 16px; height: 16px; margi
 .lcrow { display: grid; grid-template-columns: 34px 84px minmax(0, 1fr); gap: 8px; align-items: center; }
 .lcrow input[type="color"] { width: 34px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: none; }
 .lcrow input[type="text"] { width: 100%; min-width: 0; padding: 4px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--bar); }
+/* the selection's name, and its colour's name under it: looks like text, a box on hover, edited on click */
+.pnames { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.pnames .pname { flex: none; }
+input.cname { width: 100%; padding: 1px 6px; border: 1px solid transparent; border-radius: 6px; background: none; font-size: 12px; color: var(--muted); cursor: text; }
+input.cname:hover, input.cname:focus { border-color: var(--line); background: var(--bar); color: var(--fg); }

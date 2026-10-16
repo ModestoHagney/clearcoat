@@ -1948,6 +1948,20 @@ const actions = {
     actions.keepPalettes(list);
     for (const p of list) actions.usePaletteSet(p); // and straight onto this livery
   },
+  // the selection's colour, named from Properties: its saved colour is renamed,
+  // or it is saved under that name and what is selected is set to it
+  nameColour(name) {
+    const d = app.doc, sel = actions.selected(), color = String(actions.currentColour()).toLowerCase();
+    name = String(name).trim().slice(0, 40);
+    const ref = app.sel === 'base' ? d.baseRef : sel ? sel.colorRef : null;
+    let c = d.palette.find(x => x.id === ref) || d.palette.find(x => x.color === color);
+    if (!name) { ui.refresh(); return; }
+    if (c && c.id === ref) { c.name = name; change({ now: true }); return; }
+    if (c) c.name = name;
+    else d.palette.push(c = { id: 'c' + newId(), name, color });
+    actions.applyColour(c.color, { ref: c.id }); // what is selected now follows it
+    if (!sel && app.sel !== 'base') change();
+  },
   async editColour(id) {
     const d = app.doc, c = d.palette.find(x => x.id === id);
     if (!c) return;

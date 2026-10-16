@@ -349,7 +349,10 @@ export function initUI(app, actions, version) {
     const d = app.doc, sel = actions.selected(), open = openFolds.has('f-saved');
     const linked = app.sel === 'base' ? d.baseRef : sel ? sel.colorRef : null;
     const saved = d.palette.map((c) => `<span class="chipwrap"><button class="chip${c.id === linked ? ' on' : ''}" data-pal="${esc(c.id)}" title="${esc(c.name)} · ${esc(c.color.toUpperCase())}. Set to it, and it follows when this colour is changed. Right-click to rename or change."><i style="background:${esc(c.color)}"></i><span>${esc(c.name)}</span></button><button class="chipedit" data-edit="${esc(c.id)}" title="Rename or change" aria-label="Edit ${esc(c.name)}">${svg('edit')}</button></span>`).join('');
-    return `<div class="phead"><input data-colour="pick" id="c-pick" type="color" value="${esc(actions.currentColour())}" title="Choose a colour" aria-label="Colour">${name}</div>` +
+    // the colour's name under the selection's: its saved colour's, or the next "Colour n"
+    const cur = actions.currentColour(), named = d.palette.find((c) => c.id === linked) || d.palette.find((c) => c.color === cur);
+    const cname = `<input id="f-cname" class="cname" type="text" maxlength="40" value="${esc(named ? named.name : 'Colour ' + (d.palette.length + 1))}" title="Click to name this colour. A named colour is saved, and everything set to it changes with it." aria-label="Colour name">`;
+    return `<div class="phead"><input data-colour="pick" id="c-pick" type="color" value="${esc(cur)}" title="Choose a colour" aria-label="Colour"><span class="pnames">${name}${cname}</span></div>` +
       `<div class="chips">${[...new Set([...usedColours(), ...d.palette.map((c) => c.color)])].map((c) => `<button class="dot" data-col="${c}" style="background:${c}" title="${c.toUpperCase()}" aria-label="${c}"></button>`).join('')}` +
       `<button class="savedarrow" data-savedfold aria-expanded="${open}" title="Saved colours${d.palette.length ? ' · ' + d.palette.length : ''}" aria-label="Saved colours">${open ? '▾' : '▸'}</button></div>` +
       (!open ? '' : (saved ? `<div class="saved">${saved}</div>` : '') +
@@ -748,6 +751,7 @@ export function initUI(app, actions, version) {
     if (id === 'f-italic') { actions.setProp('italic', e.target.checked); return; }
     if (id === 'f-mirrorFlip') { actions.setProp('mirrorFlip', e.target.checked); return; }
     if (id === 'f-blend') { actions.setProp('blend', e.target.value || null); return; }
+    if (id === 'f-cname') return actions.nameColour(e.target.value);
     if (id === 'm-name') return actions.mapRename(e.target.value.trim());
     if (id === 'm-pair') return actions.mapPair(e.target.value);
     if (id === 'm-colours') return actions.toggleMapColours();
