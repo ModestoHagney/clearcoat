@@ -159,16 +159,16 @@ export function initMap(app, env) {
   const clashes = (moving, to) => map().links.some(l => [l.a, l.b].some(sd =>
     (moving.includes(sd.from) ? [sd.to] : moving.includes(sd.to) ? [sd.from] : []).some(o => Math.hypot(o.x - to.x, o.y - to.y) < 2)));
   const place = (moving, to) => { for (const end of moving) { end.x = Math.round(to.x * 10) / 10; end.y = Math.round(to.y * 10) / 10; } };
-  // the arrow keys: the picked end `step` px along its panel's edge, whichever way
-  // round goes most with the arrow (Right on an upright edge: on round the outline)
-  function nudge([ax, ay], step) {
+  // Left/Right: the picked end `step` px along its panel's edge, whichever way
+  // goes more left or right on screen (on an upright edge Right goes down)
+  function nudge(dir, step) {
     const m = map(), r = picked && regionById(m, picked.region);
     // gone if the link was removed or the map replaced (undo)
     if (!r || !(m.links || []).some(l => [l.a, l.b].some(sd => picked.ends.includes(sd.from) || picked.ends.includes(sd.to)))) { picked = null; requestDraw(); return; }
     const e0 = picked.ends[0], pts = regionOutline(r);
     const fwd = slideAlong(pts, e0.x, e0.y, step), back = slideAlong(pts, e0.x, e0.y, -step);
-    const with_ = (q) => (q.x - e0.x) * ax + (q.y - e0.y) * ay;
-    const to = Math.abs(with_(fwd) - with_(back)) > step / 10 ? (with_(fwd) > with_(back) ? fwd : back) : ax + ay > 0 ? fwd : back;
+    const dx = fwd.x - back.x, dy = fwd.y - back.y;
+    const to = (Math.abs(dx) > step / 10 ? dx * dir : dy * dir) > 0 ? fwd : back;
     if (clashes(picked.ends, to)) { env.say('The two ends need to be apart'); return; }
     place(picked.ends, to);
     seam = null;
@@ -268,8 +268,7 @@ export function initMap(app, env) {
   }
 
   function key(e) {
-    const arrow = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
-    if (app.tool === 'mlink' && picked && !ends.length && arrow) { nudge(arrow, e.shiftKey ? 10 : 1); return true; }
+    if (app.tool === 'mlink' && picked && !ends.length && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { nudge(e.key === 'ArrowRight' ? 1 : -1, e.shiftKey ? 10 : 1); return true; }
     if (app.tool === 'mlink' && e.key === 'Backspace') { // takes back the last click, or the last link made
       if (ends.length) { ends.pop(); requestDraw(); env.refreshChrome(); }
       else if (map() && (map().links || []).length) { const m = map(), twin = dropLink(m, m.links[m.links.length - 1]); seam = null; env.mapChanged(twin ? 'Last link removed, and its twin' : 'Last link removed'); }
@@ -289,7 +288,7 @@ export function initMap(app, env) {
     if (app.tool === 'hand') return 'Drag to move the sheet · wheel zooms · H or Esc puts it down';
     if (!map()) return 'Load a template to get a map';
     if (app.tool === 'mcentre') return pending ? 'Click the matching corner on the other side' : 'Click a corner, then its match on the other side';
-    if (app.tool === 'mlink') return [(picked ? 'Arrow keys nudge the end you moved (Shift: 10 px) · Esc lets go · ' : '') + 'Click one end of an edge that meets another panel · drag a link\'s end to move it (hold Alt to skip snapping) · Alt+click removes a link', 'Click the other end, on the same panel', 'Now the spot on the other panel that meets end 1', 'And the spot that meets end 2'][ends.length] + (ends.length ? ' · Backspace takes one back' : '');
+    if (app.tool === 'mlink') return [(picked ? '← → nudge the end you moved (Shift: 10 px) · Esc lets go · ' : '') + 'Click one end of an edge that meets another panel · drag a link\'s end to move it (hold Alt to skip snapping) · Alt+click removes a link', 'Click the other end, on the same panel', 'Now the spot on the other panel that meets end 1', 'And the spot that meets end 2'][ends.length] + (ends.length ? ' · Backspace takes one back' : '');
     return sel() ? 'Name it, pair it or set its centreline on the right' : 'Click a panel';
   };
 
