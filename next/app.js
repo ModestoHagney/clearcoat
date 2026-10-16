@@ -1870,7 +1870,7 @@ const actions = {
     const pick = await ui.palettes(library.palettes);
     const p = pick && library.palettes[pick.i];
     if (!pick) return;
-    if (pick.act === 'save') return actions.savePalette();
+    if (pick.act === 'save') return actions.liveryColours({ save: true });
     if (pick.act === 'import') return $('file-palette').click();
     if (pick.act === 'use') return actions.usePaletteSet(p);
     if (pick.act === 'export') {
@@ -1888,18 +1888,44 @@ const actions = {
     for (const p of list) library.palettes = [p, ...library.palettes.filter(x => x.name !== p.name)];
     saveLibrary();
   },
-  // the base coat first, then its saved colours by name, then every other
-  // colour it uses; each can be named before it is kept
-  async savePalette() {
-    const d = app.doc, colors = [];
-    const add = (name, color) => { if (color && !colors.some(c => c.color === color)) colors.push({ name, color }); };
-    add(BASE_COAT, String(d.baseColor || '').toLowerCase());
-    for (const c of d.palette) add(c.name, c.color);
-    for (const color of ui.usedColours(Infinity)) add('Colour ' + (colors.length + 1), color);
-    const p = await ui.savePalette(d.name || 'My palette', colors);
-    if (!p) return;
-    actions.keepPalettes([p]);
-    ui.say(`Palette "${p.name}" saved. Any livery can use it from Palettes.`);
+  // Livery colours: every colour it has (the base coat first, then the saved
+  // ones, then the rest it uses), each named and changed in one place. A
+  // change reaches everything in that colour, its finish and repeats too, and
+  // each becomes a saved colour that what is in it follows. `save`: kept as a
+  // palette as well.
+  async liveryColours({ save = false } = {}) {
+    const d = app.doc, rows = [];
+    const add = (name, color, id) => { if (color && !rows.some(r => r.color === color)) rows.push({ name, color, id }); };
+    const base = String(d.baseColor || '').toLowerCase();
+    add(BASE_COAT, base, d.baseRef);
+    for (const c of d.palette) add(c.name, c.color, c.id);
+    for (const color of ui.usedColours(Infinity)) add('Colour ' + (rows.length + 1), color);
+    const res = await ui.liveryColours(rows, save);
+    if (!res) return;
+    const saved = new Map(); // a colour as it was → its saved colour, as it is now
+    res.colors.forEach((r, k) => {
+      const was = rows[k];
+      let c = d.palette.find(x => x.id === was.id) || d.palette.find(x => x.color === was.color);
+      if (!c) { c = { id: 'c' + newId() }; d.palette.push(c); }
+      Object.assign(c, r);
+      saved.set(was.color, c);
+    });
+    const now = (hex) => (saved.get(String(hex || '').toLowerCase()) || {}).color || hex;
+    for (const l of d.layers) {
+      const c = saved.get(layerColour(l));
+      if (c) {
+        l.colorRef = c.id;
+        if (l.type === 'text') { l.textColor = c.color; regenerateText(l); } else { l.color = c.color; if (l.type === 'fill') keepFadeOut(l); }
+      }
+      if (l.repeat && Array.isArray(l.repeat.colors)) l.repeat.colors = l.repeat.colors.map(now);
+    }
+    const b = saved.get(base);
+    if (b) { d.baseColor = b.color; d.baseRef = b.id; }
+    for (const r of d.finishRules || []) r.color = now(r.color);
+    change({ now: true });
+    if (!save) return;
+    actions.keepPalettes([{ name: res.name, colors: res.colors }]);
+    ui.say(`Palette "${res.name}" saved. Any livery can use it from Palettes.`);
   },
   // its colours join this livery's saved colours (one already there is not
   // added twice), and the one named Base coat goes on the base coat

@@ -161,7 +161,7 @@ export function initUI(app, actions, version) {
   const menuDefs = () => ({
     File: [
       ['New', '', 'newLivery'], ['Open…', '', 'open'], ['Save', 'Ctrl+S', 'save'], 0,
-      ['Load template…', '', 'pickTemplate'], ['Get a template…', '', 'getTemplate'], ['Car setup…', '', 'carSetup'], ['Palettes…', '', 'openPalettes'], ['Link iRacing paints folder…', '', 'linkFolder'], ['Save to iRacing', '', 'saveIracing'], 0,
+      ['Load template…', '', 'pickTemplate'], ['Get a template…', '', 'getTemplate'], ['Car setup…', '', 'carSetup'], ['Livery colours…', '', 'liveryColours'], ['Palettes…', '', 'openPalettes'], ['Link iRacing paints folder…', '', 'linkFolder'], ['Save to iRacing', '', 'saveIracing'], 0,
       ['Export TGA', '', 'exportTga'], ['Export PNG', '', 'exportPng'], ['Send to Trading Paints', '', 'sendTp'],
     ],
     Edit: [
@@ -353,7 +353,7 @@ export function initUI(app, actions, version) {
       `<div class="chips">${[...new Set([...usedColours(), ...d.palette.map((c) => c.color)])].map((c) => `<button class="dot" data-col="${c}" style="background:${c}" title="${c.toUpperCase()}" aria-label="${c}"></button>`).join('')}` +
       `<button class="savedarrow" data-savedfold aria-expanded="${open}" title="Saved colours${d.palette.length ? ' · ' + d.palette.length : ''}" aria-label="Saved colours">${open ? '▾' : '▸'}</button></div>` +
       (!open ? '' : (saved ? `<div class="saved">${saved}</div>` : '') +
-        '<div class="acts"><button class="btn" data-act="saveColour" title="Save the current colour with this livery, and set what is selected to it">Save colour</button></div>');
+        '<div class="acts"><button class="btn" data-act="saveColour" title="Save the current colour with this livery, and set what is selected to it">Save colour</button><button class="btn" data-act="liveryColours" title="Name and change every colour in the livery, everywhere it is used (File › Livery colours)">Edit colours</button></div>');
   }
   // Place, Look and Repeat fold away, and only one is open at a time (the
   // browser closes the others: they share a name). An empty one is left out.
@@ -837,17 +837,25 @@ export function initUI(app, actions, version) {
     if (!await p) return null;
     return del ? 'delete' : { name: $('ec-name').value.trim(), color: $('ec-pick').value };
   }
-  // Saving a palette: its name, and a name for each colour (the base coat's
-  // stays Base coat, so it goes on the base coat wherever it is used).
-  // → { name, colors } or null
-  async function savePalette(name, colors) {
-    const ok = await ask({
-      title: "Save this livery's colours", ok: 'Save',
-      body: `<label><span>Palette name</span><input id="sp-name" type="text" value="${esc(name)}"></label>` +
-        colors.map((c, k) => `<label><span><i class="swatch" style="background:${esc(c.color)}"></i>${esc(c.color.toUpperCase())}</span><input id="sp-${k}" type="text" maxlength="40" value="${esc(c.name)}"${k ? '' : ' disabled title="The base coat colour keeps this name, so it goes on the base coat wherever the palette is used"'}></label>`).join(''),
+  // Livery colours: each one's colour (picker or hex) and name. The base
+  // coat's keeps its name, so it goes on the base coat wherever a palette of
+  // them is used. `save`: kept as a palette, so it asks the palette's name too.
+  // → { name, colors: [{ name, color }] } or null
+  async function liveryColours(rows, save) {
+    const p = ask({
+      title: save ? 'Save as a palette' : 'Livery colours', ok: save ? 'Save' : 'Apply',
+      body: (save ? `<label><span>Palette name</span><input id="lc-name" type="text" maxlength="40" value="${esc(app.doc.name || 'My palette')}"></label>` : '<div class="note">Change a colour here and everything in it changes too.</div>') +
+        rows.map((r, k) => `<div class="lcrow"><input id="lc-pick-${k}" type="color" value="${esc(r.color)}" title="Choose a colour" aria-label="Colour"><input id="lc-hex-${k}" class="mono" type="text" maxlength="7" spellcheck="false" value="${esc(r.color)}" aria-label="Hex">` +
+          `<input id="lc-n-${k}" type="text" maxlength="40" value="${esc(r.name)}" aria-label="Name"${k ? '' : ' disabled title="The base coat colour keeps this name, so it goes on the base coat wherever a palette of these is used"'}></div>`).join(''),
     });
-    const named = $('sp-name').value.trim().slice(0, 40);
-    return ok && named ? { name: named, colors: colors.map((c, k) => ({ name: $('sp-' + k).value.trim() || c.name, color: c.color })) } : null;
+    rows.forEach((r, k) => {
+      $('lc-pick-' + k).oninput = () => { $('lc-hex-' + k).value = $('lc-pick-' + k).value; };
+      $('lc-hex-' + k).oninput = () => { const v = hexOf($('lc-hex-' + k).value); if (v) $('lc-pick-' + k).value = v; };
+    });
+    if (!await p) return null;
+    const name = save ? $('lc-name').value.trim() : '';
+    if (save && !name) return null;
+    return { name, colors: rows.map((r, k) => ({ name: $('lc-n-' + k).value.trim() || r.name, color: hexOf($('lc-pick-' + k).value) || r.color })) };
   }
   // The saved palettes. → { act: 'save' | 'import' | 'use' | 'export' | 'delete', i } or null
   async function palettes(list) {
@@ -1169,5 +1177,5 @@ export function initUI(app, actions, version) {
 
   // put the cursor in a Properties box, ready to type over what is there
   const focusField = (id) => { const el = $(id); if (el) { el.focus(); if (el.select) el.select(); } };
-  return { layout, setLayout, refresh, refreshChrome, say, ask, askText, pickProject, carSetup, shortcuts, editColour, palettes, savePalette, usedColours, focusField, library, mergeChoice };
+  return { layout, setLayout, refresh, refreshChrome, say, ask, askText, pickProject, carSetup, shortcuts, editColour, palettes, liveryColours, usedColours, focusField, library, mergeChoice };
 }

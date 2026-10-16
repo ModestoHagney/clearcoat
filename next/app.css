@@ -407,3 +407,7 @@ body.workshop .bar .brand::after { content: " · drawing a shape"; font: 400 14p
 dialog .dbody i.swatch { display: inline-block; width: 16px; height: 16px; margin-right: 6px; border-radius: 50%; border: 1px solid var(--line); vertical-align: -3px; }
 .savedarrow { margin-left: auto; padding: 0 6px; color: var(--muted); font-size: 13px; }
 .savedarrow:hover { color: var(--fg); }
+/* Livery colours: a row each, its colour, hex and name */
+.lcrow { display: grid; grid-template-columns: 34px 84px minmax(0, 1fr); gap: 8px; align-items: center; }
+.lcrow input[type="color"] { width: 34px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: none; }
+.lcrow input[type="text"] { width: 100%; min-width: 0; padding: 4px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--bar); }
