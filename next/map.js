@@ -27,7 +27,20 @@ function labelOf(r, later) {
 // the same colours should face each other across the join. Strong colours,
 // unlike each other, in an order that reads differently backwards: a link made
 // the wrong way round shows up.
-const BANDS = ['#ffffff', '#e6194b', '#ffe119', '#0082c8', '#101114', '#f58231'];
+// Each link shuffles them into its own order (from its place in the list), so
+// ends of different links rarely share a colour.
+const BANDS = ['#ffffff', '#101114', '#e6194b', '#3cb44b', '#ffe119', '#4363d8', '#f58231',
+  '#911eb4', '#42d4f4', '#f032e6', '#bfef45', '#469990', '#9a6324', '#808000'];
+function bandsFor(i) {
+  const out = [...BANDS];
+  let s = Math.imul(i + 1, 2654435761);
+  for (let k = out.length - 1; k > 0; k--) {
+    s = Math.imul(s ^ (s >>> 15), 2246822507); s ^= s >>> 13;
+    const j = (s >>> 0) % (k + 1);
+    [out[k], out[j]] = [out[j], out[k]];
+  }
+  return out;
+}
 const linkHue = (i) => `hsl(${(i * 137.5 + 40) % 360} 95% 62%)`;
 
 // The panel colours, names, linked edges and centrelines as a full-sheet
@@ -46,6 +59,7 @@ export function guideCanvas(map) {
   });
   (map.links || []).forEach((link, i) => {
     const n = Math.max(3, Math.min(16, Math.round(linkLength(map, link) / 48)));
+    const bands = bandsFor(i);
     for (const side of ['a', 'b']) {
       const r = regionById(map, link[side].region);
       if (!r) continue;
@@ -64,7 +78,7 @@ export function guideCanvas(map) {
       for (let k = 0; k < n; k++) {
         const pts = linkPoints(map, link, side, k / n, (k + 1) / n, 3);
         g.beginPath(); pts.forEach((q, j) => (j ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y)));
-        g.strokeStyle = BANDS[(k + i) % BANDS.length]; g.stroke();
+        g.strokeStyle = bands[k % bands.length]; g.stroke();
       }
       const img = g.getImageData(0, 0, sc.width, sc.height), px = img.data, mine = nearestIsStretch(regionOutline(r), all, 22);
       for (let y = 0; y < sc.height; y++) for (let x = 0; x < sc.width; x++) {
