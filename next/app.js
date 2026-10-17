@@ -932,28 +932,34 @@ const actions = {
   },
 
   // Trading Paints takes the paint as a PNG, and a finish map only as the
-  // .mip the sim itself makes from the last Save to iRacing.
+  // .mip the sim itself makes from the last Save to iRacing. A car's Send
+  // opens the upload page only once both files are down: otherwise it stays
+  // here and says why, since the new tab would hide the message.
   async sendTp() {
-    // the tab first: an await before window.open spends the click and the browser blocks it
-    // (no 'noopener' in the call: with it the answer is always null, blocked or not)
-    const tab = window.open('https://www.tradingpaints.com/upload', '_blank'), blocked = !tab;
-    if (tab) tab.opener = null;
-    const car = app.doc.target === 'car' && validCustid(app.custid);
     const name = safeName() + '.png'; // Trading Paints takes any file name (the .mip too); the upload page asks for the car and number
     const blob = await new Promise(done => exportPaintCanvas(app.doc, paint()).toBlob(done, 'image/png'));
     if (!blob) { ui.say('The paint could not be exported', true); return; }
     download(blob, name);
-    let mip = null, old = false;
-    try {
-      const dir = car && await paintsDir(app.doc);
-      mip = dir && await persist.readFileFromFolder(dir, `car_spec_${app.custid}.mip`);
-      const tga = mip && await persist.readFileFromFolder(dir, `car_spec_${app.custid}.tga`);
-      old = !!tga && mip.lastModified < tga.lastModified; // made before the finishes last changed
-      if (mip && !old) download(mip, safeName() + '_spec.mip');
-    } catch { /* no folder linked: the paint alone still uploads */ }
-    if (blocked) ui.say('Allow pop-ups for this site, then send again', true);
-    else if (old) ui.say(`${name} downloaded. Finish file is out of date: open the car in iRacing once, then send again.`, true);
-    else ui.say(mip ? `Downloaded ${name} (paint) and ${safeName()}_spec.mip (finish)` : `Downloaded ${name}. Upload it as the paint.`);
+    let why = null;
+    if (app.doc.target === 'car') {
+      why = 'No finish file: add your iRacing account number, then send again.';
+      if (validCustid(app.custid)) try {
+        const dir = await paintsDir(app.doc);
+        if (!dir) throw 0; // no folder linked, or a reload dropped access to it
+        const mip = await persist.readFileFromFolder(dir, `car_spec_${app.custid}.mip`);
+        const tga = mip && await persist.readFileFromFolder(dir, `car_spec_${app.custid}.tga`);
+        if (!mip) why = 'No finish file yet: Save to iRacing, open the car in iRacing once, then send again.';
+        else if (tga && mip.lastModified < tga.lastModified) why = 'Finish file is out of date: open the car in iRacing once, then send again.';
+        else { download(mip, safeName() + '_spec.mip'); why = null; }
+      } catch { why = 'No finish file: turn on Live (or link the paints folder) so Overspray can read it, then send again.'; }
+    }
+    if (why) { ui.say(`${name} downloaded. ${why}`, true); return; }
+    // a few awaits in, the click still counts: browsers allow pop-ups for 5s after it
+    // (no 'noopener' in the call: with it the answer is always null, blocked or not)
+    const tab = window.open('https://www.tradingpaints.com/upload', '_blank');
+    if (!tab) { ui.say('Allow pop-ups for this site, then send again', true); return; }
+    tab.opener = null;
+    ui.say(app.doc.target === 'car' ? `Downloaded ${name} (paint) and ${safeName()}_spec.mip (finish)` : `Downloaded ${name}. Upload it as the paint.`);
   },
 
   setMode(mode) {
