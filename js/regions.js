@@ -553,6 +553,13 @@ export function twinOf(map, link) {
   const out = carriedLink(map, link);
   return (out && (map.links || []).find(l => l !== link && sameLink(l, out, 30))) || null;
 }
+// after a link is edited: its twin (from twinOf, found before the edit) set to
+// match it again, carried across the same way it was made → false if it can't be
+export function syncTwin(map, link, twin) {
+  const out = carriedLink(map, link);
+  if (out) { twin.a = out.a; twin.b = out.b; }
+  return !!out;
+}
 // the same two stretches, either way round, ends within tol px
 function sameLink(l, o, tol) {
   const near = (p, q) => Math.hypot(p.x - q.x, p.y - q.y) < tol;

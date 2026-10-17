@@ -5,7 +5,7 @@
 // corrected.
 
 import { SIZE, createImageLayer, loadImage } from '../js/engine.js';
-import { regionOutline, regionById, centerLine, snapToOutline, slideAlong, edgeSpan, labelPoint, linkPoints, linkLength, linkDir, matchPoint, twinLink, twinOf } from '../js/regions.js';
+import { regionOutline, regionById, centerLine, snapToOutline, slideAlong, edgeSpan, labelPoint, linkPoints, linkLength, linkDir, matchPoint, twinLink, twinOf, syncTwin } from '../js/regions.js';
 import { pieceAt } from '../js/mirror.js';
 
 export const GUIDE = 'Panel guide'; // the layer that puts the panel colours on the car
@@ -177,9 +177,17 @@ export function initMap(app, env) {
     const to = slideAlong(pts, e0.x, e0.y, dir * picked.way * step, picked.span);
     if (clashes(picked.ends, to)) { env.say('The two ends need to be apart'); return; }
     place(picked.ends, to);
+    syncTwins(picked.pairs);
     seam = null;
     env.mapChanged();
   }
+  // the twins of the links these ends belong to, found before they move: [link, twin] pairs
+  function twinsOf(moving) {
+    const m = map(), mine = (m.links || []).filter(l => [l.a, l.b].some(sd => moving.includes(sd.from) || moving.includes(sd.to)));
+    return mine.map(l => [l, twinOf(m, l)]).filter(([, t]) => t && !mine.includes(t));
+  }
+  // once editing stops, the twins on the other side of the car follow
+  const syncTwins = (pairs) => { for (const [l, t] of pairs) if (map().links.includes(t)) syncTwin(map(), l, t); };
   const nameOf = (id) => (regionById(map(), id) || { name: id }).name;
   // a link goes with its twin on the other side of the car, as they were made: → the twin removed, or null
   function dropLink(m, link) {
@@ -218,6 +226,8 @@ export function initMap(app, env) {
     if (app.tool === 'mlink') {
       // a press on a link's end: a drag slides it along the edge, a plain click still counts as a click there
       const grab = !e.altKey && !ends.length ? linkEndAt(s) : null;
+      if (grab) grab.pairs = twinsOf(grab.ends);
+      if (grab && e.shiftKey) { picked = grab; requestDraw(); env.refreshChrome(); return; } // fine-tune it with the arrow keys
       if (grab) { slide = { ...grab, start: s, moved: false }; picked = grab; }
       else linkClick(p, e.altKey);
       return;
@@ -269,7 +279,7 @@ export function initMap(app, env) {
     if (!slide) return;
     const d = slide;
     slide = null;
-    if (d.moved) { env.mapChanged(); env.refreshChrome(); }
+    if (d.moved) { syncTwins(d.pairs); env.mapChanged(); env.refreshChrome(); }
     else { picked = null; linkClick(screenToDoc(d.start.x, d.start.y), false); }
   }
 
@@ -294,7 +304,7 @@ export function initMap(app, env) {
     if (app.tool === 'hand') return 'Drag to move the sheet · wheel zooms · H or Esc puts it down';
     if (!map()) return 'Load a template to get a map';
     if (app.tool === 'mcentre') return pending ? 'Click the matching corner on the other side' : 'Click a corner, then its match on the other side';
-    if (app.tool === 'mlink') return [(picked ? '← → nudge the end you moved (Shift: 10 px) · Esc lets go · ' : '') + 'Click one end of an edge that meets another panel · drag a link\'s end to move it (hold Alt to skip snapping) · Alt+click removes a link', 'Click the other end, on the same panel', 'Now the spot on the other panel that meets end 1', 'And the spot that meets end 2'][ends.length] + (ends.length ? ' · Backspace takes one back' : '');
+    if (app.tool === 'mlink') return [(picked ? '← → nudge this end (Shift: 10 px) · Esc lets go · ' : '') + 'Click one end of an edge that meets another panel · drag a link\'s end to move it (hold Alt to skip snapping), Shift+click it to nudge it with ← → · Alt+click removes a link', 'Click the other end, on the same panel', 'Now the spot on the other panel that meets end 1', 'And the spot that meets end 2'][ends.length] + (ends.length ? ' · Backspace takes one back' : '');
     return sel() ? 'Name it, pair it or set its centreline on the right' : 'Click a panel';
   };
 
