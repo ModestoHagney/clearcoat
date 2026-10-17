@@ -242,7 +242,7 @@ export function regenerateText(layer) {
   const size = Math.max(40, Math.min(400, layer.fontSize || 160));
   const outline = Math.max(0, Math.min(30, layer.outlineWidth || 0));
   const fontStr = textFont(layer, size);
-  const spacing = `${Math.max(0, Math.min(40, layer.letterSpacing || 0))}px`;
+  const spacing = `${Math.max(-40, Math.min(40, layer.letterSpacing || 0))}px`;
   const lineH = size * Math.max(60, Math.min(300, layer.lineSpacing || 120)) / 100;
   const align = layer.align === 'left' || layer.align === 'right' ? layer.align : 'center'; // lines of different lengths: which side they share
   const curve = Math.max(-180, Math.min(180, Number(layer.curve) || 0));
@@ -277,7 +277,7 @@ export function regenerateText(layer) {
     // total angle is `curve` degrees. Positive arches upward (bends along the
     // top of a circle), negative arches downward. Letter-spacing gaps are
     // inserted manually between glyphs so measurement stays exact.
-    const spacingPx = Math.max(0, Math.min(40, layer.letterSpacing || 0));
+    const spacingPx = Math.max(-40, Math.min(40, layer.letterSpacing || 0));
     const theta = Math.abs(curve) * Math.PI / 180;
     const dir = curve > 0 ? 1 : -1;
     ctx.font = fontStr;
