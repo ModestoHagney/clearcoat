@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { REGIONS_FORMAT, createRegionMap, parseRegionMap, regionById, regionAt, mirrorPoint, uniqueRegionId, detectPieces, piecesRegionMap, simplifyOutline, renameRegion, labelPoint, pointInPolygon, snapToOutline, slideAlong, matchPoint, linkPoints, linkLength, linkDir, twinLink, twinOf, seamMatrix, seamPieces, centerLine, mirrorAcross, setMirror, trimShape, growOutline, guessMirrorKind } from '../js/regions.js';
+import { REGIONS_FORMAT, createRegionMap, parseRegionMap, regionById, regionAt, mirrorPoint, uniqueRegionId, detectPieces, piecesRegionMap, simplifyOutline, renameRegion, labelPoint, pointInPolygon, snapToOutline, slideAlong, edgeSpan, matchPoint, linkPoints, linkLength, linkDir, twinLink, twinOf, seamMatrix, seamPieces, centerLine, mirrorAcross, setMirror, trimShape, growOutline, guessMirrorKind } from '../js/regions.js';
 
 // Convenience builder: a valid raw map with two mirrored door rectangles.
 function rawMap(overrides = {}) {
@@ -612,13 +612,22 @@ test('setMirror records how the pair lies, and clears it when unpaired', () => {
   assert.deepEqual([a.mirrorKind, b.mirrorKind], [undefined, undefined]);
 });
 
-test('slideAlong moves a spot round the outline, past corners', () => {
+test('slideAlong moves a spot round the outline, kept to its edge by edgeSpan', () => {
   const sq = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 }];
   assert.deepEqual(slideAlong(sq, 50, 0, 1), { x: 51, y: 0 });
   assert.deepEqual(slideAlong(sq, 50, 0, -1), { x: 49, y: 0 });
-  assert.deepEqual(slideAlong(sq, 100, 0, 1), { x: 100, y: 1 }); // off a corner by 1
-  assert.deepEqual(slideAlong(sq, 0, 0, -1), { x: 0, y: 1 });    // wraps back round
-  assert.deepEqual(slideAlong(sq, 95, 0, 10), { x: 100, y: 0 });  // a step stops at a corner on the way
-  assert.deepEqual(slideAlong(sq, 5, 0, -10), { x: 0, y: 0 });    // going back too
-  assert.deepEqual(slideAlong(sq, 100, 0, 10), { x: 100, y: 10 }); // and goes on from it
+  assert.deepEqual(slideAlong(sq, 100, 0, 1), { x: 100, y: 1 }); // with no span it goes round
+  const top = edgeSpan(sq, 50, 0, 1);
+  assert.deepEqual(top, { start: 0, len: 100 });
+  assert.deepEqual(slideAlong(sq, 95, 0, 10, top), { x: 100, y: 0 }); // stops at the corner
+  assert.deepEqual(slideAlong(sq, 100, 0, 10, top), { x: 100, y: 0 }); // and stays there
+  assert.deepEqual(slideAlong(sq, 100, 0, -10, top), { x: 90, y: 0 }); // back along its own edge is fine
+  assert.deepEqual(slideAlong(sq, 5, 0, -10, top), { x: 0, y: 0 });
+  // on a corner, the way the first press goes picks the edge
+  assert.deepEqual(edgeSpan(sq, 100, 0, 1), { start: 100, len: 100 });
+  assert.deepEqual(edgeSpan(sq, 100, 0, -1), { start: 0, len: 100 });
+  assert.deepEqual(edgeSpan(sq, 0, 0, -1), { start: 300, len: 100 }); // wraps round
+  // gentle bends aren't corners: a curve of 10 degree turns has none
+  const circle = Array.from({ length: 36 }, (_, i) => ({ x: 100 * Math.cos(i * Math.PI / 18), y: 100 * Math.sin(i * Math.PI / 18) }));
+  assert.equal(edgeSpan(circle, 100, 0, 1), null);
 });
