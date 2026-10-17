@@ -5,7 +5,7 @@
 // corrected.
 
 import { SIZE, createImageLayer, loadImage } from '../js/engine.js';
-import { regionOutline, regionById, centerLine, snapToOutline, slideAlong, edgeSpan, labelPoint, linkPoints, linkLength, linkDir, nearestIsStretch, matchPoint, twinLink, twinOf, syncTwin, addTwins, setMirror } from '../js/regions.js';
+import { regionOutline, regionById, centerLine, snapToOutline, slideAlong, edgeSpan, labelPoint, linkPoints, linkLength, linkDir, nearestIsStretch, matchPoint, twinLink, twinOf, syncTwin, addTwins, setMirror, MIRROR_KINDS } from '../js/regions.js';
 import { pieceAt } from '../js/mirror.js';
 
 export const GUIDE = 'Panel guide'; // the layer that puts the panel colours on the car
@@ -332,6 +332,10 @@ export function initMap(app, env) {
 
   function key(e) {
     if (app.tool === 'mlink' && picked && !ends.length && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { nudge(e.key === 'ArrowRight' ? 1 : -1, e.shiftKey ? 10 : 1); return true; }
+    if (app.tool === 'mpair' && !pairFirst && (e.key === 'f' || e.key === 'F') && sel() && sel().mirror) { // the next flip for the pair just made
+      env.mapFlip(MIRROR_KINDS[(MIRROR_KINDS.indexOf(sel().mirrorKind || 'flip') + 1) % MIRROR_KINDS.length]);
+      return true;
+    }
     const back = e.key === 'Backspace' || e.key === 'Delete';
     if ((app.tool === 'mcentre' || app.tool === 'mpair') && back) { // takes back the last click
       if (pending || pairFirst) { pending = snap = pairFirst = null; if (app.tool === 'mpair') env.pickPiece(null); else { requestDraw(); env.refreshChrome(); } }
@@ -359,7 +363,7 @@ export function initMap(app, env) {
     if (!map()) return 'Load a template to get a map';
     const takeBack = ' · Delete or Backspace takes one back';
     if (app.tool === 'mcentre') return (pending ? 'Click the matching corner on the other side' : 'Click a corner, then its match on the other side') + (app.centreFor ? '' : takeBack);
-    if (app.tool === 'mpair') return (pairFirst ? `Now click the pair of ${nameOf(pairFirst)}` : 'Click a panel, then its pair on the other side of the car') + takeBack;
+    if (app.tool === 'mpair') return (pairFirst ? `Now click the pair of ${nameOf(pairFirst)}` : 'Click a panel, then its pair on the other side of the car') + (!pairFirst && sel() && sel().mirror ? ' · F tries the next flip' : '') + takeBack;
     if (app.tool === 'mlink') return [(picked ? '← → nudge this end (Shift: 10 px) · Esc lets go · ' : '') + 'Click one end of an edge that meets another panel · drag a link\'s end to move it (hold Alt to skip snapping), Shift+click it to nudge it with ← → · Alt+click removes a link', 'Click the other end, on the same panel', 'Now the spot on the other panel that meets end 1', 'And the spot that meets end 2'][ends.length] + (ends.length ? takeBack : '');
     return sel() ? 'Name it, pair it or set its centreline on the right' : 'Click a panel';
   };

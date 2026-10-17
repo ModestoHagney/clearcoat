@@ -6,6 +6,7 @@ import { pieces, hue } from './map.js';
 import { SHAPES, PLAIN_SHAPES, roundedOf, plainOf, hollowOf, hollowed, softened, boxOutline, aspect, hasInner } from '../js/shapes.js';
 import { TEXT_FONTS, GOOGLE_FONTS, fadeStyleOf } from '../js/engine.js';
 import { FINISHES, finishName, finishLabel, finishList, layerColour, isArea, readFinish, presetOf } from '../js/finish.js';
+import { MIRROR_NAMES } from '../js/regions.js';
 import { renderTile } from './preview.js';
 import { initPicker } from './picker.js';
 
@@ -528,6 +529,7 @@ export function initUI(app, actions, version) {
     const top = !r ? '<div class="note">Click a panel</div>'
       : field('Name', `<input id="m-name" type="text" value="${esc(r.name)}">`) +
         field('Twin', `<select id="m-pair">${opt('', 'None', !r.mirror)}${list.filter((x) => x !== r).map((x) => opt(x.id, x.name, x.id === r.mirror)).join('')}</select>`) +
+        (r.mirror ? field('Flip', `<select id="m-flip" title="How the twin lies on the sheet compared with this panel">${Object.entries(MIRROR_NAMES).map(([k, v]) => opt(k, v, k === (r.mirrorKind || 'flip'))).join('')}</select>`) : '') +
         `<div class="acts"><button class="btn" data-act="centreStart" title="Two matching corners, one each side"${r.center ? ' disabled' : ''}>Set centreline</button><button class="btn" data-act="centreRemove"${r.center ? '' : ' disabled'}>Remove centreline</button></div>`;
     return top + '<hr class="rule">' +
       `<label class="switch">Panel colours<input id="m-colours" type="checkbox"${app.mapShow.colours ? ' checked' : ''}></label>` +
@@ -765,6 +767,7 @@ export function initUI(app, actions, version) {
     if (id === 'f-cname') return actions.nameColour(e.target.value);
     if (id === 'm-name') return actions.mapRename(e.target.value.trim());
     if (id === 'm-pair') return actions.mapPair(e.target.value);
+    if (id === 'm-flip') return actions.mapFlip(e.target.value);
     if (id === 'm-colours') return actions.toggleMapColours();
     if (id === 'm-guide') return actions.toggleGuide();
     const layer = app.doc.layers.find((x) => x.id === app.sel);

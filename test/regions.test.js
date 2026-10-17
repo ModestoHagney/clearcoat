@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { REGIONS_FORMAT, createRegionMap, parseRegionMap, regionById, regionAt, mirrorPoint, uniqueRegionId, detectPieces, piecesRegionMap, simplifyOutline, renameRegion, labelPoint, pointInPolygon, snapToOutline, slideAlong, edgeSpan, matchPoint, linkPoints, linkLength, linkDir, twinLink, twinOf, syncTwin, addTwins, nearestIsStretch, seamMatrix, seamPieces, centerLine, mirrorAcross, setMirror, trimShape, growOutline, guessMirrorKind } from '../js/regions.js';
+import { REGIONS_FORMAT, createRegionMap, parseRegionMap, regionById, regionAt, mirrorPoint, uniqueRegionId, detectPieces, piecesRegionMap, simplifyOutline, renameRegion, labelPoint, pointInPolygon, snapToOutline, slideAlong, edgeSpan, matchPoint, linkPoints, linkLength, linkDir, twinLink, twinOf, syncTwin, addTwins, nearestIsStretch, setMirrorKind, seamMatrix, seamPieces, centerLine, mirrorAcross, setMirror, trimShape, growOutline, guessMirrorKind } from '../js/regions.js';
 
 // Convenience builder: a valid raw map with two mirrored door rectangles.
 function rawMap(overrides = {}) {
@@ -545,6 +545,24 @@ test('guessMirrorKind gives the same answer whichever panel comes first', () => 
     const b = box(a.points.map(p => ({ x: 300 - p.x + 8 * (r() - 0.5), y: p.y + 8 * (r() - 0.5) })).concat([{ x: 300 - 20 * r(), y: 100 }]));
     assert.equal(guessMirrorKind(a, b), guessMirrorKind(b, a));
   }
+});
+
+test('setMirrorKind moves the twins to match and leaves the first link alone', () => {
+  const map = parseRegionMap(rawMap({
+    regions: [
+      { id: 'ld', x: 0, y: 0, w: 100, h: 100, mirror: 'rd', mirrorKind: 'flip' },
+      { id: 'rd', x: 300, y: 0, w: 100, h: 100, mirror: 'ld', mirrorKind: 'flip' },
+      { id: 'lq', x: 0, y: 200, w: 100, h: 100, mirror: 'rq', mirrorKind: 'flip' },
+      { id: 'rq', x: 300, y: 200, w: 100, h: 100, mirror: 'lq', mirrorKind: 'flip' },
+    ],
+    links: [{ a: { region: 'ld', from: { x: 0, y: 100 }, to: { x: 100, y: 100 } }, b: { region: 'lq', from: { x: 0, y: 200 }, to: { x: 100, y: 200 } } }] }));
+  addTwins(map);
+  const [first, twin] = map.links;
+  assert.equal(setMirrorKind(map, regionById(map, 'rd'), 'flipV'), 1);
+  assert.equal(regionById(map, 'ld').mirrorKind, 'flipV');
+  assert.deepEqual([first.a.from, first.a.to], [{ x: 0, y: 100 }, { x: 100, y: 100 }]); // where it was drawn
+  assert.deepEqual([twin.a.region, twin.a.from.y, twin.a.to.y], ['rd', 0, 0]); // now the top edge
+  assert.equal(map.links.length, 2);
 });
 
 // ---------------------------------------------------------------- centerline
