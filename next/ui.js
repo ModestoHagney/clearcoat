@@ -4,7 +4,7 @@
 
 import { pieces, hue } from './map.js';
 import { SHAPES, PLAIN_SHAPES, roundedOf, plainOf, hollowOf, hollowed, softened, boxOutline, aspect, hasInner } from '../js/shapes.js';
-import { TEXT_FONTS, GOOGLE_FONTS, fadeStyleOf } from '../js/engine.js';
+import { TEXT_FONTS, GOOGLE_FONTS, fadeStyleOf, carStops } from '../js/engine.js';
 import { FINISHES, finishName, finishLabel, finishList, layerColour, isArea, readFinish, presetOf } from '../js/finish.js';
 import { MIRROR_NAMES } from '../js/regions.js';
 import { renderTile } from './preview.js';
@@ -488,12 +488,13 @@ export function initUI(app, actions, version) {
     return rows.join('');
   }
   // the colour the preview is shown in: the target's own, or neutral grey
-  // for an area (it paints nothing) or a picture
+  // for an area (it paints nothing) or a picture; a car gradient's colours, left to right
   function targetColour() {
     const t = app.ftarget;
     if (!t) return '#9aa0ab';
     if (t.kind === 'colour') return t.colour;
     const layer = app.doc.layers.find((l) => l.id === t.id);
+    if (layer && layer.car) return carStops(layer.car.blocks);
     return (t.kind === 'layer' && layer && layerColour(layer)) || '#9aa0ab';
   }
   // the preview and the finish's name, redrawn in place while a slider moves
