@@ -1877,22 +1877,9 @@ const actions = {
       download(new Blob([JSON.stringify({ overspray: 'palette', ...p }, null, 2)], { type: 'application/json' }), p.name.replace(/[^\w.-]+/g, '_') + '.palette.json');
       return;
     }
-    if (pick.act === 'delete') {
-      // this livery's saved colours that came from it: offered for removing too
-      const d = app.doc, mine = d.palette.filter(c => p.colors.some(x => x.color === c.color));
-      const body = '<div class="note">Other liveries that use its colours keep them.</div>' + (!mine.length ? ''
-        : `<label class="check"><input id="pal-drop" type="checkbox">Also remove its ${mine.length} colour${mine.length > 1 ? 's' : ''} from this livery's saved colours. Layers keep their colour but stop following it.</label>`);
-      if (await ui.ask({ title: `Delete "${p.name}"?`, body, ok: 'Delete' })) {
-        if (mine.length && $('pal-drop').checked) {
-          const ids = new Set(mine.map(c => c.id));
-          d.palette = d.palette.filter(c => !ids.has(c.id));
-          for (const l of d.layers) if (ids.has(l.colorRef)) l.colorRef = null;
-          if (ids.has(d.baseRef)) d.baseRef = null;
-          change({ now: true });
-        }
-        library.palettes.splice(pick.i, 1);
-        saveLibrary();
-      }
+    if (pick.act === 'delete') { // confirmed in the list; liveries that use its colours keep them
+      library.palettes.splice(pick.i, 1);
+      saveLibrary();
     }
     actions.openPalettes();
   },

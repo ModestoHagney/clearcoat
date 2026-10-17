@@ -396,7 +396,8 @@ body.workshop .bar .brand::after { content: " · drawing a shape"; font: 400 14p
 /* Palettes: one row each, its colours and name to use it, then Export and Delete */
 .prow { display: flex; gap: 6px; }
 .pacts { display: flex; flex-direction: column; gap: 4px; } /* stacked, so the two fill the row's height */
-.pacts .btn { flex: 1; }
+.pacts .btn { flex: 1; min-width: 80px; } /* Confirm takes Delete's place without the row moving */
+.pacts .btn.bad { background: var(--bad); border-color: var(--bad); color: var(--panel); font-weight: 500; }
 .pbtn { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 3px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; text-align: left; }
 .pbtn:hover { background: var(--hover); }
 .pbtn i { width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--line); }
