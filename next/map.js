@@ -406,9 +406,12 @@ export function initMap(app, env) {
       for (const side of ['a', 'b']) {
         const pts = linkPoints(m, link, side);
         if (!pts.length) continue;
+        // only on the panel's own side of the edge, so a panel folding back close to itself isn't covered too
+        ctx.save(); trace(regionOutline(regionById(m, link[side].region))); ctx.clip();
         ctx.beginPath(); pts.forEach((q, k) => { const a = S(q); k ? ctx.lineTo(a.x, a.y) : ctx.moveTo(a.x, a.y); });
-        ctx.strokeStyle = '#101114'; ctx.lineWidth = 7; ctx.stroke();
-        ctx.strokeStyle = linkHue(i); ctx.lineWidth = 4; ctx.stroke();
+        ctx.strokeStyle = '#101114'; ctx.lineWidth = 11.2; ctx.stroke(); // half of each width shows
+        ctx.strokeStyle = linkHue(i); ctx.lineWidth = 6.4; ctx.stroke();
+        ctx.restore();
         dot(pts[0], 5, linkHue(i)); dot(pts[pts.length - 1], 3, linkHue(i));
       }
     });
