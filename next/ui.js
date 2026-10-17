@@ -398,6 +398,7 @@ export function initUI(app, actions, version) {
     const google = [...new Set(app.doc.googleFonts || [])], uploaded = (app.doc.customFonts || []).map((f) => f.name).filter((f) => !google.includes(f));
     const used = [...new Set(app.doc.layers.filter((x) => x.type === 'text' && x.font).map((x) => x.font))].filter((f) => !google.includes(f) && !uploaded.includes(f));
     const mine = [...google, ...uploaded, ...used], rest = [...new Set([...TEXT_FONTS, ...GOOGLE_FONTS])].filter((f) => !mine.includes(f));
+    for (const list of [google, uploaded, used, rest]) list.sort((a, b) => a.localeCompare(b)); // A to Z within each heading
     const fontOpts = (list, label) => (!list.length ? '' : (mine.length ? section(label) : '') + list.map((f) => opt(f, f, f === l.font)).join(''));
     const weights = isText ? actions.fontWeights(l.font) : [];
     const weight = weights.length < 2 ? '' : field('Weight', `<select id="f-fontWeight">${weights.map((w) => opt(w, WEIGHT_NAMES[w], w === (l.fontWeight || 400))).join('')}</select>`);
