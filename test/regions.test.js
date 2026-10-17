@@ -565,6 +565,18 @@ test('setMirrorKind moves the twins to match and leaves the first link alone', (
   assert.equal(map.links.length, 2);
 });
 
+test('guessMirrorKind goes by where the twins sit on the sheet', () => {
+  const box = (pts) => { const xs = pts.map(p => p.x), ys = pts.map(p => p.y); return { points: pts, x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) }; };
+  const rect = (x, y) => box([{ x, y }, { x: x + 200, y }, { x: x + 200, y: y + 100 }, { x, y: y + 100 }]);
+  assert.equal(guessMirrorKind(rect(0, 0), rect(500, 0)), 'flip');   // side by side
+  assert.equal(guessMirrorKind(rect(0, 0), rect(0, 400)), 'flipV');  // one above the other
+  // a notched panel and the same panel turned 180°, side by side: the shape clearly says turned
+  const notched = [{ x: 0, y: 0 }, { x: 200, y: 0 }, { x: 200, y: 100 }, { x: 60, y: 100 }, { x: 40, y: 60 }, { x: 0, y: 60 }];
+  const turned = box(notched.map(p => ({ x: 900 - p.x, y: 100 - p.y })));
+  assert.equal(guessMirrorKind(box(notched), turned), 'rot180');
+  assert.equal(guessMirrorKind(box(notched), box(notched.map(p => ({ x: 900 - p.x, y: p.y })))), 'flip');
+});
+
 // ---------------------------------------------------------------- centerline
 
 test('centerLine runs square to the twin corners through their midpoint, spanning the region', () => {

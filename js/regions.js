@@ -124,7 +124,29 @@ export function mirrorPoint(src, dst, x, y) {
 // recorded it yet. Plain boxes fit every way equally, and then it is 'flip',
 // the default. `kinds` narrows the choice, e.g. to the two reflections. The
 // fit is measured both ways round, so which panel is named first can't change it.
+// Where they sit on the sheet comes first: twins mirror across the line halfway
+// between them, so side by side is a left/right flip and one above the other a
+// top/bottom one. Near-symmetric panels (doors) fit several ways about as well,
+// so another kind only wins there when it fits clearly better. Placed corner to
+// corner, the shape alone decides.
 export function guessMirrorKind(src, dst, kinds = MIRROR_KINDS) {
+  if (kinds === MIRROR_KINDS) {
+    const dx = Math.abs(dst.x + dst.w / 2 - src.x - src.w / 2), dy = Math.abs(dst.y + dst.h / 2 - src.y - src.h / 2);
+    const placed = dx > 2 * dy ? 'flip' : dy > 2 * dx ? 'flipV' : null;
+    if (placed) {
+      const best = guessMirrorKind(src, dst, MIRROR_KINDS.filter(k => k !== placed));
+      return mirrorMiss(src, dst, best) < mirrorMiss(src, dst, placed) / 2 ? best : placed;
+    }
+  }
+  let best = kinds[0], bestD = Infinity;
+  for (const kind of kinds) {
+    const d = mirrorMiss(src, dst, kind);
+    if (d < bestD - 1e-6) { best = kind; bestD = d; }
+  }
+  return best;
+}
+// how far src and dst land from each other's outlines under a kind, both ways round
+function mirrorMiss(src, dst, kind) {
   const miss = (from, to, kind) => {
     const pts = regionOutline(from), onto = regionOutline(to);
     let d = 0;
@@ -137,12 +159,7 @@ export function guessMirrorKind(src, dst, kinds = MIRROR_KINDS) {
     }
     return d;
   };
-  let best = kinds[0], bestD = Infinity;
-  for (const kind of kinds) {
-    const d = miss(src, dst, kind) + miss(dst, src, kind);
-    if (d < bestD - 1e-6) { best = kind; bestD = d; }
-  }
-  return best;
+  return miss(src, dst, kind) + miss(dst, src, kind);
 }
 
 // mirrorPoint generalized over the pair's relation
