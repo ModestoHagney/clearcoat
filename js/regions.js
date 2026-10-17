@@ -262,6 +262,29 @@ export function renameRegion(map, region, name) {
   return region;
 }
 
+// what each mirrorKind looks like, for the panel settings
+export const MIRROR_NAMES = { flip: 'Left/right', flipV: 'Top/bottom', rot180: 'Turned 180°', same: 'Same way' };
+
+// Set how a pair lies on the sheet by hand, when the guess got it wrong. The
+// twins of links on either panel are moved to match (each link made first
+// keeps its place, its twin follows), and links that can now have a twin get
+// one → how many twins were moved or added
+export function setMirrorKind(map, region, kind) {
+  const partner = region.mirror && regionById(map, region.mirror);
+  if (!partner || !MIRROR_KINDS.includes(kind)) return 0;
+  const on = (l) => [l.a.region, l.b.region].some(id => id === region.id || id === partner.id);
+  const pairs = [], done = new Set();
+  for (const l of map.links || []) {
+    if (done.has(l) || !on(l)) continue;
+    const t = twinOf(map, l); // found under the old kind, before it changes
+    done.add(l);
+    if (t) { done.add(t); pairs.push([l, t]); }
+  }
+  region.mirrorKind = partner.mirrorKind = kind;
+  for (const [l, t] of pairs) syncTwin(map, l, t);
+  return pairs.length + addTwins(map).length;
+}
+
 // Pair a region with its mirror partner on the other side of the car (or,
 // with no partner id, unpair it). Pairs always point both ways, so whatever
 // either region was paired with before is released. How the two lie on the
