@@ -7,7 +7,7 @@ globalThis.document = {
 };
 const { mirrorLayer, pieceAt, withSeams, seamsOf } = await import('../js/mirror.js');
 const { createFillLayer } = await import('../js/engine.js');
-const { parseRegionMap, setMirror } = await import('../js/regions.js');
+const { parseRegionMap, setMirror, carLinesWithTwins } = await import('../js/regions.js');
 
 const box = (x, y, w, h) => [{ x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h }];
 function map() {
@@ -247,4 +247,20 @@ test('a Repeat\'s fade dots are kept, and carried across as their mirror image',
   l.repeat = cleanRepeat({ ...l.repeat, aim: { a: { x: 10, y: 5 }, b: { x: 200, y: 30 } } });
   const mine = repeatAim(l), its = repeatAim(mirrorLayer(map(), l).copy); // the twin is a top/bottom reflection about y = 400
   for (const e of ['a', 'b']) assert.ok(Math.abs(its[e].x - mine[e].x) < 1e-6 && Math.abs(its[e].y - (800 - mine[e].y)) < 1e-6, e);
+});
+
+test('a paired panel with no car line of its own follows its twin\'s, mirrored onto it', () => {
+  const m = map();
+  m.carLines = [{ regions: ['left'], from: { x: 50, y: 50 }, to: { x: 350, y: 50 }, a: 0, b: 0.5 }];
+  const all = carLinesWithTwins(m);
+  assert.equal(all.length, 2);
+  const t = all[1];
+  assert.deepEqual([t.regions, t.twin, t.of, t.a, t.b], [['right'], true, 0, 0, 0.5]);
+  assert.deepEqual([t.from, t.to].map(q => ({ x: Math.round(q.x), y: Math.round(q.y) })), [{ x: 50, y: 750 }, { x: 350, y: 750 }]); // flipped top to bottom
+  const g = createFillLayer('#000000');
+  g.car = { blocks: [{ color: '#000000', from: 0, to: 1 }] };
+  assert.equal(withSeams({ regionMap: m, layers: [g] }).layers[0].carPaint.length, 2);
+  // a line of its own wins
+  m.carLines.push({ regions: ['right'], from: { x: 0, y: 700 }, to: { x: 400, y: 700 }, a: 0.5, b: 1 });
+  assert.equal(carLinesWithTwins(m).length, 2);
 });

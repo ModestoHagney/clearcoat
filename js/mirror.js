@@ -7,7 +7,7 @@
 
 import { isRegionLayer, clipPolys, newId, repeatAxes, repeatOffsets } from './engine.js';
 import { contains } from './shapes.js';
-import { MIRROR_KINDS, regionAt, regionById, centerLine, mirrorAcross, mirrorPointKind, guessMirrorKind, trimShape, regionOutline, growOutline, seamPieces, placeMatrix, carLineEnds } from './regions.js';
+import { MIRROR_KINDS, regionAt, regionById, centerLine, mirrorAcross, mirrorPointKind, guessMirrorKind, trimShape, regionOutline, growOutline, seamPieces, placeMatrix, carLineEnds, carLinesWithTwins } from './regions.js';
 
 // the piece (not one of the kit's number / sponsor zones) at a point
 export const pieceAt = (map, x, y) => (map ? regionAt({ regions: map.regions.filter(r => !r.kind) }, x, y) : null);
@@ -131,7 +131,7 @@ export function withSeams(doc) {
 function withCarLines(doc) {
   if (!doc.layers.some(l => l.car)) return doc;
   const map = doc.regionMap, carPaint = [];
-  for (const cl of (map && map.carLines) || []) {
+  for (const cl of carLinesWithTwins(map)) {
     const ends = carLineEnds(cl), clip = cl.regions.map(id => regionById(map, id)).filter(Boolean).map(r => growOutline(regionOutline(r), 3));
     if (ends && clip.length) carPaint.push({ clip, ...ends });
   }
