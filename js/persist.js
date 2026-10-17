@@ -91,8 +91,13 @@ export async function getPaintsFolder({ requestIfNeeded = false } = {}) {
 export async function writeFileToFolder(dirHandle, filename, blob) {
   const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
   const writable = await fileHandle.createWritable();
-  await writable.write(blob);
-  await writable.close();
+  try {
+    await writable.write(blob);
+    await writable.close();
+  } catch (err) { // let go of the file, or the next write can find it still held
+    await writable.abort().catch(() => {});
+    throw err;
+  }
 }
 
 // Returns the File or null if it doesn't exist.
