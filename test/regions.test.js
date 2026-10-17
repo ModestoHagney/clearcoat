@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { REGIONS_FORMAT, createRegionMap, parseRegionMap, regionById, regionAt, mirrorPoint, uniqueRegionId, detectPieces, piecesRegionMap, simplifyOutline, renameRegion, labelPoint, pointInPolygon, snapToOutline, slideAlong, edgeSpan, matchPoint, linkPoints, linkLength, linkDir, twinLink, twinOf, syncTwin, addTwins, nearestIsStretch, setMirrorKind, seamMatrix, seamPieces, centerLine, mirrorAcross, setMirror, trimShape, growOutline, guessMirrorKind } from '../js/regions.js';
+import { REGIONS_FORMAT, createRegionMap, parseRegionMap, regionById, regionAt, mirrorPoint, uniqueRegionId, detectPieces, piecesRegionMap, simplifyOutline, renameRegion, labelPoint, pointInPolygon, snapToOutline, slideAlong, edgeSpan, matchPoint, linkPoints, linkLength, linkDir, twinLink, twinOf, syncTwin, addTwins, nearestIsStretch, setMirrorKind, seamMatrix, seamPieces, centerLine, mirrorAcross, setMirror, trimShape, growOutline, guessMirrorKind, regionOutline } from '../js/regions.js';
 
 // Convenience builder: a valid raw map with two mirrored door rectangles.
 function rawMap(overrides = {}) {
@@ -575,6 +575,25 @@ test('guessMirrorKind goes by where the twins sit on the sheet', () => {
   const turned = box(notched.map(p => ({ x: 900 - p.x, y: 100 - p.y })));
   assert.equal(guessMirrorKind(box(notched), turned), 'rot180');
   assert.equal(guessMirrorKind(box(notched), box(notched.map(p => ({ x: 900 - p.x, y: p.y })))), 'flip');
+});
+
+test('seamPieces carries into a thin curved panel whose middle sits beyond its edge\'s line', () => {
+  // a banana-shaped strip: its top edge bows up, so the line between that edge's ends runs below the panel's middle
+  const arc = (r, a0, a1) => Array.from({ length: 19 }, (_, k) => { const t = (a0 + (a1 - a0) * k / 18) * Math.PI / 180; return { x: Math.round((500 + r * Math.cos(t)) * 10) / 10, y: Math.round((600 + r * Math.sin(t)) * 10) / 10 }; });
+  const top = arc(320, 225, 315), pts = [...top, ...arc(260, 315, 225)];
+  const xs = pts.map(q => q.x), ys = pts.map(q => q.y);
+  const map = parseRegionMap(rawMap({
+    regions: [
+      { id: 'side', x: 300, y: 800, w: 400, h: 200 },
+      { id: 'strip', x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys), points: pts },
+    ],
+    links: [{ a: { region: 'side', from: { x: 300, y: 800 }, to: { x: 700, y: 800 } }, b: { region: 'strip', from: top[0], to: top[18] } }] }));
+  const strip = regionById(map, 'strip'), pieces = seamPieces(map, map.links[0], 'a');
+  assert.ok(pieces.length > 3);
+  for (const { strip: s } of pieces) { // a few px in from the edge, the way the strip runs: inside the panel
+    const ex = (s[0].x + s[1].x) / 2, ey = (s[0].y + s[1].y) / 2, dx = (s[3].x + s[2].x) / 2 - ex, dy = (s[3].y + s[2].y) / 2 - ey, l = Math.hypot(dx, dy);
+    assert.ok(pointInPolygon(regionOutline(strip), ex + dx / l * 8, ey + dy / l * 8));
+  }
 });
 
 // ---------------------------------------------------------------- centerline

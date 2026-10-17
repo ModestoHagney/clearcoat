@@ -719,6 +719,22 @@ function fit(p0, p1, q0, q1, reflect) {
 
 // which side of the line s-(s+v) a panel lies on (+1 / -1), judged from a point well inside it
 const sideOf = (r, s, vx, vy) => { const c = labelPoint(r); return Math.sign(vx * (c.y - s.y) - vy * (c.x - s.x)) || 1; };
+// which side of one side of a link its panel lies on, as the stretch runs (+1:
+// to the left of the way it runs, as sideOf): tried just either side of the
+// edge all along it, so a thin, curved or slit panel whose middle sits beyond
+// the line between the stretch's ends is still read right
+function sideAlong(map, link, side, r) {
+  const pts = linkPoints(map, link, side, 0, 1, 3), out = regionOutline(r);
+  let vote = 0;
+  for (let k = 1; k < pts.length; k++) {
+    const a = pts[k - 1], b = pts[k], l = Math.hypot(b.x - a.x, b.y - a.y);
+    if (!l) continue;
+    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, nx = -(b.y - a.y) / l * 1.5, ny = (b.x - a.x) / l * 1.5;
+    vote += pointInPolygon(out, mx + nx, my + ny) - pointInPolygon(out, mx - nx, my - ny);
+  }
+  const end = pts[pts.length - 1];
+  return Math.sign(vote) || (pts.length ? sideOf(r, pts[0], end.x - pts[0].x, end.y - pts[0].y) : 1);
+}
 
 // How the sheet beside one side of a link carries onto the other side, taken
 // as a whole: that side's two ends land on the other side's two ends (turned,
@@ -731,7 +747,7 @@ export function seamMatrix(map, link, side) {
   const ra = regionById(map, link[side].region), rb = regionById(map, link[o].region);
   if (!ra || !rb) return null;
   const p0 = link[side].from, p1 = link[side].to, q0 = link[o].from, q1 = link[o].to;
-  return fit(p0, p1, q0, q1, sideOf(ra, p0, p1.x - p0.x, p1.y - p0.y) === sideOf(rb, q0, q1.x - q0.x, q1.y - q0.y));
+  return fit(p0, p1, q0, q1, sideAlong(map, link, side, ra) === sideAlong(map, link, o, rb));
 }
 
 // The same, following the edge as it bends: the link cut into short stretches
@@ -752,8 +768,8 @@ export function seamPieces(map, link, side, depth = 200) {
   for (let k = 0; k <= n; k++) { A.push(at(side, k / n)); B.push(at(o, k / n)); }
   const p0 = A[0], p1 = A[n], q0 = B[0], q1 = B[n];
   if (!p0 || !q0) return [];
-  const into = sideOf(rb, q0, q1.x - q0.x, q1.y - q0.y);
-  const reflect = sideOf(ra, p0, p1.x - p0.x, p1.y - p0.y) === into;
+  const into = sideAlong(map, link, o, rb);
+  const reflect = sideAlong(map, link, side, ra) === into;
   // into the other panel, square to its edge at each cut
   const normal = B.map((q, k) => {
     const s = B[Math.max(0, k - 1)], e = B[Math.min(n, k + 1)], tx = e.x - s.x, ty = e.y - s.y, l = Math.hypot(tx, ty) || 1;
