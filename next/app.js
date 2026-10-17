@@ -1516,15 +1516,20 @@ const actions = {
   back: () => actions.orderEnd(-1),
   // dragged in the Layers list: put layer `id` just in front of `targetId`
   // (above it in the list), or just behind it; 'base' means the very back
-  // whole: every layer of id's group goes, in the order they were in
-  reorder(id, targetId, inFront, whole = false) {
+  // join: the group the layer is in after (null: none)
+  // whole: every layer of id's group goes, in the order they were in, beside another group, never into it
+  reorder(id, targetId, inFront, whole = false, join = null) {
     const L = app.doc.layers, moving = new Set(whole ? groupOf(id) : [id]);
     if (!L.some(l => l.id === id) || moving.has(targetId)) return;
+    const tg = whole && (L.find(l => l.id === targetId) || {}).groupId;
+    if (tg) { const ms = L.filter(l => l.groupId === tg); targetId = (inFront ? ms[ms.length - 1] : ms[0]).id; }
     const taken = L.filter(l => moving.has(l.id)), rest = L.filter(l => !moving.has(l.id));
     const at = targetId === 'base' ? -1 : rest.findIndex(x => x.id === targetId);
     rest.splice(targetId === 'base' ? 0 : at === -1 ? rest.length : at + (inFront ? 1 : 0), 0, ...taken);
     app.doc.layers = rest;
-    if (whole) { app.sel = id; app.sels = taken.length > 1 ? taken.map(l => l.id) : []; } else { app.sel = id; settleGroups([id]); }
+    app.sel = id;
+    if (whole) app.sels = taken.length > 1 ? taken.map(l => l.id) : [];
+    else { taken[0].groupId = join; pruneGroups(); }
     change({ now: true });
   },
   // a group as one row in the Layers list, or as a row for each of its layers

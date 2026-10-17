@@ -263,7 +263,7 @@ export function initUI(app, actions, version) {
       const cols = [...new Set(ms.map((l) => layerColour(l)).filter(Boolean))].slice(0, 4), n = cols.length;
       const sw = n ? `background:linear-gradient(90deg, ${cols.map((c, i) => `${esc(c)} ${i / n * 100}% ${(i + 1) / n * 100}%`).join(', ')})` : swatch(ms[0]);
       const seen = ms.some((l) => l.visible), open = !g.collapsed;
-      return `<div class="row grouped ghead${ms.some((l) => picked.has(l.id)) ? ' sel' : ''}" data-layer="${esc(ms[0].id)}" data-group="${esc(g.id)}" data-last="${esc(ms[ms.length - 1].id)}" draggable="true" style="--g:${groupHue(g.id)}" title="A group of ${ms.length} layers. Double-click its name to rename it.">` +
+      return `<div class="row grouped ghead${ms.some((l) => picked.has(l.id)) ? ' sel' : ''}" data-layer="${esc(ms[0].id)}" data-group="${esc(g.id)}" draggable="true" style="--g:${groupHue(g.id)}" title="A group of ${ms.length} layers. Double-click its name to rename it.">` +
         `<button class="twist" data-fold="${esc(g.id)}" aria-expanded="${open}" title="${open ? 'Fold it to one row' : 'Show its layers'}" aria-label="${open ? 'Fold' : 'Unfold'} ${esc(g.name)}">${open ? '▾' : '▸'}</button>` +
         `<span class="sw" style="${sw}"></span><span class="name">${esc(g.name)}</span><span class="count">${ms.length}</span>` +
         `<button class="rowx" data-delg="${esc(g.id)}" title="Delete the group and its layers" aria-label="Delete ${esc(g.name)}">${svg('close')}</button><button class="eye${seen ? '' : ' off'}" data-eyeg="${esc(g.id)}" title="Show or hide" aria-label="Show or hide ${esc(g.name)}">${svg('eye')}</button></div>`;
@@ -668,12 +668,17 @@ export function initUI(app, actions, version) {
   // The top of the list is the front of the sheet.
   let dragId = null;
   let dragWhole = false; // the row being dragged is a group's own: all its layers move
-  const dropMark = (row, cls) => { for (const r of panels.layers.querySelectorAll('.drop-above, .drop-below')) r.classList.remove('drop-above', 'drop-below'); if (row && cls) row.classList.add(cls); };
+  const dropMark = (row, cls) => { for (const r of panels.layers.querySelectorAll('.drop-above, .drop-below, .drop-into')) r.classList.remove('drop-above', 'drop-below', 'drop-into'); if (row && cls) row.classList.add(cls); };
+  // the top half of a row is just above it, the bottom half just below;
+  // a group's own row takes a layer into the group, save its top quarter
+  // (just above the group, so there is still a way above one at the top of the list)
   const dropSpot = (e) => {
     const row = e.target.closest('.row[data-layer]');
     if (!row || !dragId || row.dataset.layer === dragId) return null;
-    const box = row.getBoundingClientRect(), base = row.dataset.layer === 'base';
-    return { row, above: base || e.clientY < box.top + box.height / 2 }; // nothing goes behind the base coat
+    const box = row.getBoundingClientRect(), y = (e.clientY - box.top) / box.height;
+    if (row.dataset.layer === 'base') return { row, at: 'above' }; // nothing goes behind the base coat
+    if (row.dataset.group && !dragWhole) return { row, at: y < 0.25 ? 'above' : 'into' };
+    return { row, at: y < 0.5 ? 'above' : 'below' };
   };
   panels.layers.addEventListener('dragstart', (e) => {
     const row = e.target.closest('.row[data-layer][draggable]');
@@ -686,7 +691,7 @@ export function initUI(app, actions, version) {
     const spot = dropSpot(e);
     if (!spot) { dropMark(null); return; }
     e.preventDefault();
-    dropMark(spot.row, spot.above ? 'drop-above' : 'drop-below');
+    dropMark(spot.row, 'drop-' + spot.at);
   });
   panels.layers.addEventListener('drop', (e) => {
     const spot = dropSpot(e);
@@ -694,8 +699,11 @@ export function initUI(app, actions, version) {
     if (!spot) return;
     e.preventDefault();
     // above a row in the list = in front of that layer on the sheet
-    // (a group's own row stands for all its layers: they go together, and what is dropped below it lands behind its last one)
-    actions.reorder(dragId, spot.above ? spot.row.dataset.layer : spot.row.dataset.last || spot.row.dataset.layer, spot.above, dragWhole);
+    // (a group's own row stands for its front layer: into the group = in front of that one, in the group;
+    // a layer dropped beside one of a group's layers is in that group, beside any other row it is in none)
+    const { row, at } = spot, id = row.dataset.layer, gid = row.dataset.group;
+    const join = gid ? (at === 'into' ? gid : null) : (app.doc.layers.find((l) => l.id === id) || {}).groupId || null;
+    actions.reorder(dragId, id, at !== 'below', dragWhole, join);
   });
   // A name in the list is renamed by a double click, or by a click on it once
   // it is already the one selected (as file lists do). The first click selects,

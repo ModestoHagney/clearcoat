@@ -361,6 +361,9 @@ input.pname:hover, input.pname:focus { border-color: var(--line); background: va
 
 /* several layers selected, groups, fades */
 .row.grouped { box-shadow: inset 3px 0 0 var(--g, var(--accent)); }
+.row.grouped.drop-above { box-shadow: inset 3px 0 0 var(--g, var(--accent)), inset 0 2px 0 var(--accent); } /* the drop line shows over the group's stripe */
+.row.grouped.drop-below { box-shadow: inset 3px 0 0 var(--g, var(--accent)), inset 0 -2px 0 var(--accent); }
+.row.drop-into { outline: 2px solid var(--accent); outline-offset: -2px; }
 .row.ghead { gap: 6px; }
 .row.ghead .name { font-weight: 500; }
 .row .twist { width: 16px; height: 20px; flex: none; display: grid; place-items: center; color: var(--muted); font-size: 11px; border-radius: 4px; }
