@@ -349,6 +349,7 @@ export function createFillLayer(color = '#e8e6e1') {
     color2: '#101114',     // gradient end color
     colorMid: null,        // optional third gradient stop (hex) — null = two-stop
     midPos: 0.5,           // mid stop position 0–1
+    stops: [],             // colours it fades through on the way, [{ color, at: 0–1 }]; these replace colorMid
     gradAngle: 0,          // linear gradient angle in degrees, 0 = left → right
     x: 0, y: 0, scale: 1, rotation: 0, flipH: false, flipV: false,
     rx: SIZE / 2 - 300, ry: SIZE / 2 - 200, rw: 600, rh: 400,
@@ -428,12 +429,19 @@ export function fillPaintStyle(ctx, layer, rx, ry, rw, rh) {
     g = ctx.createLinearGradient(cx - dx * half, cy - dy * half, cx + dx * half, cy + dy * half);
   }
   g.addColorStop(0, color);
-  if (layer.colorMid) {
-    const mid = Math.max(0.02, Math.min(0.98, layer.midPos ?? 0.5));
-    g.addColorStop(mid, layer.colorMid);
-  }
-  g.addColorStop(1, layer.color2 || '#101114');
+  const mids = fadeStops(layer);
+  for (const s of mids) g.addColorStop(Math.max(0.01, Math.min(0.99, s.at)), s.color);
+  // fading to nothing ends in the last colour it passed through, see-through
+  const end = layer.color2 || '#101114';
+  g.addColorStop(1, mids.length && /^#[0-9a-f]{6}00$/i.test(end) ? mids[mids.length - 1].color + '00' : end);
   return g;
+}
+
+// the colours a fade passes through between its two ends, in order along it
+export function fadeStops(layer) {
+  const list = Array.isArray(layer.stops) && layer.stops.length ? layer.stops
+    : layer.colorMid ? [{ color: layer.colorMid, at: layer.midPos ?? 0.5 }] : [];
+  return list.filter(s => s && typeof s.color === 'string' && Number.isFinite(s.at)).sort((a, b) => a.at - b.at);
 }
 
 // which way a layer's fade line runs: its fill's own style while that fades,
@@ -1123,6 +1131,7 @@ export function serializeDoc(doc) {
       fadeTo: l.fadeTo ? { x: l.fadeTo.x, y: l.fadeTo.y } : undefined,
       fadeStyle: l.fadeStyle === 'radial' || l.fadeStyle === 'linear' ? l.fadeStyle : undefined,
       colorMid: l.colorMid ?? null, midPos: l.midPos ?? 0.5,
+      stops: Array.isArray(l.stops) && l.stops.length ? l.stops.map(o => ({ color: o.color, at: o.at })) : undefined,
       src: l.src,
       text: l.text, font: l.font, fontSize: l.fontSize,
       textColor: l.textColor, outlineColor: l.outlineColor, outlineWidth: l.outlineWidth,
@@ -1285,6 +1294,7 @@ export async function deserializeDoc(data) {
           color2: l.color2 || '#101114',
           colorMid: l.colorMid || null,
           midPos: l.midPos ?? 0.5,
+          stops: Array.isArray(l.stops) ? l.stops.filter(o => o && typeof o.color === 'string' && Number.isFinite(o.at)).slice(0, 8).map(o => ({ color: o.color, at: o.at })) : [],
           gradAngle: l.gradAngle ?? 0,
           rx: l.rx ?? 0, ry: l.ry ?? 0, rw: l.rw ?? SIZE, rh: l.rh ?? SIZE,
           flipH: !!l.flipH, flipV: !!l.flipV, // a ready-made shape separated from its mirror is flipped: it stays so
