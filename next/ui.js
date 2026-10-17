@@ -876,7 +876,7 @@ export function initUI(app, actions, version) {
     const body = `<div class="acts"><button type="button" class="btn" data-pp="save" title="Its saved colours and every colour it uses">Save this livery's colours</button><button type="button" class="btn" data-pp="import">Import a file…</button></div>` +
       (!list.length ? '<div class="note">No palettes yet. Save this livery\'s colours as one, or import a palette file.</div>'
         : list.map((p, i) => `<div class="prow"><button type="button" class="pbtn" data-pp="use" data-i="${i}" title="Add these colours to this livery">${p.colors.map((c) => `<i style="background:${esc(c.color)}" title="${esc(c.name)}"></i>`).join('')}<b>${esc(p.name)}</b><small>${fontNames(p).length ? 'Fonts: ' + esc(fontNames(p).join(', ')) : 'No fonts'}</small></button>` +
-          `<button type="button" class="btn" data-pp="export" data-i="${i}" title="Download it as a file to share or keep">Export</button><button type="button" class="btn" data-pp="delete" data-i="${i}">Delete</button></div>`).join(''));
+          `<span class="pacts"><button type="button" class="btn" data-pp="export" data-i="${i}" title="Download it as a file to share or keep">Export</button><button type="button" class="btn" data-pp="delete" data-i="${i}">Delete</button></span></div>`).join(''));
     const p = ask({ title: 'Palettes', body, ok: null, cancel: 'Close' });
     $('dlg-body').onclick = (e) => {
       const b = e.target.closest('button[data-pp]');
