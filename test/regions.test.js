@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { REGIONS_FORMAT, createRegionMap, parseRegionMap, regionById, regionAt, mirrorPoint, uniqueRegionId, detectPieces, piecesRegionMap, simplifyOutline, renameRegion, labelPoint, pointInPolygon, snapToOutline, slideAlong, edgeSpan, matchPoint, linkPoints, linkLength, linkDir, twinLink, twinOf, syncTwin, seamMatrix, seamPieces, centerLine, mirrorAcross, setMirror, trimShape, growOutline, guessMirrorKind } from '../js/regions.js';
+import { REGIONS_FORMAT, createRegionMap, parseRegionMap, regionById, regionAt, mirrorPoint, uniqueRegionId, detectPieces, piecesRegionMap, simplifyOutline, renameRegion, labelPoint, pointInPolygon, snapToOutline, slideAlong, edgeSpan, matchPoint, linkPoints, linkLength, linkDir, twinLink, twinOf, syncTwin, addTwins, seamMatrix, seamPieces, centerLine, mirrorAcross, setMirror, trimShape, growOutline, guessMirrorKind } from '../js/regions.js';
 
 // Convenience builder: a valid raw map with two mirrored door rectangles.
 function rawMap(overrides = {}) {
@@ -506,6 +506,21 @@ test('twinLink links the matching edges on the other side of the car, and not tw
   assert.deepEqual([r.a.region, r.a.from, r.a.to], ['rd', { x: 300, y: 0 }, { x: 300, y: 50 }]);
   // a panel with neither has no other side
   assert.equal(twinLink(map, { a: roof.a, b: { region: 'lone', from: { x: 600, y: 300 }, to: { x: 700, y: 300 } } }), null);
+});
+
+test('addTwins gives links made before a pairing their twins, once', () => {
+  const map = parseRegionMap(rawMap({
+    regions: [
+      { id: 'ld', x: 0, y: 0, w: 100, h: 100 }, { id: 'rd', x: 300, y: 0, w: 100, h: 100 },
+      { id: 'lq', x: 0, y: 200, w: 100, h: 100, mirror: 'rq', mirrorKind: 'flip' },
+      { id: 'rq', x: 300, y: 200, w: 100, h: 100, mirror: 'lq', mirrorKind: 'flip' },
+    ],
+    links: [{ a: { region: 'ld', from: { x: 0, y: 100 }, to: { x: 100, y: 100 } }, b: { region: 'lq', from: { x: 0, y: 200 }, to: { x: 100, y: 200 } } }] }));
+  assert.equal(addTwins(map), 0); // the doors aren't paired yet: no other side
+  setMirror(map, regionById(map, 'ld'), 'rd');
+  assert.equal(addTwins(map), 1);
+  assert.deepEqual([map.links[1].a.region, map.links[1].b.region], ['rd', 'rq']);
+  assert.equal(addTwins(map), 0); // not twice
 });
 
 // ---------------------------------------------------------------- centerline

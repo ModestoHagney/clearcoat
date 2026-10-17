@@ -5,7 +5,7 @@
 // corrected.
 
 import { SIZE, createImageLayer, loadImage } from '../js/engine.js';
-import { regionOutline, regionById, centerLine, snapToOutline, slideAlong, edgeSpan, labelPoint, linkPoints, linkLength, linkDir, matchPoint, twinLink, twinOf, syncTwin } from '../js/regions.js';
+import { regionOutline, regionById, centerLine, snapToOutline, slideAlong, edgeSpan, labelPoint, linkPoints, linkLength, linkDir, matchPoint, twinLink, twinOf, syncTwin, addTwins } from '../js/regions.js';
 import { pieceAt } from '../js/mirror.js';
 
 export const GUIDE = 'Panel guide'; // the layer that puts the panel colours on the car
@@ -247,7 +247,8 @@ export function initMap(app, env) {
       app.piece = r.id;
       app.centreFor = null;
       app.tool = 'mpick';
-      env.mapChanged(`Centreline set on ${r.name}`);
+      const n = addTwins(map()); // links made before the centreline get their twins now
+      env.mapChanged(`Centreline set on ${r.name}${n ? `, and ${n} link${n > 1 ? 's' : ''} copied to the other side` : ''}`);
       return;
     }
     const r = pieceAt(map(), p.x, p.y);
