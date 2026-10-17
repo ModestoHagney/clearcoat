@@ -293,6 +293,37 @@ function segDist(a, b, x, y) {
   return Math.hypot(x - a.x - t * dx, y - a.y - t * dy);
 }
 
+// A test for spots near a stretch of a panel's edge (pts along it, from
+// linkPoints): true when the straight way from the spot to the nearest point of
+// the stretch stays inside the panel. Where a panel folds back close to itself,
+// a band along one side of a slit stops at the slit instead of jumping across
+// it; at a corner it still runs right into the corner. Only outline within
+// `reach` px of the stretch is looked at.
+export function nearestIsStretch(outline, stretch, reach) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const q of stretch) { x0 = Math.min(x0, q.x); y0 = Math.min(y0, q.y); x1 = Math.max(x1, q.x); y1 = Math.max(y1, q.y); }
+  const near = [];
+  outline.forEach((b, i) => {
+    const a = outline[(i || outline.length) - 1];
+    if (Math.max(a.x, b.x) >= x0 - reach && Math.min(a.x, b.x) <= x1 + reach && Math.max(a.y, b.y) >= y0 - reach && Math.min(a.y, b.y) <= y1 + reach) near.push([a, b]);
+  });
+  const cross = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+  const crosses = (p, q, a, b) => cross(p, q, a) * cross(p, q, b) < 0 && cross(a, b, p) * cross(a, b, q) < 0;
+  return (x, y) => {
+    let best = null, bd = Infinity;
+    for (let k = 1; k < stretch.length; k++) {
+      const a = stretch[k - 1], b = stretch[k], dx = b.x - a.x, dy = b.y - a.y, len2 = dx * dx + dy * dy;
+      const t = len2 ? Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / len2)) : 0;
+      const q = { x: a.x + t * dx, y: a.y + t * dy }, d = Math.hypot(q.x - x, q.y - y);
+      if (d < bd) { bd = d; best = q; }
+    }
+    if (!best || bd < 0.5) return true;
+    // stop half a px short of the edge, so the edge the point sits on doesn't count
+    const p = { x, y }, q = { x: best.x + (x - best.x) * 0.5 / bd, y: best.y + (y - best.y) * 0.5 / bd };
+    return !near.some(([a, b]) => crosses(p, q, a, b));
+  };
+}
+
 // A point well inside the region to hang a label on, and how much room it has
 // there (px to the nearest edge). Points inside any `avoid` region are skipped,
 // so a label keeps clear of smaller regions sitting on top of this one.

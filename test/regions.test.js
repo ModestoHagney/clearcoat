@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { REGIONS_FORMAT, createRegionMap, parseRegionMap, regionById, regionAt, mirrorPoint, uniqueRegionId, detectPieces, piecesRegionMap, simplifyOutline, renameRegion, labelPoint, pointInPolygon, snapToOutline, slideAlong, edgeSpan, matchPoint, linkPoints, linkLength, linkDir, twinLink, twinOf, syncTwin, addTwins, seamMatrix, seamPieces, centerLine, mirrorAcross, setMirror, trimShape, growOutline, guessMirrorKind } from '../js/regions.js';
+import { REGIONS_FORMAT, createRegionMap, parseRegionMap, regionById, regionAt, mirrorPoint, uniqueRegionId, detectPieces, piecesRegionMap, simplifyOutline, renameRegion, labelPoint, pointInPolygon, snapToOutline, slideAlong, edgeSpan, matchPoint, linkPoints, linkLength, linkDir, twinLink, twinOf, syncTwin, addTwins, nearestIsStretch, seamMatrix, seamPieces, centerLine, mirrorAcross, setMirror, trimShape, growOutline, guessMirrorKind } from '../js/regions.js';
 
 // Convenience builder: a valid raw map with two mirrored door rectangles.
 function rawMap(overrides = {}) {
@@ -521,6 +521,19 @@ test('addTwins gives links made before a pairing their twins, once', () => {
   assert.equal(addTwins(map).length, 1);
   assert.deepEqual([map.links[1].a.region, map.links[1].b.region], ['rd', 'rq']);
   assert.equal(addTwins(map).length, 0); // not twice
+});
+
+test('nearestIsStretch stops a band at a slit but not at a corner', () => {
+  // a panel with a slit 10 px wide cut down from the top; the stretch is the slit's left wall
+  const outline = [{ x: 0, y: 0 }, { x: 95, y: 0 }, { x: 95, y: 80 }, { x: 105, y: 80 }, { x: 105, y: 0 }, { x: 200, y: 0 }, { x: 200, y: 100 }, { x: 0, y: 100 }];
+  const wall = Array.from({ length: 27 }, (_, k) => ({ x: 95, y: k * 80 / 26 }));
+  const mine = nearestIsStretch(outline, wall, 22);
+  assert.equal(mine(85, 40), true);   // beside the wall, on its own side
+  assert.equal(mine(110, 40), false); // across the slit
+  assert.equal(mine(85, 95), true);   // below the slit's end: still a straight way inside
+  // a corner: the top edge's band runs right into it
+  const top = Array.from({ length: 32 }, (_, k) => ({ x: k * 95 / 31, y: 0 }));
+  assert.equal(nearestIsStretch(outline, top, 22)(3, 10), true);
 });
 
 // ---------------------------------------------------------------- centerline
