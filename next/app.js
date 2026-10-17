@@ -1535,17 +1535,15 @@ const actions = {
     // ponytail: only the list redraws; not a paint change, so no redraw, save, send or undo step. It is saved with the next edit
     ui.refresh();
   },
-  async renameLayer(id) {
+  renameLayer(id, name) {
     const l = app.doc.layers.find(x => x.id === id);
-    const name = l && await ui.askText({ title: 'Rename the layer', label: 'Name', value: l.name, ok: 'Rename' });
-    if (!name || !name.trim()) return;
-    l.name = name.trim();
+    if (!l) return;
+    l.name = name;
     change({ now: true });
   },
-  async renameGroup(gid) {
+  renameGroup(gid, name) {
     const g = (app.doc.groups || []).find(x => x.id === gid);
-    const name = g && await ui.askText({ title: 'Rename the group', label: 'Name', value: g.name, ok: 'Rename' });
-    if (!name) return;
+    if (!g) return;
     g.name = name;
     change({ now: true });
   },
