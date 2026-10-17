@@ -102,7 +102,16 @@ function assertExportable(canvas) {
 // paint: a function that hands over the paint already made for this doc
 // (accurate edges) if the caller still has it, else null: making it again is
 // the slow part on a livery of many layers.
-export async function saveToIracing(doc, custid, { quiet = false, paint: made = null } = {}) {
+// One save at a time: a click on Live or Save to iRacing while a live save is
+// still writing would open the same file twice, and one of the two fails.
+let queue = Promise.resolve();
+export function saveToIracing(...args) {
+  const run = queue.then(() => writeLivery(...args));
+  queue = run.catch(() => {});
+  return run;
+}
+
+async function writeLivery(doc, custid, { quiet = false, paint: made = null } = {}) {
   custid = String(custid || '').trim();
   if (!validCustid(custid)) return { ok: false, error: 'Enter your iRacing customer number first.' };
   try {

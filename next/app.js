@@ -478,15 +478,20 @@ async function liveTick(attempt = 0) {
   if (!app.live || app.workshop) return; // a shape being drawn is not the livery
   if (liveBusy) { liveAgain = true; return; }
   liveBusy = true;
-  // the car gets the accurate picture; if the screen's is that already, it is not made a second time
-  if (dirty || !accurate || !composite) { picture(true); requestDraw(); }
-  const res = await saveToIracing(shown(), app.custid, { quiet: true, paint: () => (!dirty && accurate ? composite : null) }); // asked for when it is needed: the sheet may have been redrawn while the folder was being reached
+  let res;
+  try {
+    // the car gets the accurate picture; if the screen's is that already, it is not made a second time
+    if (dirty || !accurate || !composite) { picture(true); requestDraw(); }
+    res = await saveToIracing(shown(), app.custid, { quiet: true, paint: () => (!dirty && accurate ? composite : null) }); // asked for when it is needed: the sheet may have been redrawn while the folder was being reached
+  } catch (err) { // a drawing error must not leave Live busy for good, skipping every later edit
+    res = { ok: false, error: err && err.message };
+  }
   liveBusy = false;
   if (liveAgain) { liveAgain = false; liveTick(); return; } // a newer change is waiting: send that
   if (!res.ok && attempt < LIVE_RETRIES) { liveRetry = setTimeout(() => liveTick(attempt + 1), 400); return; }
   if (app.liveBad !== !res.ok) {
     app.liveBad = !res.ok;
-    if (!res.ok) ui.say('Live paused. Click Live to reconnect.', true);
+    if (!res.ok) ui.say(`Live paused${res.error ? ': ' + res.error.replace(/\.$/, '') : ''}. Click Live to reconnect.`, true);
     ui.refreshChrome();
   }
 }
