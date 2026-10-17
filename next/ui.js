@@ -405,7 +405,7 @@ export function initUI(app, actions, version) {
     // the colour and name, then for text what it says and in what
     const head = colourHead(`<input id="f-name" class="pname" type="text" value="${esc(l.name)}" title="Its name in the Layers list" aria-label="Name">`) + (!isText ? '' :
       field('Text', `<textarea id="f-text" rows="2" spellcheck="false" title="Enter starts a new line">${esc(l.text)}</textarea>`) +
-      field('Font', `<select id="f-font">${fontOpts(google, 'Google fonts added')}${fontOpts(uploaded, 'Uploaded fonts')}${fontOpts(used, 'Used in this livery')}${fontOpts(rest, 'All fonts')}${opt('__google', 'Google font by name…', false)}${opt('__upload', 'Upload a font file…', false)}</select>`) +
+      field('Font', `<select id="f-font">${fontOpts(google, 'Google fonts added')}${fontOpts(uploaded, 'Uploaded fonts')}${fontOpts(used, 'Used in this livery')}${fontOpts(rest, 'All fonts')}${gap}${section('Add a font')}<option class="act" value="__google">Google font by name…</option><option class="act" value="__upload">Upload a font file…</option></select>`) +
       weight +
       slider('f-fontSize', 40, 400, l.fontSize || 160, 'Size'));
     const inPieces = Array.isArray(l.pts) && l.pts.some((q) => q.m);
@@ -511,7 +511,8 @@ export function initUI(app, actions, version) {
   // ---------- Map mode's two panels ----------
   const opt = (v, label, on) => `<option value="${esc(v)}"${on ? ' selected' : ''}>${esc(label)}</option>`;
   // a heading between a list's sections: not indented like a group's, and not pickable
-  const section = (label) => `<option class="sect" disabled>— ${esc(label)} —</option>`;
+  const section = (label) => `<option class="sect" disabled>${esc(label)}</option>`;
+  const gap = '<option class="gap" disabled></option>'; // a blank line in a list
   function piecesHtml() {
     const list = pieces(app.doc.regionMap);
     if (!list.length) return '<div class="note">Load a template to get a map</div>';
