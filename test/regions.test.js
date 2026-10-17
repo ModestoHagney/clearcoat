@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { REGIONS_FORMAT, createRegionMap, parseRegionMap, regionById, regionAt, mirrorPoint, uniqueRegionId, detectPieces, piecesRegionMap, simplifyOutline, renameRegion, labelPoint, pointInPolygon, snapToOutline, slideAlong, edgeSpan, matchPoint, linkPoints, linkLength, linkDir, twinLink, twinOf, seamMatrix, seamPieces, centerLine, mirrorAcross, setMirror, trimShape, growOutline, guessMirrorKind } from '../js/regions.js';
+import { REGIONS_FORMAT, createRegionMap, parseRegionMap, regionById, regionAt, mirrorPoint, uniqueRegionId, detectPieces, piecesRegionMap, simplifyOutline, renameRegion, labelPoint, pointInPolygon, snapToOutline, slideAlong, edgeSpan, matchPoint, linkPoints, linkLength, linkDir, twinLink, twinOf, syncTwin, seamMatrix, seamPieces, centerLine, mirrorAcross, setMirror, trimShape, growOutline, guessMirrorKind } from '../js/regions.js';
 
 // Convenience builder: a valid raw map with two mirrored door rectangles.
 function rawMap(overrides = {}) {
@@ -494,6 +494,11 @@ test('twinLink links the matching edges on the other side of the car, and not tw
   t.a.from = { x: 392, y: 100 };
   assert.equal(twinOf(map, map.links[0]), t);
   assert.equal(twinOf(map, t), map.links[0]);
+  // an end moved on one: syncTwin sets the twin to match again
+  map.links[0].a.from = { x: 10, y: 100 };
+  assert.equal(syncTwin(map, map.links[0], t), true);
+  assert.deepEqual([t.a.region, t.a.from, t.a.to], ['rd', { x: 390, y: 100 }, { x: 300, y: 100 }]);
+  assert.deepEqual(t.b.from, { x: 400, y: 200 });
   // a panel with only a centreline is carried across it: left half of the roof's front edge to the right half
   const roof = { a: { region: 'ld', from: { x: 100, y: 0 }, to: { x: 100, y: 50 } }, b: { region: 'roof', from: { x: 600, y: 100 }, to: { x: 650, y: 100 } } };
   const r = twinLink(map, roof);
