@@ -5,7 +5,7 @@
 // corrected.
 
 import { SIZE, createImageLayer, loadImage } from '../js/engine.js';
-import { regionOutline, regionById, centerLine, snapToOutline, slideAlong, edgeSpan, labelPoint, linkPoints, linkLength, linkDir, matchPoint, twinLink, twinOf, syncTwin, addTwins, setMirror } from '../js/regions.js';
+import { regionOutline, regionById, centerLine, snapToOutline, slideAlong, edgeSpan, labelPoint, linkPoints, linkLength, linkDir, nearestIsStretch, matchPoint, twinLink, twinOf, syncTwin, addTwins, setMirror } from '../js/regions.js';
 import { pieceAt } from '../js/mirror.js';
 
 export const GUIDE = 'Panel guide'; // the layer that puts the panel colours on the car
@@ -49,15 +49,30 @@ export function guideCanvas(map) {
     for (const side of ['a', 'b']) {
       const r = regionById(map, link[side].region);
       if (!r) continue;
-      ctx.save();
-      trace(regionOutline(r)); ctx.clip(); // the band stays inside its own panel
-      ctx.lineCap = 'butt'; ctx.lineWidth = 44; // half falls outside the outline and is clipped away
+      // drawn on a scrap of canvas round the stretch, then trimmed to the spots
+      // this edge is nearest to before going on the sheet
+      const all = linkPoints(map, link, side, 0, 1, 3);
+      if (!all.length) continue;
+      const x0 = Math.floor(Math.min(...all.map(q => q.x)) - 23), y0 = Math.floor(Math.min(...all.map(q => q.y)) - 23);
+      const sc = document.createElement('canvas');
+      sc.width = Math.ceil(Math.max(...all.map(q => q.x)) + 23) - x0; sc.height = Math.ceil(Math.max(...all.map(q => q.y)) + 23) - y0;
+      const g = sc.getContext('2d');
+      g.translate(-x0, -y0);
+      g.beginPath(); regionOutline(r).forEach((q, j) => (j ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y))); g.closePath();
+      g.clip(); // the band stays inside its own panel
+      g.lineCap = 'butt'; g.lineWidth = 44; // half falls outside the outline and is clipped away
       for (let k = 0; k < n; k++) {
         const pts = linkPoints(map, link, side, k / n, (k + 1) / n, 3);
-        ctx.beginPath(); pts.forEach((q, j) => (j ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)));
-        ctx.strokeStyle = BANDS[(k + i) % BANDS.length]; ctx.stroke();
+        g.beginPath(); pts.forEach((q, j) => (j ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y)));
+        g.strokeStyle = BANDS[(k + i) % BANDS.length]; g.stroke();
       }
-      ctx.restore();
+      const img = g.getImageData(0, 0, sc.width, sc.height), px = img.data, mine = nearestIsStretch(regionOutline(r), all, 22);
+      for (let y = 0; y < sc.height; y++) for (let x = 0; x < sc.width; x++) {
+        const o = (y * sc.width + x) * 4;
+        if (px[o + 3] && !mine(x0 + x + 0.5, y0 + y + 0.5)) px[o + 3] = 0;
+      }
+      g.putImageData(img, 0, 0);
+      ctx.drawImage(sc, x0, y0);
     }
   });
   for (const r of list) {
