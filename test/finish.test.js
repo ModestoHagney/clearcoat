@@ -170,3 +170,15 @@ test('a Repeat\'s extra colours are listed, and their copies take those colours\
   d.layers[2].material = 'matte'; d.layers[2].finishOwn = true; // finished by itself: every copy with it
   assert.equal(withFinishes(d).layers[2].copyFinishes, undefined);
 });
+
+test('a car gradient has a finish of its own, not its first colour\'s', () => {
+  const d = doc();
+  const g = createFillLayer('#111214'); g.name = 'Car gradient';
+  g.car = { blocks: [{ color: '#111214', from: 0, to: 0.5 }, { color: '#ffcc00', from: 0.6, to: 1 }] };
+  d.layers.push(g);
+  const list = finishList(d);
+  assert.equal(list.find(f => f.colour === '#111214').used, 2); // only the two black layers
+  assert.deepEqual(list.at(-1), { kind: 'layer', id: g.id, name: 'Car gradient', material: 'gloss', params: null });
+  setRule(d, '#111214', 'matte');
+  assert.equal(finishOf(d, g), 'gloss');
+});
