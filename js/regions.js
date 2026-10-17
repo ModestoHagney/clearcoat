@@ -107,7 +107,7 @@ export function parseRegionMap(data) {
     const pt = (q) => q && Number.isFinite(q.x) && Number.isFinite(q.y);
     map.carLines = data.carLines.map((cl, i) => {
       if (!cl || !Array.isArray(cl.regions) || !pt(cl.from) || !pt(cl.to) || !Number.isFinite(cl.a) || !Number.isFinite(cl.b)) throw new Error(`car line ${i} is malformed`);
-      return { regions: cl.regions.filter(id => seen.has(id)), from: { x: cl.from.x, y: cl.from.y }, to: { x: cl.to.x, y: cl.to.y }, a: cl.a, b: cl.b };
+      return { regions: cl.regions.filter(id => seen.has(id)), from: { x: cl.from.x, y: cl.from.y }, to: { x: cl.to.x, y: cl.to.y }, a: cl.a, b: cl.b, ...(/^#[0-9a-f]{6}$/i.test(cl.color) ? { color: cl.color } : {}) };
     }).filter(cl => cl.regions.length);
   }
   return map;
