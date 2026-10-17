@@ -1165,19 +1165,28 @@ export function cleanPalette(palette) {
     .map(c => ({ id: c.id, name: String(c.name || 'Colour').slice(0, 40), color: c.color.toLowerCase() }));
 }
 
-// A palette file, read: one palette { name, colors: [{ name, color }] }, a
-// list of them, or just a list of colours ('#ff0000' or { name, color }).
-// → the palettes in it that have a colour, each colour a 6-digit hex.
+// A palette file, read: one palette { name, colors: [{ name, color }], fonts? },
+// a list of them, or just a list of colours ('#ff0000' or { name, color }).
+// fonts: { google: [names], custom: [{ name, data (base64) }] }, left out when none.
+// → the palettes in it that have a colour or a font, each colour a 6-digit hex.
 // `fallback`: the name for one that has none, such as the file's name.
 export function readPalettes(data, fallback = 'Palette') {
   const hex = (v) => (typeof v === 'string' && /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.test(v.trim()) ? '#' + v.trim().replace('#', '').replace(/^(.)(.)(.)$/, '$1$1$2$2$3$3').toLowerCase() : null);
   const colours = (list) => (Array.isArray(list) ? list : [])
     .map((c, k) => ({ name: String((c && c.name) || 'Colour ' + (k + 1)).slice(0, 40), color: hex(typeof c === 'string' ? c : c && c.color) }))
     .filter((c) => c.color);
-  const one = (p, k) => ({ name: String(p.name || (k ? fallback + ' ' + (k + 1) : fallback)).slice(0, 40), colors: colours(p.colors) });
+  const list2 = (v) => (Array.isArray(v) ? v : []);
+  const fonts = (f) => ({
+    google: [...new Set(list2(f && f.google).filter((x) => typeof x === 'string' && x.trim()).map((x) => x.trim().slice(0, 60)))],
+    custom: list2(f && f.custom).filter((x) => x && typeof x.name === 'string' && x.name && typeof x.data === 'string' && x.data).map((x) => ({ name: x.name.slice(0, 60), data: x.data })),
+  });
+  const one = (p, k) => {
+    const out = { name: String(p.name || (k ? fallback + ' ' + (k + 1) : fallback)).slice(0, 40), colors: colours(p.colors) }, f = fonts(p.fonts);
+    return f.google.length || f.custom.length ? { ...out, fonts: f } : out;
+  };
   const list = Array.isArray(data) ? (data.some((x) => x && Array.isArray(x.colors)) ? data : [{ colors: data }])
     : data && Array.isArray(data.palettes) ? data.palettes : data ? [data] : [];
-  return list.filter((p) => p && typeof p === 'object').map(one).filter((p) => p.colors.length);
+  return list.filter((p) => p && typeof p === 'object').map(one).filter((p) => p.colors.length || p.fonts);
 }
 
 // a saved 'path' outline, cleaned: finite points only, and none if too few

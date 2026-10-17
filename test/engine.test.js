@@ -135,3 +135,10 @@ test('readPalettes: one palette, a list of them, or just colours', () => {
   assert.deepEqual(readPalettes(null), []);
   assert.deepEqual(readPalettes('nonsense'), []);
 });
+
+test('readPalettes: fonts travel with a palette, cleaned, and a fonts-only palette is kept', () => {
+  const [p] = readPalettes({ name: 'Team', colors: ['#ff0000'], fonts: { google: ['Oswald', ' Oswald ', 3], custom: [{ name: 'Mine', data: 'AAAA' }, { name: 'Bad' }] } });
+  assert.deepEqual(p.fonts, { google: ['Oswald'], custom: [{ name: 'Mine', data: 'AAAA' }] });
+  assert.equal('fonts' in readPalettes({ colors: ['#ff0000'], fonts: { google: [] } })[0], false); // none: left out
+  assert.equal(readPalettes({ name: 'Just fonts', colors: [], fonts: { google: ['Oswald'] } }).length, 1);
+});

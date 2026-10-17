@@ -1924,12 +1924,13 @@ const actions = {
     for (const r of d.finishRules || []) r.color = now(r.color);
     change({ now: true });
     if (!save) return;
-    actions.keepPalettes([{ name: res.name, colors: res.colors }]);
+    actions.keepPalettes(readPalettes({ name: res.name, colors: res.colors, fonts: { google: d.googleFonts, custom: d.customFonts } })); // its fonts go with it
     ui.say(`Palette "${res.name}" saved. Any livery can use it from Palettes.`);
   },
   // its colours join this livery's saved colours (one already there is not
-  // added twice), and the one named Base coat goes on the base coat
-  usePaletteSet(p) {
+  // added twice), the one named Base coat goes on the base coat, and its fonts
+  // join the livery's
+  async usePaletteSet(p) {
     const d = app.doc;
     let added = 0, base = null;
     for (const c of p.colors) {
@@ -1938,15 +1939,23 @@ const actions = {
       if (c.name.trim().toLowerCase() === BASE_COAT.toLowerCase()) base = saved;
     }
     if (base) { d.baseColor = base.color; d.baseRef = base.id; }
+    let fonts = 0;
+    const f = p.fonts || { google: [], custom: [] };
+    d.googleFonts = d.googleFonts || []; d.customFonts = d.customFonts || [];
+    for (const name of f.google) if (!d.googleFonts.includes(name)) { d.googleFonts.push(name); fonts++; }
+    for (const font of f.custom) {
+      if (d.customFonts.some(x => x.name === font.name)) continue;
+      try { await registerCustomFont(font.name, font.data); d.customFonts.push({ name: font.name, data: font.data }); fonts++; } catch { /* not a usable font: left out */ }
+    }
     change({ now: true });
-    ui.say((added ? `${added} colour${added > 1 ? 's' : ''} from "${p.name}" added` : `This livery already has every colour in "${p.name}"`) + (base ? ', base coat set' : ''));
+    ui.say((added ? `${added} colour${added > 1 ? 's' : ''} from "${p.name}" added` : `This livery already has every colour in "${p.name}"`) + (base ? ', base coat set' : '') + (fonts ? `, ${fonts} font${fonts > 1 ? 's' : ''} added` : ''));
   },
   async loadPaletteFile(file) {
     let list = [];
     try { list = readPalettes(JSON.parse(await file.text()), file.name.replace(/(\.palette)?\.json$/i, '')); } catch { /* not JSON */ }
     if (!list.length) { ui.say('No colours found in that file', true); return; }
     actions.keepPalettes(list);
-    for (const p of list) actions.usePaletteSet(p); // and straight onto this livery
+    for (const p of list) await actions.usePaletteSet(p); // and straight onto this livery
   },
   // the selection's colour, named from Properties: its saved colour is renamed,
   // or it is saved under that name and what is selected is set to it
