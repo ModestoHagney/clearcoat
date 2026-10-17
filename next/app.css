@@ -419,5 +419,8 @@ input.cname:hover, input.cname:focus { border-color: var(--line); background: va
 .pnames input.pname { padding-block: 0; line-height: 1.3; }
 .pnames span.pname { padding: 0 7px; line-height: 1.3; }
 .pnames input.cname { padding-block: 0; line-height: 1.3; }
-/* a list's section headings: bold where the browser lets a list be styled (Windows, Linux) */
+/* a list's section headings: bold and to the left where the browser lets a list be styled (Windows, Linux) */
 option.sect { font-weight: 700; color: var(--fg); }
+/* headings, and items that do something rather than pick (Upload a font file…), sit to the
+   left of a list whose choices sit to the right */
+option.sect, option.act { text-align: left; text-align-last: left; }
