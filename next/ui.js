@@ -424,7 +424,7 @@ export function initUI(app, actions, version) {
     const look = (l.type !== 'fill' ? '' : fadeHtml(l)) +
       (!isText ? '' :
       `<div class="with">${slider('f-outlineWidth', 0, 30, l.outlineWidth || 0, 'Outline')}<input id="f-outlineColor" type="color" value="${esc(hexOf(l.outlineColor || '') || '#000000')}" aria-label="Outline colour"></div>` +
-      slider('f-letterSpacing', 0, 40, l.letterSpacing || 0, 'Spacing') +
+      slider('f-letterSpacing', -40, 40, l.letterSpacing || 0, 'Spacing') +
       slider('f-curve', -180, 180, l.curve || 0, 'Curve') +
       (!lined ? '' : slider('f-lineSpacing', 60, 300, l.lineSpacing || 120, 'Line spacing') +
         field('Lines', `<select id="f-align">${[['left', 'Left'], ['center', 'Centred'], ['right', 'Right']].map(([v, n]) => opt(v, n, v === (l.align || 'center'))).join('')}</select>`)) +
