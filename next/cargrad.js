@@ -12,6 +12,7 @@ import { carStops, SIZE } from '../js/engine.js';
 import { regionById } from '../js/regions.js';
 import { pieceAt } from '../js/mirror.js';
 import { pieces } from './map.js';
+import { snapAngle } from '../js/shapes.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const X = '<svg viewBox="0 0 20 20"><path d="m5 5 10 10M15 5 5 15"/></svg>';
@@ -66,8 +67,8 @@ export function initCarGradient(app, env) {
       '<div class="cg-lines">' + lines().map((cl, k) => {
         const lo = Math.min(cl.a, cl.b), hi = Math.max(cl.a, cl.b), on = picked.some((id) => cl.regions.includes(id));
         return `<div class="cg-line${on ? ' on' : ''}${k === fresh ? ' cue' : ''}" data-line="${k}" style="--c:${esc(cl.color || 'var(--accent)')}">` +
-          `<span class="cg-bar${cl.b < cl.a ? ' back' : ''}" style="left:${lo * 100}%;width:${(hi - lo) * 100}%" title="${esc(names(cl.regions))}: drag to move, drag an end to stretch"><i data-lend="${cl.a <= cl.b ? 'a' : 'b'}"></i><i data-lend="${cl.a <= cl.b ? 'b' : 'a'}"></i></span>` +
-          `<button class="mx" data-lineout="${k}" title="Take ${esc(names(cl.regions))} off" aria-label="Take ${esc(names(cl.regions))} off">${X}</button></div>`;
+          `<div class="cg-track" title="${esc(names(cl.regions))}. Drag to move, drag an end to stretch. Click it to add the picked panels."><span class="cg-bar${cl.b < cl.a ? ' back' : ''}" style="left:${lo * 100}%;width:${(hi - lo) * 100}%"><i data-lend="${cl.a <= cl.b ? 'a' : 'b'}"></i><i data-lend="${cl.a <= cl.b ? 'b' : 'a'}"></i></span></div>` +
+          `<button class="icon" data-lineout="${k}" title="Take ${esc(names(cl.regions))} off" aria-label="Take ${esc(names(cl.regions))} off">${X}</button></div>`;
       }).join('') + '</div>' +
       `<div class="cg-acts"><button class="btn" data-cg="add"${bl.length >= 12 ? ' disabled' : ''}>Add a colour</button>` +
       `<button class="btn${!lines().length && !picking ? ' cue' : ''}" data-cg="pick"${m ? '' : ' disabled title="Load a template first"'} aria-pressed="${picking}" title="Click panels on the sheet (Shift adds, or drag a box round them), then drag an arrow across them front to back">Set panels</button></div>`;
@@ -124,6 +125,15 @@ export function initCarGradient(app, env) {
     render();
     return k + 1;
   }
+  // a click on a bar: the picked panels join it, leaving any other they were on
+  function join(k) {
+    const cl = lines()[k], ids = picked.filter((id) => !cl.regions.includes(id));
+    if (!ids.length) { render(); return; }
+    const ls = copy().map((x, i) => (i === k ? { ...x, regions: [...x.regions, ...ids] } : { ...x, regions: x.regions.filter((id) => !ids.includes(id)) }));
+    fresh = -1;
+    env.setLines(ls.filter((x) => x.regions.length), false, `${names(ids)} added to ${names(cl.regions)}`);
+    render();
+  }
   function unpick() {
     const ids = picked, ls = copy().map((cl) => ({ ...cl, regions: cl.regions.filter((id) => !ids.includes(id)) })).filter((cl) => cl.regions.length);
     fresh = -1;
@@ -153,12 +163,12 @@ export function initCarGradient(app, env) {
       el.setPointerCapture(e.pointerId);
       return;
     }
-    const bar = t.closest('.cg-bar');
-    if (bar) {
+    const track = t.closest('.cg-track');
+    if (track) {
       e.preventDefault();
-      const k = splitOff(+bar.closest('[data-line]').dataset.line), cl = lines()[k], end = t.closest('[data-lend]');
+      const k = +track.closest('[data-line]').dataset.line, cl = lines()[k], end = t.closest('[data-lend]');
       if (fresh !== k) fresh = -1;
-      drag = { kind: end ? 'lend' : 'lmove', k, end: end && end.dataset.lend, x0: frac(e), a: cl.a, b: cl.b, moved: false };
+      drag = { kind: t.closest('.cg-bar') ? (end ? 'lend' : 'lmove') : 'lrow', k, end: end && end.dataset.lend, x0: frac(e), a: cl.a, b: cl.b, moved: false, px: e.clientX };
       el.setPointerCapture(e.pointerId);
       return;
     }
@@ -179,7 +189,10 @@ export function initCarGradient(app, env) {
       el.style.bottom = 'auto'; el.style.transform = 'none';
       return;
     }
+    if (drag.kind === 'lrow') return;
     if (drag.kind === 'lend' || drag.kind === 'lmove') {
+      if (!drag.moved && Math.abs(e.clientX - drag.px) < 3) return;
+      if (!drag.moved) drag.k = splitOff(drag.k); // only some of its panels picked: they get a bar of their own
       drag.moved = true;
       const ls = copy(), cl = ls[drag.k];
       if (drag.kind === 'lend') cl[drag.end] = frac(e);
@@ -214,7 +227,8 @@ export function initCarGradient(app, env) {
     if (!d) return;
     drag = null;
     if (d.kind === 'win') return;
-    if (d.kind === 'lend' || d.kind === 'lmove') {
+    if (d.kind === 'lend' || d.kind === 'lmove' || d.kind === 'lrow') {
+      if (!d.moved) { join(d.k); return; }
       if (d.moved) { if (fresh === d.k) fresh = -1; env.setLines(copy(), false); }
       render();
       return;
@@ -253,17 +267,40 @@ export function initCarGradient(app, env) {
   // ---- the sheet, while Set panels is on ----
   const round = (p) => ({ x: Math.round(p.x * 10) / 10, y: Math.round(p.y * 10) / 10 });
   const at = (s) => round(screenToDoc(s.x, s.y));
+  // the end of a line's arrow within reach of a screen point
+  function endAt(s) {
+    let best = null;
+    lines().forEach((cl, k) => ['to', 'from'].forEach((end) => {
+      const q = docToScreen(cl[end].x, cl[end].y), d = Math.hypot(q.x - s.x, q.y - s.y);
+      if (d < 9 && (!best || d < best.d)) best = { k, end, d };
+    }));
+    return best;
+  }
   function down(e, s) {
-    const p = at(s), r = pieceAt(map(), p.x, p.y);
-    // from a picked panel: the arrow across them; anywhere else: a click or a box
-    sheet = { kind: r && picked.includes(r.id) && !e.shiftKey ? 'arrow' : 'box', from: p, to: { ...p }, shift: e.shiftKey, r };
+    const p = at(s), r = pieceAt(map(), p.x, p.y), hit = endAt(s);
+    if (hit) { sheet = { kind: 'end', k: hit.k, end: hit.end, moved: false }; return; }
+    // from a picked panel: the arrow across them (or, let go where it started, a click); anywhere else: a click or a box
+    sheet = { kind: r && picked.includes(r.id) ? 'arrow' : 'box', from: p, to: { ...p }, shift: e.shiftKey, r };
     requestDraw();
   }
-  function move(e, s) { if (!sheet) return; sheet.to = at(s); requestDraw(); }
+  function move(e, s) {
+    if (!sheet) return;
+    const p = at(s);
+    if (sheet.kind === 'end') { // Shift keeps it to 15° steps, as turning does
+      const ls = copy(), cl = ls[sheet.k], other = cl[sheet.end === 'to' ? 'from' : 'to'];
+      cl[sheet.end] = round(e.shiftKey ? snapAngle(other, p, 15) : p);
+      sheet.moved = true;
+      env.setLines(ls, true);
+      return;
+    }
+    sheet.to = sheet.kind === 'arrow' && e.shiftKey ? round(snapAngle(sheet.from, p, 15)) : p;
+    requestDraw();
+  }
   function upSheet() {
     const L = sheet;
     sheet = null;
     if (!L) return;
+    if (L.kind === 'end') { if (L.moved) env.setLines(copy(), false); return; }
     const a = docToScreen(L.from.x, L.from.y), b = docToScreen(L.to.x, L.to.y), click = Math.hypot(b.x - a.x, b.y - a.y) < 6;
     if (L.kind === 'arrow' && !click) { makeLine(L.from, L.to); requestDraw(); return; }
     let ids;
@@ -317,7 +354,13 @@ export function initCarGradient(app, env) {
         ctx.strokeStyle = 'rgba(16, 17, 20, .45)'; ctx.lineWidth = 1.5; ctx.stroke(); ctx.restore();
       }
       for (const id of picked) tint(regionById(m, id), accent, 0.35, 3);
-      ls.forEach((cl) => arrow(cl, cl.color || accent, 2));
+      ls.forEach((cl) => {
+        arrow(cl, cl.color || accent, 2);
+        for (const q of [cl.from, cl.to]) { // its ends can be dragged
+          const s = docToScreen(q.x, q.y);
+          ctx.beginPath(); ctx.arc(s.x, s.y, 5, 0, Math.PI * 2); ctx.fillStyle = '#ffffff'; ctx.fill(); ctx.strokeStyle = cl.color || accent; ctx.lineWidth = 2.5; ctx.stroke();
+        }
+      });
       if (!picked.length && !sheet) { // where to start: the sheet lights up
         const a = docToScreen(0, 0), b = docToScreen(SIZE, SIZE);
         ctx.setLineDash([10, 6]); ctx.strokeStyle = accent; ctx.lineWidth = 3; ctx.strokeRect(a.x - 4, a.y - 4, b.x - a.x + 8, b.y - a.y + 8); ctx.setLineDash([]);
