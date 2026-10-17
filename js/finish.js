@@ -62,7 +62,8 @@ export const layerColour = (l) => hex(l.type === 'fill' || l.type === 'image' ? 
 export const layerColours = (l) => [...new Set([layerColour(l), ...((l.repeat && l.repeat.colors) || []).map(hex)])].filter(Boolean);
 export const isArea = (l) => !!l && !!l.specOnly;
 // a layer whose finish was set for itself
-export const hasOwnFinish = (l) => !!l.finishOwn;
+// a car gradient is many colours, so it always has one of its own
+export const hasOwnFinish = (l) => !!l.finishOwn || !!l.car;
 
 export function ruleFor(doc, colour) {
   const c = hex(colour);

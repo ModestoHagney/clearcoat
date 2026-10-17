@@ -512,7 +512,7 @@ export function initUI(app, actions, version) {
     const f = readFinish(now.material, now.params), preset = presetOf(f);
     const label = t.kind === 'colour' ? `<span class="dot" style="background:${esc(t.colour)}"></span>Everything this colour` : t.kind === 'area' ? esc(layer ? layer.name : 'Area') : `Just ${esc(layer ? layer.name : 'this layer')}`;
     // a shape or text can be finished with its whole colour, or by itself
-    const canScope = (t.kind === 'colour' && t.layerId) || (t.kind === 'layer' && layer && layerColour(layer));
+    const canScope = (t.kind === 'colour' && t.layerId) || (t.kind === 'layer' && layer && !layer.car && layerColour(layer));
     const scope = !canScope ? '' : `<div class="seg"><button data-scope="colour" aria-pressed="${t.kind === 'colour'}">All this colour</button><button data-scope="layer" aria-pressed="${t.kind === 'layer'}">Just this layer</button></div>`;
     // the finish of anything else in the livery, taken over whole: no numbers to match by eye
     const others = finishList(d).filter((o) => !(o.kind === t.kind && (o.kind === 'colour' ? o.colour === t.colour : o.id === t.id)));
