@@ -18,6 +18,7 @@ const {
   serializeDoc,
   deserializeDoc,
   fadeStops,
+  carStops,
   resolveParams,
   defaultParams,
   readPalettes,
@@ -93,6 +94,21 @@ test('a fade keeps the colours it passes through, in order along it', async () =
   const back = await deserializeDoc(JSON.parse(JSON.stringify(serializeDoc(doc))));
   assert.deepEqual(fadeStops(back.layers[0]).map(o => o.color), ['#ff0000', '#00ff00']);
   assert.deepEqual(fadeStops({ colorMid: '#abcdef', midPos: 0.3 }), [{ color: '#abcdef', at: 0.3 }]); // an older save's middle colour
+});
+
+test('a car gradient: solid blocks, gaps fade, touching blocks meet sharp, the later one wins an overlap', async () => {
+  assert.deepEqual(carStops([{ color: '#0000ff', from: 0.5, to: 0.6 }, { color: '#000000', from: 0, to: 0.2 }, { color: '#ff0000', from: 0.55, to: 0.8 }]), [
+    { at: 0, color: '#000000' }, { at: 0.2, color: '#000000' },
+    { at: 0.5, color: '#0000ff' }, { at: 0.6, color: '#0000ff' },
+    { at: 0.6, color: '#ff0000' }, { at: 0.8, color: '#ff0000' },
+  ]);
+  const fill = createFillLayer('#000000');
+  fill.car = { blocks: [{ color: '#000000', from: 0, to: 0.2 }] };
+  const doc = createDoc();
+  doc.layers.push(fill, createFillLayer('#ffffff'));
+  const back = await deserializeDoc(JSON.parse(JSON.stringify(serializeDoc(doc))));
+  assert.deepEqual(back.layers[0].car, fill.car);
+  assert.equal(back.layers[1].car, null);
 });
 
 test('deserializeDoc restores fill colorMid/midPos with defaults', async () => {

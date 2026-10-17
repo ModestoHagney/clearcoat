@@ -7,7 +7,7 @@
 
 import { isRegionLayer, clipPolys, newId, repeatAxes, repeatOffsets } from './engine.js';
 import { contains } from './shapes.js';
-import { MIRROR_KINDS, regionAt, regionById, centerLine, mirrorAcross, mirrorPointKind, guessMirrorKind, trimShape, regionOutline, growOutline, seamPieces, placeMatrix } from './regions.js';
+import { MIRROR_KINDS, regionAt, regionById, centerLine, mirrorAcross, mirrorPointKind, guessMirrorKind, trimShape, regionOutline, growOutline, seamPieces, placeMatrix, carLineEnds } from './regions.js';
 
 // the piece (not one of the kit's number / sponsor zones) at a point
 export const pieceAt = (map, x, y) => (map ? regionAt({ regions: map.regions.filter(r => !r.kind) }, x, y) : null);
@@ -100,6 +100,7 @@ export function seamsOf(map, layer) {
 // ponytail: the copy's shadow offset is carried too, so it points another
 // way on a turned panel; work it out separately if that shows.
 export function withSeams(doc) {
+  doc = withCarLines(doc);
   if (!doc.regionMap || !doc.layers.some(l => l.continues)) return doc;
   const map = doc.regionMap, layers = [];
   const trimTo = (r) => [growOutline(regionOutline(r), 3)];
@@ -122,6 +123,19 @@ export function withSeams(doc) {
     });
   }
   return { ...doc, layers };
+}
+
+// A car gradient (layer.car) paints the panels that have a car line: each
+// gets the gradient laid along its line, trimmed to the panel. Worked out
+// when painting, so the gradient and the lines can both be changed.
+function withCarLines(doc) {
+  if (!doc.layers.some(l => l.car)) return doc;
+  const map = doc.regionMap, carPaint = [];
+  for (const cl of (map && map.carLines) || []) {
+    const ends = carLineEnds(cl), clip = cl.regions.map(id => regionById(map, id)).filter(Boolean).map(r => growOutline(regionOutline(r), 3));
+    if (ends && clip.length) carPaint.push({ clip, ...ends });
+  }
+  return { ...doc, layers: doc.layers.map(l => (l.car ? { ...l, carPaint } : l)) };
 }
 
 // → { copy, dst } (the new layer, and the region it landed on) or { error }
