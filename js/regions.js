@@ -548,14 +548,14 @@ export function twinLink(map, link) {
   return out && !(map.links || []).some(l => sameLink(l, out, 2)) ? out : null;
 }
 // every link that has no twin yet but could have one now (after a pairing or a
-// centreline is added) gets its twin → how many were added
+// centreline is added) gets its twin → the twins added
 export function addTwins(map) {
-  let n = 0;
+  const added = [];
   for (const l of [...(map.links || [])]) {
     const t = !twinOf(map, l) && twinLink(map, l);
-    if (t) { map.links.push(t); n++; }
+    if (t) { map.links.push(t); added.push(t); }
   }
-  return n;
+  return added;
 }
 // the link already in the map that is this one's twin (made with it, and maybe
 // nudged a little since), or null

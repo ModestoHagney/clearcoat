@@ -516,11 +516,11 @@ test('addTwins gives links made before a pairing their twins, once', () => {
       { id: 'rq', x: 300, y: 200, w: 100, h: 100, mirror: 'lq', mirrorKind: 'flip' },
     ],
     links: [{ a: { region: 'ld', from: { x: 0, y: 100 }, to: { x: 100, y: 100 } }, b: { region: 'lq', from: { x: 0, y: 200 }, to: { x: 100, y: 200 } } }] }));
-  assert.equal(addTwins(map), 0); // the doors aren't paired yet: no other side
+  assert.equal(addTwins(map).length, 0); // the doors aren't paired yet: no other side
   setMirror(map, regionById(map, 'ld'), 'rd');
-  assert.equal(addTwins(map), 1);
+  assert.equal(addTwins(map).length, 1);
   assert.deepEqual([map.links[1].a.region, map.links[1].b.region], ['rd', 'rq']);
-  assert.equal(addTwins(map), 0); // not twice
+  assert.equal(addTwins(map).length, 0); // not twice
 });
 
 // ---------------------------------------------------------------- centerline

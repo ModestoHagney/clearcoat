@@ -1070,7 +1070,7 @@ const actions = {
     const m = app.doc.regionMap, r = regionById(m, app.piece);
     if (!r) return;
     setMirror(m, r, id || null);
-    const n = id ? addTwins(m) : 0; // links made before the pairing get their twins now
+    const n = id ? addTwins(m).length : 0; // links made before the pairing get their twins now
     actions.mapChanged(id ? `${r.name} paired with ${regionById(m, id).name}${n ? `, and ${n} link${n > 1 ? 's' : ''} copied to the other side` : ''}` : `${r.name} unpaired`);
   },
   centreStart() { app.centreFor = app.piece; actions.setTool('mcentre'); },
