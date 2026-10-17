@@ -467,9 +467,15 @@ export function snapToOutline(pts, x, y, corner = 0) {
   return best;
 }
 
-// The spot `d` px further round the outline from the outline spot nearest (x, y); negative goes back
+// The spot `d` px further round the outline from the outline spot nearest (x, y);
+// negative goes back. A corner on the way is stopped at, so a step never skips one.
 export function slideAlong(pts, x, y, d) {
-  return atArc(pts, arcs(pts), snapToOutline(pts, x, y).s + d);
+  const cum = arcs(pts), L = cum[pts.length], s = snapToOutline(pts, x, y).s;
+  for (let i = 0; i < pts.length; i++) {
+    const t = (((cum[i] - s) * Math.sign(d)) % L + L) % L; // how far on to corner i
+    if (t > 1e-6 && t < Math.abs(d)) return { x: pts[i].x, y: pts[i].y };
+  }
+  return atArc(pts, cum, s + d);
 }
 
 // One side of a link as a run along its region's outline: where it starts,

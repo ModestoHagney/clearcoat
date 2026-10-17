@@ -618,4 +618,7 @@ test('slideAlong moves a spot round the outline, past corners', () => {
   assert.deepEqual(slideAlong(sq, 50, 0, -1), { x: 49, y: 0 });
   assert.deepEqual(slideAlong(sq, 100, 0, 1), { x: 100, y: 1 }); // off a corner by 1
   assert.deepEqual(slideAlong(sq, 0, 0, -1), { x: 0, y: 1 });    // wraps back round
+  assert.deepEqual(slideAlong(sq, 95, 0, 10), { x: 100, y: 0 });  // a step stops at a corner on the way
+  assert.deepEqual(slideAlong(sq, 5, 0, -10), { x: 0, y: 0 });    // going back too
+  assert.deepEqual(slideAlong(sq, 100, 0, 10), { x: 100, y: 10 }); // and goes on from it
 });
