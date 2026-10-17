@@ -467,9 +467,37 @@ export function snapToOutline(pts, x, y, corner = 0) {
   return best;
 }
 
-// The spot `d` px further round the outline from the outline spot nearest (x, y); negative goes back
-export function slideAlong(pts, x, y, d) {
-  return atArc(pts, arcs(pts), snapToOutline(pts, x, y).s + d);
+// The stretch of outline between the sharp corners (a turn of `deg` or more) either
+// side of the spot nearest (x, y): { start, len } as distances round the outline,
+// or null when there are no sharp corners. On a corner, `d`'s sign picks the side.
+// Gentle bends don't count: a traced curve is lots of short straight bits.
+export function edgeSpan(pts, x, y, d, deg = 45) {
+  const cum = arcs(pts), L = cum[pts.length], s = snapToOutline(pts, x, y).s, n = pts.length;
+  const cs = [];
+  for (let i = 0; i < n; i++) {
+    const a = pts[(i + n - 1) % n], b = pts[i], c = pts[(i + 1) % n];
+    const ux = b.x - a.x, uy = b.y - a.y, vx = c.x - b.x, vy = c.y - b.y, k = Math.hypot(ux, uy) * Math.hypot(vx, vy);
+    if (k && Math.acos(Math.max(-1, Math.min(1, (ux * vx + uy * vy) / k))) >= deg * Math.PI / 180) cs.push(cum[i]);
+  }
+  if (!cs.length) return null;
+  const ahead = (u) => (u - s + L) % L, behind = (u) => (s - u + L) % L, eps = 1e-6;
+  const at = cs.find((u) => ahead(u) < eps || ahead(u) > L - eps); // the corner s sits on, if any
+  const others = cs.filter((u) => u !== at);
+  const next = others.length ? others.reduce((p, u) => (ahead(u) < ahead(p) ? u : p)) : at;
+  const prev = others.length ? others.reduce((p, u) => (behind(u) < behind(p) ? u : p)) : at;
+  const [start, end] = at === undefined ? [prev, next] : d > 0 ? [at, next] : [prev, at];
+  return { start, len: ((end - start) % L + L) % L || L };
+}
+
+// The spot `d` px further round the outline from the outline spot nearest (x, y);
+// negative goes back. Kept inside `span` (from edgeSpan) when one is given.
+export function slideAlong(pts, x, y, d, span = null) {
+  const cum = arcs(pts), L = cum[pts.length], s = snapToOutline(pts, x, y).s;
+  if (!span) return atArc(pts, cum, s + d);
+  let u = ((s - span.start) % L + L) % L; // how far into the span s is
+  if (L - u < 1e-6) u = 0;
+  if (span.len === L && u < 1e-6 && d < 0) u = L; // the only corner: going back starts from its far side
+  return atArc(pts, cum, span.start + Math.max(0, Math.min(span.len, u + d)));
 }
 
 // One side of a link as a run along its region's outline: where it starts,

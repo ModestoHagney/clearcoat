@@ -5,7 +5,7 @@
 // corrected.
 
 import { SIZE, createImageLayer, loadImage } from '../js/engine.js';
-import { regionOutline, regionById, centerLine, snapToOutline, slideAlong, labelPoint, linkPoints, linkLength, linkDir, matchPoint, twinLink, twinOf } from '../js/regions.js';
+import { regionOutline, regionById, centerLine, snapToOutline, slideAlong, edgeSpan, labelPoint, linkPoints, linkLength, linkDir, matchPoint, twinLink, twinOf } from '../js/regions.js';
 import { pieceAt } from '../js/mirror.js';
 
 export const GUIDE = 'Panel guide'; // the layer that puts the panel colours on the car
@@ -159,16 +159,22 @@ export function initMap(app, env) {
   const clashes = (moving, to) => map().links.some(l => [l.a, l.b].some(sd =>
     (moving.includes(sd.from) ? [sd.to] : moving.includes(sd.to) ? [sd.from] : []).some(o => Math.hypot(o.x - to.x, o.y - to.y) < 2)));
   const place = (moving, to) => { for (const end of moving) { end.x = Math.round(to.x * 10) / 10; end.y = Math.round(to.y * 10) / 10; } };
-  // Left/Right: the picked end `step` px along its panel's edge, whichever way
-  // goes more left or right on screen (on an upright edge Right goes down)
+  // Left/Right: the picked end `step` px along its panel's edge, Right whichever way
+  // goes more right on screen at the first press (on an upright edge: down), never past a sharp corner
   function nudge(dir, step) {
     const m = map(), r = picked && regionById(m, picked.region);
     // gone if the link was removed or the map replaced (undo)
     if (!r || !(m.links || []).some(l => [l.a, l.b].some(sd => picked.ends.includes(sd.from) || picked.ends.includes(sd.to)))) { picked = null; requestDraw(); return; }
     const e0 = picked.ends[0], pts = regionOutline(r);
-    const fwd = slideAlong(pts, e0.x, e0.y, step), back = slideAlong(pts, e0.x, e0.y, -step);
-    const dx = fwd.x - back.x, dy = fwd.y - back.y;
-    const to = (Math.abs(dx) > step / 10 ? dx * dir : dy * dir) > 0 ? fwd : back;
+    // settled on the first press and kept: which way round the outline Right goes
+    // (so a bend can't flip it), and the edge the end stays on (it stops at sharp corners)
+    if (!picked.way) {
+      const fwd = slideAlong(pts, e0.x, e0.y, 1), back = slideAlong(pts, e0.x, e0.y, -1);
+      const dx = fwd.x - back.x, dy = fwd.y - back.y;
+      picked.way = (Math.abs(dx) > 0.1 ? dx : dy) > 0 ? 1 : -1;
+      picked.span = edgeSpan(pts, e0.x, e0.y, dir * picked.way);
+    }
+    const to = slideAlong(pts, e0.x, e0.y, dir * picked.way * step, picked.span);
     if (clashes(picked.ends, to)) { env.say('The two ends need to be apart'); return; }
     place(picked.ends, to);
     seam = null;
