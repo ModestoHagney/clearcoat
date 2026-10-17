@@ -26,7 +26,7 @@ import { finishSpec, finishList, withFinishes, setRule, clearRule, ruleFor, laye
 import { initMap, syncGuide, guideLayer } from './map.js';
 import { initCarGradient } from './cargrad.js';
 import { mirrorLayer, mirrorImage, withMirrors, withSeams, seamsOf } from '../js/mirror.js';
-import { regionOutline, parseRegionMap, regionById, renameRegion, setMirror, addTwins, setMirrorKind, MIRROR_NAMES } from '../js/regions.js';
+import { regionOutline, parseRegionMap, mapFit, regionById, renameRegion, setMirror, addTwins, setMirrorKind, MIRROR_NAMES } from '../js/regions.js';
 
 export const VERSION = self.VERSION || 'unknown'; // from version.js, which the page loads first
 
@@ -434,6 +434,12 @@ function change({ panels = true, now = false } = {}) {
 }
 
 let saveTimer = null, lastJson = null, saveWarned = false;
+// A map and a template "fit" when nearly all their traced panels line up
+// (see mapFit); less, and the map was made for another car or for an older
+// version of this car's template, so its links may land in the wrong places
+const FIT_OK = 0.9;
+const misfit = (fit, what) => `${what} doesn't match: only ${Math.round(fit * 100)}% of panels line up. It may be for another car, or the template has changed.`;
+const MAP_FILE_MAX = 10 * 1024 * 1024; // a real map is well under 1 MB
 const SAVE_FAILED = 'Could not save in the browser: its storage may be full. Export TGA keeps a copy of the paint.';
 function projectThumb() {
   const c = document.createElement('canvas');
@@ -839,7 +845,8 @@ const actions = {
       fit();
       change();
       await actions.findCar(t.carName);
-      ui.say((t.pieces ? `${t.pieces} panels found` : 'Template loaded') + (d.target === 'car' && d.car ? ` · Car folder: ${d.car}` : ''));
+      if (t.fit !== null && t.fit < FIT_OK) ui.say(misfit(t.fit, 'This template'), true);
+      else ui.say((t.pieces ? `${t.pieces} panels found` : 'Template loaded') + (d.target === 'car' && d.car ? ` · Car folder: ${d.car}` : ''));
     } catch (err) {
       ui.say('Could not load that template: ' + (err.message || 'unknown error'), true);
     }
@@ -1134,9 +1141,14 @@ const actions = {
   pickMapFile: () => $('file-map').click(),
   async loadMapFile(file) {
     try {
-      app.doc.regionMap = parseRegionMap(JSON.parse(await file.text()));
+      if (file.size > MAP_FILE_MAX) throw new Error('the file is too big for a map');
+      const map = parseRegionMap(JSON.parse(await file.text()));
+      // the map there now came from the template, when one is loaded
+      const fit = mapFit(app.doc.regionMap, map);
+      app.doc.regionMap = map;
       app.piece = null;
-      actions.mapChanged(`Map loaded: ${app.doc.regionMap.regions.length} regions`);
+      await actions.mapChanged(`Map loaded: ${map.regions.length} regions`);
+      if (fit !== null && fit < FIT_OK) ui.say(misfit(fit, 'This map'), true);
     } catch (err) {
       ui.say('Could not read that map: ' + (err.message || 'not a map file'), true);
     }
