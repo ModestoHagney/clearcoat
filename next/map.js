@@ -179,8 +179,12 @@ export function initMap(app, env) {
     place(picked.ends, to);
     syncTwins(picked.pairs);
     seam = null;
-    env.mapChanged();
+    requestDraw();
+    // saved, sent live and one undo step once the presses stop, not on every one
+    clearTimeout(nudgeTimer);
+    nudgeTimer = setTimeout(() => env.mapChanged(), 400);
   }
+  let nudgeTimer = null;
   // the twins of the links these ends belong to, found before they move: [link, twin] pairs
   function twinsOf(moving) {
     const m = map(), mine = (m.links || []).filter(l => [l.a, l.b].some(sd => moving.includes(sd.from) || moving.includes(sd.to)));
