@@ -336,10 +336,10 @@ export function initUI(app, actions, version) {
   // has since left the library, so the list can still name it.
   const motifOptions = (current, kept) => {
     const own = actions.ownShapes();
-    const group = (label, keys) => `<optgroup label="${label}">${keys.filter(Boolean).map((k) => opt(k, SHAPES[k].replace(label + ' ', '').replace(/^./, (ch) => ch.toUpperCase()), k === current)).join('')}</optgroup>`;
+    const group = (label, keys) => section(label) + keys.filter(Boolean).map((k) => opt(k, SHAPES[k], k === current)).join('');
     return PLAIN_SHAPES.map((k) => opt(k, SHAPES[k], k === current)).join('') +
       group('Rounded', PLAIN_SHAPES.map(roundedOf)) + group('Hollow', PLAIN_SHAPES.map(hollowOf)) +
-      (own.length || kept ? `<optgroup label="Your shapes">${own.map((it) => opt('own:' + it.id, it.name, 'own:' + it.id === current)).join('')}${kept && !own.some((it) => 'own:' + it.id === current) ? opt(current, kept, true) : ''}</optgroup>` : '');
+      (own.length || kept ? section('Your shapes') + own.map((it) => opt('own:' + it.id, it.name, 'own:' + it.id === current)).join('') + (kept && !own.some((it) => 'own:' + it.id === current) ? opt(current, kept, true) : '') : '');
   };
   // The top of Properties: the colour, big, and the name beside it; then the
   // colours the livery uses and has saved, to pick from, and an arrow that opens its saved
@@ -393,14 +393,19 @@ export function initUI(app, actions, version) {
     if (!l) return colourHead('<span class="pname muted">New shapes</span>');
     const isText = l.type === 'text', isPic = isText || l.type === 'image';
     const fx = l.fx || {};
-    const fonts = [...new Set([...TEXT_FONTS, ...GOOGLE_FONTS, ...(app.doc.googleFonts || []), ...(app.doc.customFonts || []).map((f) => f.name)])];
+    // this livery's fonts first: the Google fonts added to it, the uploaded ones, the
+    // others its text uses; then the rest. Each under a heading when it has any.
+    const google = [...new Set(app.doc.googleFonts || [])], uploaded = (app.doc.customFonts || []).map((f) => f.name).filter((f) => !google.includes(f));
+    const used = [...new Set(app.doc.layers.filter((x) => x.type === 'text' && x.font).map((x) => x.font))].filter((f) => !google.includes(f) && !uploaded.includes(f));
+    const mine = [...google, ...uploaded, ...used], rest = [...new Set([...TEXT_FONTS, ...GOOGLE_FONTS])].filter((f) => !mine.includes(f));
+    const fontOpts = (list, label) => (!list.length ? '' : (mine.length ? section(label) : '') + list.map((f) => opt(f, f, f === l.font)).join(''));
     const weights = isText ? actions.fontWeights(l.font) : [];
     const weight = weights.length < 2 ? '' : field('Weight', `<select id="f-fontWeight">${weights.map((w) => opt(w, WEIGHT_NAMES[w], w === (l.fontWeight || 400))).join('')}</select>`);
     const lined = isText && String(l.text || '').includes('\n'); // settings that only mean something with several lines
     // the colour and name, then for text what it says and in what
     const head = colourHead(`<input id="f-name" class="pname" type="text" value="${esc(l.name)}" title="Its name in the Layers list" aria-label="Name">`) + (!isText ? '' :
       field('Text', `<textarea id="f-text" rows="2" spellcheck="false" title="Enter starts a new line">${esc(l.text)}</textarea>`) +
-      field('Font', `<select id="f-font">${fonts.map((f) => opt(f, f, f === l.font)).join('')}${opt('__google', 'Google font by name…', false)}${opt('__upload', 'Upload a font file…', false)}</select>`) +
+      field('Font', `<select id="f-font">${fontOpts(google, 'Google fonts added')}${fontOpts(uploaded, 'Uploaded fonts')}${fontOpts(used, 'Used in this livery')}${fontOpts(rest, 'All fonts')}${opt('__google', 'Google font by name…', false)}${opt('__upload', 'Upload a font file…', false)}</select>`) +
       weight +
       slider('f-fontSize', 40, 400, l.fontSize || 160, 'Size'));
     const inPieces = Array.isArray(l.pts) && l.pts.some((q) => q.m);
@@ -505,6 +510,8 @@ export function initUI(app, actions, version) {
 
   // ---------- Map mode's two panels ----------
   const opt = (v, label, on) => `<option value="${esc(v)}"${on ? ' selected' : ''}>${esc(label)}</option>`;
+  // a heading between a list's sections: not indented like a group's, and not pickable
+  const section = (label) => `<option class="sect" disabled>— ${esc(label)} —</option>`;
   function piecesHtml() {
     const list = pieces(app.doc.regionMap);
     if (!list.length) return '<div class="note">Load a template to get a map</div>';

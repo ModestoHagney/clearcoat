@@ -419,3 +419,5 @@ input.cname:hover, input.cname:focus { border-color: var(--line); background: va
 .pnames input.pname { padding-block: 0; line-height: 1.3; }
 .pnames span.pname { padding: 0 7px; line-height: 1.3; }
 .pnames input.cname { padding-block: 0; line-height: 1.3; }
+/* a list's section headings: bold where the browser lets a list be styled (Windows, Linux) */
+option.sect { font-weight: 700; color: var(--fg); }
