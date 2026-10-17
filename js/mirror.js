@@ -7,7 +7,7 @@
 
 import { isRegionLayer, clipPolys, newId, repeatAxes, repeatOffsets } from './engine.js';
 import { contains } from './shapes.js';
-import { MIRROR_KINDS, regionAt, regionById, centerLine, mirrorAcross, mirrorPointKind, guessMirrorKind, trimShape, regionOutline, growOutline, seamPieces } from './regions.js';
+import { MIRROR_KINDS, regionAt, regionById, centerLine, mirrorAcross, mirrorPointKind, guessMirrorKind, trimShape, regionOutline, growOutline, seamPieces, placeMatrix } from './regions.js';
 
 // the piece (not one of the kit's number / sponsor zones) at a point
 export const pieceAt = (map, x, y) => (map ? regionAt({ regions: map.regions.filter(r => !r.kind) }, x, y) : null);
@@ -83,8 +83,11 @@ export function seamsOf(map, layer) {
   const homes = [...new Set([home, ...ats.map(q => pieceAt(map, q.x, q.y)).filter(Boolean)])];
   const links = [];
   for (const from of homes) for (const link of map.links || []) for (const side of ['a', 'b']) if (link[side].region === from.id) links.push({ link, side, from });
-  if (!links.length) return { error: `${homes.map(r => r.name).join(', ')} ${homes.length > 1 ? 'have' : 'has'} no linked edges yet. Link them in Map.` };
-  return { home, homes, links };
+  // loose pieces placed over one of its panels (Map › Place a piece)
+  const places = [];
+  for (const from of homes) for (const place of map.places || []) if (place.at.region === from.id && regionById(map, place.piece.region)) places.push({ place, from });
+  if (!links.length && !places.length) return { error: `${homes.map(r => r.name).join(', ')} ${homes.length > 1 ? 'have' : 'has'} no linked edges or placed pieces yet. Set them up in Map.` };
+  return { home, homes, links, places };
 }
 
 // The doc as it is painted: a Continues layer is trimmed to its own panel and
@@ -111,6 +114,11 @@ export function withSeams(doc) {
       seamPieces(map, link, side).forEach(({ m, strip }, j) => {
         layers.push({ ...own, id: `${l.id}~s${i}.${j}`, continues: false, carry: { ...m, clip: trimTo(to), strip, from: only } });
       });
+    });
+    // a placed piece shows whatever is under its spot on the car, the whole of it
+    s.places.forEach(({ place, from }, i) => {
+      const m = placeMatrix(place);
+      if (m) layers.push({ ...own, id: `${l.id}~p${i}`, continues: false, carry: { ...m, clip: trimTo(regionById(map, place.piece.region)), from: s.homes.length > 1 ? trimTo(from)[0] : null } });
     });
   }
   return { ...doc, layers };

@@ -83,6 +83,22 @@ export function parseRegionMap(data) {
       return out;
     });
   }
+  // a loose piece (a wing, a mirror) placed where it sits on the car: a line
+  // along the piece, and the line it matches on another panel (see placeMatrix)
+  if (data.places !== undefined) {
+    if (!Array.isArray(data.places)) throw new Error('"places" is not an array');
+    const pt = (q) => q && Number.isFinite(q.x) && Number.isFinite(q.y);
+    map.places = data.places.map((pl, i) => {
+      const out = {};
+      for (const k of ['piece', 'at']) {
+        const e = pl && pl[k];
+        if (!e || !pt(e.from) || !pt(e.to)) throw new Error(`place ${i} has a bad "${k}" line`);
+        if (!seen.has(e.region)) throw new Error(`place ${i} is on unknown region "${e.region}"`);
+        out[k] = { region: e.region, from: { x: e.from.x, y: e.from.y }, to: { x: e.to.x, y: e.to.y } };
+      }
+      return out;
+    });
+  }
   return map;
 }
 
@@ -274,6 +290,7 @@ export function renameRegion(map, region, name) {
   const id = uniqueRegionId(name, { regions: others });
   for (const r of others) if (r.mirror === region.id) r.mirror = id;
   for (const l of map.links || []) for (const side of ['a', 'b']) if (l[side].region === region.id) l[side].region = id;
+  for (const pl of map.places || []) for (const k of ['piece', 'at']) if (pl[k].region === region.id) pl[k].region = id;
   region.id = id;
   region.name = name;
   return region;
@@ -788,4 +805,12 @@ export function seamPieces(map, link, side, depth = 200) {
     ] });
   }
   return out;
+}
+
+// How the sheet round a placed piece's spot on the car lands on the piece
+// itself: the line drawn on the other panel laid onto the line drawn along the
+// piece (turned, scaled and moved to fit). Null if either line has no length.
+// ponytail: never reflected; add a Flip if a piece turns out to lie mirrored on the sheet.
+export function placeMatrix(place) {
+  return fit(place.at.from, place.at.to, place.piece.from, place.piece.to, false);
 }

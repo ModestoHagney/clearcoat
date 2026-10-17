@@ -160,6 +160,11 @@ export function initMap(app, env) {
   // Centreline tool (from the toolbar) also keeps going, one panel after another.
   let pairFirst = null; // pair: the panel clicked first, waiting for its partner
   let undos = [];       // centreline and pair: how to take back each one made, newest last → what to say
+  // Place a piece: a loose piece (a wing) is shown where it sits on the car by
+  // two dragged lines, one along the piece, then the matching one over the
+  // panel it lies beside on the car. Places live in the map (see regions.js).
+  let drag = null;      // place: the line being dragged, { region, from, to }
+  let placing = null;   // place: the piece's line, waiting for its match
 
   const map = () => app.doc.regionMap;
   const sel = () => (map() && app.piece ? regionById(map(), app.piece) : null);
@@ -278,9 +283,41 @@ export function initMap(app, env) {
   const copied = (added) => (added.length ? `, and ${added.length} link${added.length > 1 ? 's' : ''} copied to the other side` : '');
   const dropAdded = (added) => { const l = map().links || []; for (const t of added) if (l.includes(t)) l.splice(l.indexOf(t), 1); };
 
+  // the panel whose edge is nearest, for a line started off every panel (a wing that sits above the side)
+  function nearestPiece(p, not) {
+    let best = null;
+    for (const r of pieces(map())) {
+      if (r.id === not) continue;
+      const d = snapToOutline(regionOutline(r), p.x, p.y).d;
+      if (!best || d < best.d) best = { r, d };
+    }
+    return best && best.r;
+  }
+  function placeUp() {
+    const d = drag, a = docToScreen(d.from.x, d.from.y), b = docToScreen(d.to.x, d.to.y);
+    drag = null;
+    if (Math.hypot(b.x - a.x, b.y - a.y) < 8) { env.say(placing ? 'Drag a line, front to back, where the piece sits' : 'Drag a line along the piece, front to back'); requestDraw(); return; }
+    if (!placing) { placing = d; env.pickPiece(d.region); return; }
+    const m = map(), piece = placing;
+    placing = null;
+    m.places = (m.places || []).filter(pl => pl.piece.region !== piece.region); // one place per piece: placing again moves it
+    m.places.push({ piece, at: d });
+    app.piece = piece.region;
+    env.mapChanged(`${nameOf(piece.region)} placed over ${nameOf(d.region)}`);
+  }
+
   function down(e, s) {
     if (!map()) return;
     const p = screenToDoc(s.x, s.y);
+    if (app.tool === 'mplace') {
+      const r = pieceAt(map(), p.x, p.y) || (placing ? nearestPiece(p, placing.region) : null);
+      if (!r) { env.say('Start on the loose piece'); return; }
+      if (placing && r.id === placing.region) { env.say('Now drag the matching line on another panel, where the piece sits on the car'); return; }
+      const q = { x: Math.round(p.x * 10) / 10, y: Math.round(p.y * 10) / 10 };
+      drag = { region: r.id, from: q, to: { ...q } };
+      requestDraw();
+      return;
+    }
     if (app.tool === 'mlink') {
       // a press on a link's end: a drag slides it along the edge, a plain click still counts as a click there
       const grab = !e.altKey && !ends.length ? linkEndAt(s) : null;
@@ -331,6 +368,12 @@ export function initMap(app, env) {
 
   function move(e, s) {
     if (!map()) return;
+    if (app.tool === 'mplace' && drag) {
+      const p = screenToDoc(s.x, s.y);
+      drag.to = { x: Math.round(p.x * 10) / 10, y: Math.round(p.y * 10) / 10 };
+      requestDraw();
+      return;
+    }
     if (app.tool === 'mlink') {
       const p = screenToDoc(s.x, s.y);
       if (slide) {
@@ -355,6 +398,7 @@ export function initMap(app, env) {
   }
 
   function up() {
+    if (drag) return placeUp();
     if (!slide) return;
     const d = slide;
     slide = null;
@@ -369,6 +413,7 @@ export function initMap(app, env) {
       return true;
     }
     const back = e.key === 'Backspace' || e.key === 'Delete';
+    if (app.tool === 'mplace' && (back || e.key === 'Escape') && placing) { placing = null; requestDraw(); env.refreshChrome(); return true; } // the piece's line taken back
     if ((app.tool === 'mcentre' || app.tool === 'mpair') && back) { // takes back the last click
       if (pending || pairFirst) { pending = snap = pairFirst = null; if (app.tool === 'mpair') env.pickPiece(null); else { requestDraw(); env.refreshChrome(); } }
       else if (undos.length) env.mapChanged(undos.pop()());
@@ -384,11 +429,11 @@ export function initMap(app, env) {
     else if (pairFirst) { pairFirst = null; env.pickPiece(null); }
     else if (picked && app.tool === 'mlink') { picked = null; requestDraw(); env.refreshChrome(); }
     else if (ends.length) { ends = []; requestDraw(); env.refreshChrome(); }
-    else if (app.tool === 'mcentre' || app.tool === 'mlink' || app.tool === 'mpair') env.setTool('mpick');
+    else if (app.tool === 'mcentre' || app.tool === 'mlink' || app.tool === 'mpair' || app.tool === 'mplace') env.setTool('mpick');
     else env.pickPiece(null);
     return true;
   }
-  function cancel() { pending = snap = seam = slide = picked = pairFirst = null; ends = []; undos = []; }
+  function cancel() { pending = snap = seam = slide = picked = pairFirst = drag = placing = null; ends = []; undos = []; }
 
   const hint = () => {
     if (app.tool === 'hand') return 'Drag to move the sheet · wheel zooms · H or Esc puts it down';
@@ -396,6 +441,7 @@ export function initMap(app, env) {
     const takeBack = ' · Delete or Backspace takes one back';
     if (app.tool === 'mcentre') return (pending ? 'Click the matching corner on the other side' : 'Click a corner, then its match on the other side') + (app.centreFor ? '' : takeBack);
     if (app.tool === 'mpair') return (pairFirst ? `Now click the pair of ${nameOf(pairFirst)}` : 'Click a panel, then its pair on the other side of the car') + (!pairFirst && sel() && sel().mirror ? ' · F tries the next flip' : '') + takeBack;
+    if (app.tool === 'mplace') return placing ? `Now drag the same line, front to back, where ${nameOf(placing.region)} sits on the car: over the panel it lies beside · Delete takes it back` : 'Drag a line along a loose piece (a wing, say), front to back. Placing it again moves it';
     if (app.tool === 'mlink') return [(picked ? '← → nudge this end (Shift: 10 px) · Esc lets go · ' : '') + 'Click one end of an edge that meets another panel · drag a link\'s end to move it (hold Alt to skip snapping), Shift+click it to nudge it with ← → · Alt+click removes a link', 'Click the other end, on the same panel', 'Now the spot on the other panel that meets end 1', 'And the spot that meets end 2'][ends.length] + (ends.length ? takeBack : '');
     return sel() ? 'Name it, pair it or set its centreline on the right' : 'Click a panel';
   };
@@ -480,6 +526,20 @@ export function initMap(app, env) {
       ctx.font = '700 11px "IBM Plex Mono", monospace';
       ends.forEach((c, k) => { dot(c, 8, accent); const a = S(c); ctx.fillStyle = '#ffffff'; ctx.fillText(String(k % 2 + 1), a.x, a.y + 0.5); }); // 1 meets 1, 2 meets 2
     }
+    // placed pieces: the line along each, and the line it matches where it sits on the car
+    const arrow = (a, b, col) => {
+      const A = S(a), B = S(b), t = Math.atan2(B.y - A.y, B.x - A.x);
+      ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y);
+      for (const k of [-1, 1]) { ctx.moveTo(B.x, B.y); ctx.lineTo(B.x - 11 * Math.cos(t + k * 0.45), B.y - 11 * Math.sin(t + k * 0.45)); }
+      ctx.lineCap = 'round'; ctx.strokeStyle = '#101114'; ctx.lineWidth = 5; ctx.stroke(); ctx.strokeStyle = col; ctx.lineWidth = 2.5; ctx.stroke(); ctx.lineCap = 'butt';
+      dot(a, 4, col);
+    };
+    for (const pl of m.places || []) {
+      if (app.tool !== 'mplace' && !(cur && (pl.piece.region === cur.id || pl.at.region === cur.id))) continue;
+      arrow(pl.piece.from, pl.piece.to, accent); arrow(pl.at.from, pl.at.to, accent);
+    }
+    if (placing) arrow(placing.from, placing.to, accent);
+    if (drag) arrow(drag.from, drag.to, accent);
     if (pending) dot(pending, 6, accent);
     if (app.tool === 'mcentre' && snap) {
       const a = S(snap);

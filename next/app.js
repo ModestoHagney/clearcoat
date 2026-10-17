@@ -1097,6 +1097,13 @@ const actions = {
     delete r.center;
     actions.mapChanged(`Centreline removed from ${r.name}`);
   },
+  // the piece no longer placed on the car (Map › Place a piece)
+  unplace() {
+    const m = app.doc.regionMap, r = m && regionById(m, app.piece);
+    if (!r || !(m.places || []).some(pl => pl.piece.region === r.id)) return;
+    m.places = m.places.filter(pl => pl.piece.region !== r.id);
+    actions.mapChanged(`${r.name} no longer placed`);
+  },
   toggleMapColours() { app.mapShow.colours = !app.mapShow.colours; requestDraw(); ui.refresh(); },
   async toggleGuide() {
     if (!app.doc.regionMap) { ui.say('Load a template first', true); return; }
@@ -1166,7 +1173,9 @@ const actions = {
     if (s.error) { ui.say(s.error, true); ui.refresh(); return; }
     l.continues = s.home.id;
     const names = [...new Set(s.links.map(({ link, side }) => (regionById(app.doc.regionMap, link[side === 'a' ? 'b' : 'a'].region) || {}).name))].filter(n => !s.homes.some(h => h.name === n));
-    ui.say(names.length ? `Continues onto ${names.join(', ')} where it hangs over the edge` : 'Continues across the linked edges between its panels');
+    const placed = s.places.map(({ place }) => regionById(app.doc.regionMap, place.piece.region).name);
+    ui.say([names.length ? `Continues onto ${names.join(', ')} where it hangs over the edge` : s.links.length ? 'Continues across the linked edges between its panels' : '',
+      placed.length ? `Shows on ${placed.join(', ')}, placed over it` : ''].filter(Boolean).join('. '));
     change({ now: true });
   },
   // ---- fades ----
