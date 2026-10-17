@@ -15,7 +15,8 @@ const L1 = norm([-0.5, -0.6, 0.62]);   // key light, upper left
 const L2 = norm([0.45, 0.55, 0.35]);   // faint fill, lower right
 const H = [L1, L2].map(l => norm([l[0], l[1], l[2] + 1])); // Blinn half vectors, view straight on
 
-// material + params: as the engine stamps them. colour: '#rrggbb'.
+// material + params: as the engine stamps them. colour: '#rrggbb', or a car
+// gradient's stops ([{ at, color }], see engine.js carStops) laid left to right.
 export function renderTile(canvas, material, params, colour) {
   const W = canvas.width, Ht = canvas.height;
   const ctx = canvas.getContext('2d');
@@ -32,7 +33,16 @@ export function renderTile(canvas, material, params, colour) {
     sctx.fillRect(0, 0, W, Ht);
   }
   const spec = sctx.getImageData(0, 0, W, Ht).data;
-  const base = [1, 3, 5].map(i => parseInt(colour.slice(i, i + 2), 16) / 255);
+  const rgb = (c) => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16) / 255);
+  // the paint colour of each column of the tile
+  const cols = Array.from({ length: W }, (_, x) => {
+    if (!Array.isArray(colour)) return rgb(colour);
+    const t = (x + 0.5) / W, s = colour, k = s.findIndex(o => o.at >= t);
+    if (!s.length) return [0.6, 0.63, 0.67];
+    if (k <= 0) return rgb(s[k < 0 ? s.length - 1 : 0].color);
+    const a = s[k - 1], b = s[k], f = b.at > a.at ? (t - a.at) / (b.at - a.at) : 1, ca = rgb(a.color), cb = rgb(b.color);
+    return ca.map((v, j) => v + (cb[j] - v) * f);
+  });
   // Sparkle with Brightness: each fleck lightens the paint under it by this much (0 to 1), per pixel
   let lit = null;
   if (MATERIALS[key].tex && p.bright > 0 && specTexture(MATERIALS[key].tex, p).light) {
@@ -53,7 +63,7 @@ export function renderTile(canvas, material, params, colour) {
       const nx = (x + 0.5 - W / 2) / (W / 2) * 0.62, ny = (y + 0.5 - Ht / 2) / (Ht / 2) * 0.62;
       const nz = Math.sqrt(1 - nx * nx - ny * ny);
       const metallic = spec[i] / 255, roughness = spec[i + 1] / 255, clearcoat = spec[i + 2] / 255;
-      const lift = lit ? lit[i + 3] / 255 * p.bright / 100 : 0, alb = lift ? base.map(a => a + (1 - a) * lift) : base;
+      const base = cols[x], lift = lit ? lit[i + 3] / 255 * p.bright / 100 : 0, alb = lift ? base.map(a => a + (1 - a) * lift) : base;
       const shininess = 4 + 252 * (1 - roughness) * (1 - roughness);
       const specCol = alb.map(a => 1 + (a - 1) * metallic);
       let r = 0, g = 0, b = 0;
