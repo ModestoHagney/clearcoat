@@ -263,7 +263,7 @@ export function initUI(app, actions, version) {
       const cols = [...new Set(ms.map((l) => layerColour(l)).filter(Boolean))].slice(0, 4), n = cols.length;
       const sw = n ? `background:linear-gradient(90deg, ${cols.map((c, i) => `${esc(c)} ${i / n * 100}% ${(i + 1) / n * 100}%`).join(', ')})` : swatch(ms[0]);
       const seen = ms.some((l) => l.visible), open = !g.collapsed;
-      return `<div class="row grouped ghead${ms.some((l) => picked.has(l.id)) ? ' sel' : ''}" data-layer="${esc(ms[0].id)}" data-group="${esc(g.id)}" data-last="${esc(ms[ms.length - 1].id)}" draggable="true" style="--g:${groupHue(g.id)}" title="A group of ${ms.length} layers. Click its name again to rename it.">` +
+      return `<div class="row grouped ghead${ms.some((l) => picked.has(l.id)) ? ' sel' : ''}" data-layer="${esc(ms[0].id)}" data-group="${esc(g.id)}" data-last="${esc(ms[ms.length - 1].id)}" draggable="true" style="--g:${groupHue(g.id)}" title="A group of ${ms.length} layers. Double-click its name to rename it.">` +
         `<button class="twist" data-fold="${esc(g.id)}" aria-expanded="${open}" title="${open ? 'Fold it to one row' : 'Show its layers'}" aria-label="${open ? 'Fold' : 'Unfold'} ${esc(g.name)}">${open ? '▾' : '▸'}</button>` +
         `<span class="sw" style="${sw}"></span><span class="name">${esc(g.name)}</span><span class="count">${ms.length}</span>` +
         `<button class="rowx" data-delg="${esc(g.id)}" title="Delete the group and its layers" aria-label="Delete ${esc(g.name)}">${svg('close')}</button><button class="eye${seen ? '' : ' off'}" data-eyeg="${esc(g.id)}" title="Show or hide" aria-label="Show or hide ${esc(g.name)}">${svg('eye')}</button></div>`;
@@ -704,7 +704,7 @@ export function initUI(app, actions, version) {
   let nameClick = { key: null, at: 0 };
   panels.layers.addEventListener('click', (e) => {
     const row = e.target.closest('.row[data-layer]');
-    if (!row || row.dataset.layer === 'base' || !e.target.closest('.name') || e.shiftKey || e.ctrlKey || e.metaKey || app.mode !== 'paint') return;
+    if (!row || row.dataset.layer === 'base' || e.target.matches('.rename') || !e.target.closest('.name') || e.shiftKey || e.ctrlKey || e.metaKey || app.mode !== 'paint') return;
     const gid = row.dataset.group, key = gid || row.dataset.layer, sel = actions.selectedLayers();
     const twice = nameClick.key === key && performance.now() - nameClick.at < 450;
     const already = gid ? row.classList.contains('sel') && sel.every((l) => l.groupId === gid) : sel.length === 1 && sel[0].id === key;
@@ -712,8 +712,34 @@ export function initUI(app, actions, version) {
     if (!twice && !already) return;
     e.stopPropagation(); // it is already selected: nothing else to do with this click
     nameClick = { key: null, at: 0 };
-    gid ? actions.renameGroup(gid) : actions.renameLayer(key);
+    renameHere(row, gid, key);
   }, true);
+  // The name turns into a box where it is: Enter or a click away keeps it, Esc leaves it as it was.
+  function renameHere(row, gid, key) {
+    const span = row.querySelector('.name'), box = document.createElement('input');
+    box.className = 'name rename';
+    box.value = span.textContent;
+    box.setAttribute('aria-label', 'Name');
+    span.replaceWith(box);
+    row.draggable = false; // so dragging in the box selects its text
+    let done = false;
+    const end = (keep) => {
+      if (done) return;
+      done = true;
+      const name = box.value.trim();
+      if (keep && name && name !== span.textContent) gid ? actions.renameGroup(gid, name) : actions.renameLayer(key, name);
+      else if (box.isConnected) { box.replaceWith(span); row.draggable = true; }
+    };
+    box.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') end(true);
+      else if (e.key === 'Escape') end(false);
+    });
+    box.addEventListener('blur', () => end(true));
+    for (const t of ['click', 'dblclick', 'mousedown', 'pointerdown', 'contextmenu']) box.addEventListener(t, (e) => e.stopPropagation());
+    box.focus();
+    box.select();
+  }
   panels.layers.addEventListener('dragend', () => { dragId = null; dropMark(null); });
 
   // Every colour box opens the app's own colour pop-up (see picker.js), which
