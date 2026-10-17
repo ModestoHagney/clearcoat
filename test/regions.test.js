@@ -536,6 +536,17 @@ test('nearestIsStretch stops a band at a slit but not at a corner', () => {
   assert.equal(nearestIsStretch(outline, top, 22)(3, 10), true);
 });
 
+test('guessMirrorKind gives the same answer whichever panel comes first', () => {
+  let seed = 7;
+  const r = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const box = (pts) => { const xs = pts.map(p => p.x), ys = pts.map(p => p.y); return { points: pts, x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) }; };
+  for (let k = 0; k < 300; k++) { // a notched panel and a rough, not exact, mirror of it
+    const a = box([{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 40 + 20 * r() }, { x: 60 + 30 * r(), y: 60 + 30 * r() }, { x: 100, y: 100 }, { x: 0, y: 100 }]);
+    const b = box(a.points.map(p => ({ x: 300 - p.x + 8 * (r() - 0.5), y: p.y + 8 * (r() - 0.5) })).concat([{ x: 300 - 20 * r(), y: 100 }]));
+    assert.equal(guessMirrorKind(a, b), guessMirrorKind(b, a));
+  }
+});
+
 // ---------------------------------------------------------------- centerline
 
 test('centerLine runs square to the twin corners through their midpoint, spanning the region', () => {

@@ -122,21 +122,24 @@ export function mirrorPoint(src, dst, x, y) {
 // Which relation (see MIRROR_KINDS) lays src's outline most closely over
 // dst's — how a pair of outlined regions should be mirrored when nothing has
 // recorded it yet. Plain boxes fit every way equally, and then it is 'flip',
-// the default. `kinds` narrows the choice, e.g. to the two reflections.
+// the default. `kinds` narrows the choice, e.g. to the two reflections. The
+// fit is measured both ways round, so which panel is named first can't change it.
 export function guessMirrorKind(src, dst, kinds = MIRROR_KINDS) {
-  const from = regionOutline(src), to = regionOutline(dst);
-  const probes = [];
-  for (let i = 0; i < from.length; i++) {
-    const p = from[i], q = from[(i + 1) % from.length];
-    probes.push(p, { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 });
-  }
+  const miss = (from, to, kind) => {
+    const pts = regionOutline(from), onto = regionOutline(to);
+    let d = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i], q = pts[(i + 1) % pts.length];
+      for (const r of [p, { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 }]) {
+        const m = mirrorPointKind(from, to, r.x, r.y, kind);
+        d += snapToOutline(onto, m.x, m.y).d;
+      }
+    }
+    return d;
+  };
   let best = kinds[0], bestD = Infinity;
   for (const kind of kinds) {
-    let d = 0;
-    for (const p of probes) {
-      const m = mirrorPointKind(src, dst, p.x, p.y, kind);
-      d += snapToOutline(to, m.x, m.y).d;
-    }
+    const d = miss(src, dst, kind) + miss(dst, src, kind);
     if (d < bestD - 1e-6) { best = kind; bestD = d; }
   }
   return best;
