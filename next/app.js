@@ -967,7 +967,7 @@ const actions = {
 
   setMode(mode) {
     if (mode === app.mode) return;
-    tools.cancel(); mapTools.cancel();
+    tools.cancel(); mapTools.cancel(); carGrad.close();
     app.mode = mode;
     app.tool = mode === 'map' ? 'mpick' : 'select';
     app.ftarget = null;
