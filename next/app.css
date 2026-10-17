@@ -450,18 +450,18 @@ option.sect, option.act { text-align: left; text-align-last: left; }
 .cg-block .mx { z-index: 2; }
 .cg-block:hover .mx { opacity: 1; }
 .cg-acts { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
-.cg-lines { position: relative; margin-top: 6px; }
-.cg-line { position: relative; height: 22px; }
-.cg-line:hover .mx { opacity: 1; }
-.cg-line .mx { right: -10px; top: 4px; }
-.cg-bar { position: absolute; top: 9px; height: 4px; background: var(--c); border-radius: 2px; cursor: grab; }
-.cg-bar::before { content: ""; position: absolute; inset: -8px 0; } /* an easier grip than 4px */
-.cg-bar i { position: absolute; z-index: 1; top: -5px; width: 14px; height: 14px; border-radius: 50%; background: var(--c); border: 2px solid var(--panel); cursor: ew-resize; }
-.cg-bar i:first-child { left: -7px; } .cg-bar i:last-child { right: -7px; }
-.cg-bar::after { content: ""; position: absolute; right: -2px; top: -5px; border: 7px solid transparent; border-left-color: var(--c); border-right: 0; }
-.cg-bar.back::after { right: auto; left: -2px; border-left: 0; border-right: 7px solid var(--c); }
-.cg-line.on { background: var(--accent-soft); border-radius: 4px; }
-.cg-line.on .cg-bar { top: 8px; height: 6px; }
-@keyframes cg-cue { 50% { box-shadow: 0 0 0 4px var(--accent-soft), 0 0 0 6px var(--accent); } }
-.cg-line.cue .cg-bar, .btn.cue { animation: cg-cue 1.2s ease-in-out infinite; }
+.cg-ends, .cg-strip, .cg-blocks { margin-right: 30px; } /* the bars' delete buttons sit in this gutter, so the bars line up with the strip */
+.cg-lines { margin-top: 8px; display: grid; gap: 4px; }
+.cg-line { display: grid; grid-template-columns: 1fr 24px; gap: 6px; align-items: center; }
+.cg-line .icon { width: 24px; height: 24px; }
+.cg-line .icon svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.cg-track { position: relative; height: 24px; border: 1px solid var(--line); border-radius: 6px; background: var(--bar); cursor: pointer; }
+.cg-track:hover { border-color: var(--muted); }
+.cg-bar { position: absolute; top: 0; bottom: 0; min-width: 6px; border-radius: 5px; cursor: grab; background: linear-gradient(90deg, color-mix(in srgb, var(--c) 18%, transparent), color-mix(in srgb, var(--c) 65%, transparent)); }
+.cg-bar.back { background: linear-gradient(270deg, color-mix(in srgb, var(--c) 18%, transparent), color-mix(in srgb, var(--c) 65%, transparent)); } /* paler at the front of its panels, fuller at the back */
+.cg-bar i { position: absolute; top: 0; bottom: 0; width: 7px; z-index: 1; cursor: ew-resize; background: var(--c); border-radius: 3px; }
+.cg-bar i:first-child { left: -3px; } .cg-bar i:last-child { right: -3px; }
+.cg-line.on .cg-track { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+@keyframes cg-cue { 50% { box-shadow: 0 0 0 3px var(--accent-soft), 0 0 0 5px var(--accent); } }
+.cg-line.cue .cg-track, .btn.cue { animation: cg-cue 1.2s ease-in-out infinite; }
 .cgsw { width: 40px; height: 40px; flex: none; border-radius: 6px; border: 1px solid var(--line); }
