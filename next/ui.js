@@ -92,7 +92,7 @@ const TOOLS = [
   ['stamp', 'Stamp (S)'],
   ['text', 'Text (T)'],
   ['image', 'Library'],
-  ['piece', 'Fill panel (G)'],
+  ['piece', 'Fill panel (G). Shift+click adds to the same layer'],
 ];
 // Finish mode: the same drawing tools, but what they draw is an area
 const FINISH_TOOLS = [
@@ -100,7 +100,7 @@ const FINISH_TOOLS = [
   ['hand', 'Hand (H)'],
   ['pen', 'Draw an area (P)'],
   ['shape', 'Area from a shape (U)'],
-  ['piece', 'A whole panel (G)'],
+  ['piece', 'A whole panel (G). Shift+click adds to the same area'],
 ];
 const MAP_TOOLS = [
   ['mpick', 'Select a panel'],
