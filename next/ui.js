@@ -38,6 +38,8 @@ const I = { // 20x20 line icons
   mpair: '<rect x="2.5" y="5" width="5.5" height="10" rx="1"/><rect x="12" y="5" width="5.5" height="10" rx="1"/><path d="M10 3v2M10 9v2M10 15v2"/>',
   // two edges that meet: a link of chain
   mlink: '<path d="M8.5 11.5a3 3 0 0 0 4.2 0l2.6-2.6a3 3 0 0 0-4.2-4.2l-.9.9"/><path d="M11.5 8.5a3 3 0 0 0-4.2 0l-2.6 2.6a3 3 0 0 0 4.2 4.2l.9-.9"/>',
+  // a loose piece and the spot it sits at
+  mplace: '<rect x="2.5" y="11" width="6" height="6" rx="1"/><path d="M11 3h6v6h-6z" stroke-dasharray="2 2"/><path d="m7 9 4.5-4.5M8.5 4.5h3v3"/>',
   eye: '<path d="M2 10s3-5 8-5 8 5 8 5-3 5-8 5-8-5-8-5z"/><circle cx="10" cy="10" r="2.2"/>',
   float: '<rect x="4" y="4" width="9" height="9" rx="1.5"/><path d="M8 16h8V8"/>',
   dock: '<rect x="3" y="4" width="14" height="12" rx="1.5"/><path d="M12 4v12"/>',
@@ -105,6 +107,7 @@ const MAP_TOOLS = [
   ['mcentre', 'Centreline'],
   ['mpair', 'Pair panels'],
   ['mlink', 'Link edges'],
+  ['mplace', 'Place a piece'],
 ];
 const PANELS = ['layers', 'props'];
 const WEIGHT_NAMES = { 100: 'Thin', 200: 'Extra light', 300: 'Light', 400: 'Regular', 500: 'Medium', 600: 'Semi bold', 700: 'Bold', 800: 'Extra bold', 900: 'Black' };
@@ -385,7 +388,7 @@ export function initUI(app, actions, version) {
       const l0 = many.find((x) => x.id === app.sel) || many[0], turn = actions.manyTurn(); // null: nothing among them can turn
       return colourHead(`<span class="pname">${many.length} layers</span>`) +
         fold('f-place', 'Place', posBoxes() + (turn === null ? '' : slider('f-turn', -180, 180, turn, 'Turn', 'They turn as one, about their middle. A group keeps its angle; a loose selection starts at 0 each time.')) +
-          `<label class="switch" title="Where they hang over an edge linked in Map, they carry on onto the panel that edge meets">Continue across edges<input id="f-continues" type="checkbox"${many.some((x) => x.continues) ? ' checked' : ''}></label>` +
+          `<label class="switch" title="Where they hang over an edge linked in Map, they carry on onto the panel that edge meets. A piece placed over their panel in Map shows them too">Continue across edges<input id="f-continues" type="checkbox"${many.some((x) => x.continues) ? ' checked' : ''}></label>` +
           `<div class="acts">${trimButtons(l0)}${mirroredBtn(many.some((x) => x.mirrored))}${trimClear(many.find((x) => trimCount(x)) || l0)}</div>`) +
         fold('f-look', 'Look', (fills.length ? fadeHtml(fills.find((x) => x.fillType === 'linear' || x.fillType === 'radial') || fills[0]) : '') +
           slider('f-opacity', 0, 100, (l0.opacity ?? 1) * 100, 'Opacity') +
@@ -421,7 +424,7 @@ export function initUI(app, actions, version) {
       (isPic ? slider('f-rotation', -180, 180, Math.round(l.rotation || 0), 'Turn') :
         l.type === 'fill' ? slider('f-turn', -180, 180, ((l.turn || 0) % 360 + 540) % 360 - 180, 'Turn') : '') +
       (isPic ? `<label class="switch" title="Off: it reads the right way round on both sides. On: a true mirror image.">Reverse the other side<input id="f-mirrorFlip" type="checkbox"${l.mirrorFlip ? ' checked' : ''}${l.mirrored ? '' : ' disabled'}></label>` : '') +
-      `<label class="switch" title="Where it hangs over an edge linked in Map, it carries on onto the panel that edge meets">Continue across edges<input id="f-continues" type="checkbox"${l.continues ? ' checked' : ''}></label>` +
+      `<label class="switch" title="Where it hangs over an edge linked in Map, it carries on onto the panel that edge meets. A piece placed over its panel in Map shows it too">Continue across edges<input id="f-continues" type="checkbox"${l.continues ? ' checked' : ''}></label>` +
       `<div class="acts">${trimButtons(l)}${mirroredBtn(l.mirrored)}<button class="btn" data-act="separate" title="Make the mirrored side a layer of its own"${l.mirrored ? '' : ' disabled'}>Separate</button>${trimClear(l)}</div>`;
     // a shape's fill can fade to a second colour, or to nothing
     const look = (l.type !== 'fill' ? '' : fadeHtml(l)) +
@@ -533,6 +536,10 @@ export function initUI(app, actions, version) {
       : field('Name', `<input id="m-name" type="text" value="${esc(r.name)}">`) +
         field('Twin', `<select id="m-pair">${opt('', 'None', !r.mirror)}${list.filter((x) => x !== r).map((x) => opt(x.id, x.name, x.id === r.mirror)).join('')}</select>`) +
         (r.mirror ? field('Flip', `<select id="m-flip" title="How the twin lies on the sheet compared with this panel">${Object.entries(MIRROR_NAMES).map(([k, v]) => opt(k, v, k === (r.mirrorKind || 'flip'))).join('')}</select>`) : '') +
+        (() => { // a loose piece placed where it sits on the car
+          const pl = (m.places || []).find((x) => x.piece.region === r.id), on = pl && list.find((x) => x.id === pl.at.region);
+          return !pl ? '' : field('Placed over', `<span>${esc(on ? on.name : '')}</span>`) + '<div class="acts"><button class="btn" data-act="unplace" title="It stops showing what is painted over its spot on the car">Remove place</button></div>';
+        })() +
         `<div class="acts"><button class="btn" data-act="centreStart" title="Two matching corners, one each side"${r.center ? ' disabled' : ''}>Set centreline</button><button class="btn" data-act="centreRemove"${r.center ? '' : ' disabled'}>Remove centreline</button></div>`;
     return top + '<hr class="rule">' +
       `<label class="switch">Panel colours<input id="m-colours" type="checkbox"${app.mapShow.colours ? ' checked' : ''}></label>` +

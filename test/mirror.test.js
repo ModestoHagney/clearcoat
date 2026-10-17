@@ -155,6 +155,23 @@ test('a Continues layer is trimmed to its panel and carried over each linked edg
   assert.match(seamsOf(m, shape(box(10, 10, 50, 50))).error, /no linked edges/);
 });
 
+test('a piece placed over a panel shows what a Continues layer paints over its spot, turned to match', () => {
+  const m = map();
+  // Lone stands on its side on the sheet: its line runs down, the matching one on the roof runs across
+  m.places = parseRegionMap({ ...m, places: [{ piece: { region: 'lone', from: { x: 1600, y: 0 }, to: { x: 1600, y: 100 } }, at: { region: 'roof', from: { x: 1000, y: 200 }, to: { x: 1100, y: 200 } } }] }).places;
+  const l = shape(box(1010, 10, 380, 380)); // over the roof, no edges linked
+  const s = seamsOf(m, l);
+  assert.equal(s.home.id, 'roof');
+  l.continues = s.home.id;
+  const out = withSeams({ regionMap: m, layers: [l] }).layers;
+  assert.equal(out.length, 2);
+  const k = out[1].carry, at = (x, y) => ({ x: Math.round(k.a * x + k.c * y + k.e), y: Math.round(k.b * x + k.d * y + k.f) });
+  assert.deepEqual(at(1000, 200), { x: 1600, y: 0 });
+  assert.deepEqual(at(1100, 200), { x: 1600, y: 100 }); // front to back on the roof is top to bottom on Lone
+  assert.equal(out[1].carry.strip, undefined); // the whole piece, not a strip by an edge
+  assert.ok(out[1].carry.clip[0].every(q => q.x >= 1590)); // trimmed to Lone
+});
+
 test('trimmed to several linked panels, copies carry on from each, taking only that panel\'s copies', () => {
   const m = map();
   m.links = [{ a: { region: 'lone', from: { x: 1700, y: 0 }, to: { x: 1700, y: 100 } }, b: { region: 'roof', from: { x: 1000, y: 0 }, to: { x: 1400, y: 0 } } }];
