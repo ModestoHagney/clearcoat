@@ -393,14 +393,17 @@ export function initUI(app, actions, version) {
     if (!l) return colourHead('<span class="pname muted">New shapes</span>');
     const isText = l.type === 'text', isPic = isText || l.type === 'image';
     const fx = l.fx || {};
-    const fonts = [...new Set([...TEXT_FONTS, ...GOOGLE_FONTS, ...(app.doc.googleFonts || []), ...(app.doc.customFonts || []).map((f) => f.name)])];
+    // this livery's fonts first (the ones added to it and the ones its text uses), then the rest
+    const mine = [...new Set([...(app.doc.googleFonts || []), ...(app.doc.customFonts || []).map((f) => f.name), ...app.doc.layers.filter((x) => x.type === 'text' && x.font).map((x) => x.font)])];
+    const rest = [...new Set([...TEXT_FONTS, ...GOOGLE_FONTS])].filter((f) => !mine.includes(f));
+    const fontOpts = (list) => list.map((f) => opt(f, f, f === l.font)).join('');
     const weights = isText ? actions.fontWeights(l.font) : [];
     const weight = weights.length < 2 ? '' : field('Weight', `<select id="f-fontWeight">${weights.map((w) => opt(w, WEIGHT_NAMES[w], w === (l.fontWeight || 400))).join('')}</select>`);
     const lined = isText && String(l.text || '').includes('\n'); // settings that only mean something with several lines
     // the colour and name, then for text what it says and in what
     const head = colourHead(`<input id="f-name" class="pname" type="text" value="${esc(l.name)}" title="Its name in the Layers list" aria-label="Name">`) + (!isText ? '' :
       field('Text', `<textarea id="f-text" rows="2" spellcheck="false" title="Enter starts a new line">${esc(l.text)}</textarea>`) +
-      field('Font', `<select id="f-font">${fonts.map((f) => opt(f, f, f === l.font)).join('')}${opt('__google', 'Google font by name…', false)}${opt('__upload', 'Upload a font file…', false)}</select>`) +
+      field('Font', `<select id="f-font">${mine.length ? `<optgroup label="This livery">${fontOpts(mine)}</optgroup><optgroup label="All fonts">${fontOpts(rest)}</optgroup>` : fontOpts(rest)}${opt('__google', 'Google font by name…', false)}${opt('__upload', 'Upload a font file…', false)}</select>`) +
       weight +
       slider('f-fontSize', 40, 400, l.fontSize || 160, 'Size'));
     const inPieces = Array.isArray(l.pts) && l.pts.some((q) => q.m);
