@@ -830,6 +830,23 @@ export function placeMatrix(place) {
 // Where a car line puts the front and back of the car on the sheet: its line
 // (from → to) runs from a to b along the car, so the whole car (0 → 1) spans
 // p0 → p1. Null if the line or its stretch of the car has no length.
+// The car lines with every paired panel's twin added: a panel with no line of
+// its own whose pair (Map › Pair panels) has one takes that line, its arrow
+// mirrored onto it. The twins are marked `twin` (and `of`, the index of
+// the line they copy) and are not saved.
+export function carLinesWithTwins(map) {
+  const ls = (map && map.carLines) || [], lined = new Set(ls.flatMap(cl => cl.regions)), out = [...ls];
+  ls.forEach((cl, of) => { for (const id of cl.regions) {
+    const src = regionById(map, id), dst = src && src.mirror && regionById(map, src.mirror);
+    if (!dst || lined.has(dst.id)) continue;
+    const kind = MIRROR_KINDS.includes(src.mirrorKind) ? src.mirrorKind : guessMirrorKind(src, dst);
+    const m = (q) => mirrorPointKind(src, dst, q.x, q.y, kind);
+    out.push({ ...cl, regions: [dst.id], from: m(cl.from), to: m(cl.to), twin: true, of });
+    lined.add(dst.id);
+  } });
+  return out;
+}
+
 export function carLineEnds(cl) {
   const d = cl.b - cl.a;
   if (Math.abs(d) < 1e-4 || (cl.from.x === cl.to.x && cl.from.y === cl.to.y)) return null;

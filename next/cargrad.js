@@ -9,7 +9,7 @@
 // lines belong to the car's map, so every car gradient uses them.
 
 import { carStops, SIZE } from '../js/engine.js';
-import { regionById } from '../js/regions.js';
+import { regionById, carLinesWithTwins } from '../js/regions.js';
 import { pieceAt } from '../js/mirror.js';
 import { pieces } from './map.js';
 import { snapAngle } from '../js/shapes.js';
@@ -105,7 +105,7 @@ export function initCarGradient(app, env) {
   const copy = () => lines().map((cl) => ({ ...cl, regions: [...cl.regions] }));
   // the picked panels get a line of their own, taken out of any they were on
   function makeLine(from, to) {
-    const ids = [...picked], old = lines().filter((cl) => ids.some((id) => cl.regions.includes(id)));
+    const ids = [...picked], old = carLinesWithTwins(map()).filter((cl) => ids.some((id) => cl.regions.includes(id)));
     // all from one line: its stretch of the car is a good start, otherwise the whole car
     const { a, b } = old.length === 1 ? old[0] : { a: 0, b: 1 };
     const ls = copy().map((cl) => ({ ...cl, regions: cl.regions.filter((id) => !ids.includes(id)) })).filter((cl) => cl.regions.length);
@@ -341,12 +341,20 @@ export function initCarGradient(app, env) {
       for (const k of [-1, 1]) { ctx.moveTo(B.x, B.y); ctx.lineTo(B.x - 12 * Math.cos(t + k * 0.45), B.y - 12 * Math.sin(t + k * 0.45)); }
       ctx.lineCap = 'round'; ctx.strokeStyle = '#101114'; ctx.lineWidth = w + 2.5; ctx.stroke(); ctx.strokeStyle = col; ctx.lineWidth = w; ctx.stroke(); ctx.lineCap = 'butt';
     };
-    const ls = lines(), m = map();
+    const ls = lines(), m = map(), all = carLinesWithTwins(m), twins = all.slice(ls.length);
+    // a paired panel following its twin's line: dashed, as it is set from the other side
+    const twin = (cl) => {
+      ctx.setLineDash([6, 4]);
+      tint(regionById(m, cl.regions[0]), cl.color || accent, 0.18, 1.5);
+      arrow(cl, cl.color || accent, 1.5);
+      ctx.setLineDash([]);
+    };
     ctx.save();
     if (picking) {
       for (const cl of ls) for (const id of cl.regions) tint(regionById(m, id), cl.color || accent, 0.3, 1.5);
+      twins.forEach(twin);
       for (const r of pieces(m)) {
-        if (!r.points || ls.some((cl) => cl.regions.includes(r.id))) continue;
+        if (!r.points || all.some((cl) => cl.regions.includes(r.id))) continue;
         trace(r); ctx.save(); ctx.clip();
         const a = docToScreen(r.x, r.y), b = docToScreen(r.x + r.w, r.y + r.h);
         ctx.beginPath();
@@ -368,6 +376,7 @@ export function initCarGradient(app, env) {
     } else if (ls[hover]) {
       for (const id of ls[hover].regions) tint(regionById(m, id), ls[hover].color || accent, 0.3, 2);
       arrow(ls[hover], ls[hover].color || accent, 2);
+      twins.filter((cl) => cl.of === hover).forEach(twin);
     }
     if (sheet && sheet.kind === 'arrow') arrow(sheet, accent, 3);
     if (sheet && sheet.kind === 'box') {
