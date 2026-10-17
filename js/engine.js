@@ -444,6 +444,25 @@ export function fadeStops(layer) {
   return list.filter(s => s && typeof s.color === 'string' && Number.isFinite(s.at)).sort((a, b) => a.at - b.at);
 }
 
+// A car gradient's colour blocks [{ color, from, to }] (0-1 along the car, front
+// to back) as gradient stops: each block is solid from its start to its end,
+// the gap to the next fades, and blocks that touch meet at a sharp edge. Where
+// two overlap, the later-starting one wins from its start.
+export function carStops(blocks) {
+  const out = [];
+  let last = 0;
+  for (const b of [...(blocks || [])].sort((x, y) => x.from - y.from)) {
+    const from = Math.max(last, Math.min(1, b.from)), to = Math.max(from, Math.min(1, b.to));
+    out.push({ at: from, color: b.color }, { at: to, color: b.color });
+    last = to;
+  }
+  return out;
+}
+export const cleanCar = (c) => {
+  const blocks = c && Array.isArray(c.blocks) ? c.blocks.filter(b => b && typeof b.color === 'string' && Number.isFinite(b.from) && Number.isFinite(b.to)).slice(0, 12) : [];
+  return blocks.length ? { blocks: blocks.map(b => ({ color: b.color, from: b.from, to: b.to })) } : null;
+};
+
 // which way a layer's fade line runs: its fill's own style while that fades,
 // else the one kept for it
 export const fadeStyleOf = (layer) => (layer.fillType === 'radial' || layer.fillType === 'linear' ? layer.fillType : layer.fadeStyle === 'radial' ? 'radial' : 'linear');
@@ -714,6 +733,21 @@ fxScratch.width = fxScratch.height = SIZE;
 
 // the layer's own pixels, without opacity, trim or shadow
 function drawLayerContent(ctx, layer) {
+  if (layer.carPaint) { // a car gradient: on each panel with a car line, the strip's colours along that line (mirror.js withCarLines)
+    const stops = carStops(layer.car.blocks);
+    for (const { clip, p0, p1 } of layer.carPaint) {
+      ctx.save();
+      ctx.beginPath();
+      for (const poly of clip) poly.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)));
+      ctx.clip();
+      const g = ctx.createLinearGradient(p0.x, p0.y, p1.x, p1.y);
+      for (const s of stops) g.addColorStop(s.at, s.color);
+      ctx.fillStyle = stops.length ? g : 'transparent';
+      ctx.fillRect(0, 0, SIZE, SIZE);
+      ctx.restore();
+    }
+    return;
+  }
   if (layer.type === 'fill') {
     const rx = layer.rx ?? 0, ry = layer.ry ?? 0, rw = layer.rw ?? SIZE, rh = layer.rh ?? SIZE;
     ctx.save();
@@ -1132,6 +1166,7 @@ export function serializeDoc(doc) {
       fadeStyle: l.fadeStyle === 'radial' || l.fadeStyle === 'linear' ? l.fadeStyle : undefined,
       colorMid: l.colorMid ?? null, midPos: l.midPos ?? 0.5,
       stops: Array.isArray(l.stops) && l.stops.length ? l.stops.map(o => ({ color: o.color, at: o.at })) : undefined,
+      car: l.car ? cleanCar(l.car) : undefined, // a car gradient, see carStops
       src: l.src,
       text: l.text, font: l.font, fontSize: l.fontSize,
       textColor: l.textColor, outlineColor: l.outlineColor, outlineWidth: l.outlineWidth,
@@ -1296,6 +1331,7 @@ export async function deserializeDoc(data) {
           midPos: l.midPos ?? 0.5,
           stops: Array.isArray(l.stops) ? l.stops.filter(o => o && typeof o.color === 'string' && Number.isFinite(o.at)).slice(0, 8).map(o => ({ color: o.color, at: o.at })) : [],
           gradAngle: l.gradAngle ?? 0,
+          car: cleanCar(l.car),
           rx: l.rx ?? 0, ry: l.ry ?? 0, rw: l.rw ?? SIZE, rh: l.rh ?? SIZE,
           flipH: !!l.flipH, flipV: !!l.flipV, // a ready-made shape separated from its mirror is flipped: it stays so
         });

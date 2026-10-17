@@ -99,6 +99,17 @@ export function parseRegionMap(data) {
       return out;
     });
   }
+  // which stretch of the car each panel takes a car gradient from: a line
+  // dragged over one or more panels, front to back, and where it runs along
+  // the car (a, b: 0 front to 1 back)
+  if (data.carLines !== undefined) {
+    if (!Array.isArray(data.carLines)) throw new Error('"carLines" is not an array');
+    const pt = (q) => q && Number.isFinite(q.x) && Number.isFinite(q.y);
+    map.carLines = data.carLines.map((cl, i) => {
+      if (!cl || !Array.isArray(cl.regions) || !pt(cl.from) || !pt(cl.to) || !Number.isFinite(cl.a) || !Number.isFinite(cl.b)) throw new Error(`car line ${i} is malformed`);
+      return { regions: cl.regions.filter(id => seen.has(id)), from: { x: cl.from.x, y: cl.from.y }, to: { x: cl.to.x, y: cl.to.y }, a: cl.a, b: cl.b };
+    }).filter(cl => cl.regions.length);
+  }
   return map;
 }
 
@@ -291,6 +302,7 @@ export function renameRegion(map, region, name) {
   for (const r of others) if (r.mirror === region.id) r.mirror = id;
   for (const l of map.links || []) for (const side of ['a', 'b']) if (l[side].region === region.id) l[side].region = id;
   for (const pl of map.places || []) for (const k of ['piece', 'at']) if (pl[k].region === region.id) pl[k].region = id;
+  for (const cl of map.carLines || []) cl.regions = cl.regions.map(r => (r === region.id ? id : r));
   region.id = id;
   region.name = name;
   return region;
@@ -813,4 +825,14 @@ export function seamPieces(map, link, side, depth = 200) {
 // ponytail: never reflected; add a Flip if a piece turns out to lie mirrored on the sheet.
 export function placeMatrix(place) {
   return fit(place.at.from, place.at.to, place.piece.from, place.piece.to, false);
+}
+
+// Where a car line puts the front and back of the car on the sheet: its line
+// (from → to) runs from a to b along the car, so the whole car (0 → 1) spans
+// p0 → p1. Null if the line or its stretch of the car has no length.
+export function carLineEnds(cl) {
+  const d = cl.b - cl.a;
+  if (Math.abs(d) < 1e-4 || (cl.from.x === cl.to.x && cl.from.y === cl.to.y)) return null;
+  const at = (t) => ({ x: cl.from.x + (t - cl.a) / d * (cl.to.x - cl.from.x), y: cl.from.y + (t - cl.a) / d * (cl.to.y - cl.from.y) });
+  return { p0: at(0), p1: at(1) };
 }

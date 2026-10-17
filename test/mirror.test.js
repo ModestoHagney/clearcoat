@@ -172,6 +172,20 @@ test('a piece placed over a panel shows what a Continues layer paints over its s
   assert.ok(out[1].carry.clip[0].every(q => q.x >= 1590)); // trimmed to Lone
 });
 
+test('a car gradient is laid along each panel\'s car line, the whole car from its front to its back', () => {
+  const m = map();
+  // a line down Lone (turned on the sheet) covers the back fifth of the car
+  m.carLines = parseRegionMap({ ...m, carLines: [{ regions: ['lone'], from: { x: 1650, y: 0 }, to: { x: 1650, y: 100 }, a: 0.8, b: 1 }] }).carLines;
+  const g = createFillLayer('#000000');
+  g.car = { blocks: [{ color: '#000000', from: 0, to: 1 }] };
+  const out = withSeams({ regionMap: m, layers: [g, shape(box(0, 0, 10, 10))] }).layers;
+  assert.equal(out[0].carPaint.length, 1);
+  const { p0, p1, clip } = out[0].carPaint[0];
+  assert.deepEqual([p0, p1].map(q => ({ x: Math.round(q.x), y: Math.round(q.y) })), [{ x: 1650, y: -400 }, { x: 1650, y: 100 }]); // front of the car 4 lines' length back up the sheet
+  assert.ok(clip[0].every(q => q.x > 1590 && q.x < 1710)); // only on Lone
+  assert.equal(out[1].carPaint, undefined);
+});
+
 test('trimmed to several linked panels, copies carry on from each, taking only that panel\'s copies', () => {
   const m = map();
   m.links = [{ a: { region: 'lone', from: { x: 1700, y: 0 }, to: { x: 1700, y: 100 } }, b: { region: 'roof', from: { x: 1000, y: 0 }, to: { x: 1400, y: 0 } } }];

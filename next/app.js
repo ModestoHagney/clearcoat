@@ -24,6 +24,7 @@ import { searchIcons, iconShape, svgToShape } from './icons.js';
 import { traceImage } from '../js/trace.js';
 import { finishSpec, finishList, withFinishes, setRule, clearRule, ruleFor, layerColour, layerColours, isArea, hasOwnFinish, readFinish, writeFinish, presetOf, FINISHES, SPARKLE } from '../js/finish.js';
 import { initMap, syncGuide, guideLayer } from './map.js';
+import { initCarGradient } from './cargrad.js';
 import { mirrorLayer, mirrorImage, withMirrors, withSeams, seamsOf } from '../js/mirror.js';
 import { regionOutline, parseRegionMap, regionById, renameRegion, setMirror, addTwins, setMirrorKind, MIRROR_NAMES } from '../js/regions.js';
 
@@ -65,8 +66,9 @@ export const app = {
   ftarget: null,
   finishKind: 'matte',                // the finish a newly drawn area starts with
 };
-let ui = null, tools = null, mapTools = null;
-const onSheet = () => (app.mode === 'map' ? mapTools : tools); // who the pointer talks to
+let ui = null, tools = null, mapTools = null, carGrad = null;
+// who the pointer talks to (a car line being drawn on the sheet: the car gradient window)
+const onSheet = () => (app.mode === 'map' ? mapTools : carGrad && carGrad.drawing() ? carGrad : tools);
 
 // ---------- the doc ----------
 
@@ -286,7 +288,7 @@ function draw() {
   }
   const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#1f5fe0';
   const sel = doc.layers.find(l => l.id === app.sel);
-  if (sel && sel.visible && !(isShape(sel) && app.tool === 'select')) { // a shape shows its own outline and points
+  if (sel && sel.visible && !sel.car && !(isShape(sel) && app.tool === 'select')) { // a car gradient has no box of its own // a shape shows its own outline and points
     try {
       trace(layerCorners(sel));
       ctx.strokeStyle = accent;
@@ -294,6 +296,7 @@ function draw() {
     } catch { /* a layer with no picture yet has no box */ }
   }
   if (tools) tools.drawOverlay(ctx, accent);
+  if (carGrad) { carGrad.drawOverlay(ctx, accent); carGrad.sync(); }
   $('zoom-readout').textContent = Math.round(app.view.zoom * 100) + '%';
   $('empty').hidden = !!(doc.template || doc.layers.length);
   showPos();
@@ -1097,6 +1100,22 @@ const actions = {
     delete r.center;
     actions.mapChanged(`Centreline removed from ${r.name}`);
   },
+  // One fade over the whole car, painted on each panel by its car line (see cargrad.js)
+  addCarGradient() {
+    if (app.mode !== 'paint') actions.setMode('paint');
+    const l = createFillLayer(app.colour);
+    const n = app.doc.layers.filter(x => x.car).length + 1;
+    l.name = 'Car gradient' + (n > 1 ? ' ' + n : '');
+    Object.assign(l, { rx: 0, ry: 0, rw: SIZE, rh: SIZE });
+    l.car = { blocks: [{ color: app.colour, from: 0, to: 0.2 }, { color: nextMix([app.colour]), from: 0.8, to: 1 }] };
+    app.doc.layers.push(l);
+    actions.setTool('select');
+    app.sel = l.id; app.sels = [];
+    change({ now: true });
+    carGrad.open(l.id);
+    if (!(app.doc.regionMap && (app.doc.regionMap.carLines || []).length)) ui.say('Add a panel line to show it on the car');
+  },
+  openCarGradient() { const l = actions.selected(); if (l && l.car) carGrad.open(l.id); },
   // the piece no longer placed on the car (Map › Place a piece)
   unplace() {
     const m = app.doc.regionMap, r = m && regionById(m, app.piece);
@@ -2157,6 +2176,7 @@ window.addEventListener('keydown', (e) => {
   if ($('dlg').open || (typing() && !(mod && (k === 's' || k === 'm')))) return;
   if (e.code === 'Space') { spaceHeld = true; handCursor(); e.preventDefault(); return; }
   if (app.tool === 'hand' && k === 'escape') { actions.setTool('hand'); return; } // put down: back to the tool it came from
+  if (!mod && carGrad && carGrad.key(e)) { e.preventDefault(); return; }
   if (!mod && onSheet().key(e)) { e.preventDefault(); return; }
   if (mod && k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
   if (mod && k === 'y') { e.preventDefault(); redo(); return; }
@@ -2348,6 +2368,24 @@ async function boot() {
     screenToDoc, docToScreen, requestDraw,
     say: ui.say, refreshChrome: ui.refreshChrome,
     setTool: actions.setTool, pickPiece: actions.pickPiece, mapChanged: actions.mapChanged, mapFlip: actions.mapFlip,
+  });
+  carGrad = initCarGradient(app, {
+    screenToDoc, docToScreen, requestDraw, say: ui.say,
+    nextColour: (has) => nextMix(has),
+    // live: while dragging; the save, undo step and paints folder follow once it is let go
+    setBlocks(id, blocks, live) {
+      const l = app.doc.layers.find(x => x.id === id);
+      if (!l || !l.car) return;
+      l.car = { blocks };
+      l.color = blocks.length ? [...blocks].sort((a, b) => a.from - b.from)[0].color : l.color; // its colour in the Layers list, finishes and palettes
+      change(live ? { panels: false } : { now: true });
+    },
+    setLines(lines, live, msg) {
+      if (!app.doc.regionMap) return;
+      app.doc.regionMap.carLines = lines;
+      change(live ? { panels: false } : { now: true });
+      if (msg) ui.say(msg);
+    },
   });
   ensureDocFonts();
   fit();

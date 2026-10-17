@@ -9,6 +9,7 @@ import { FINISHES, finishName, finishLabel, finishList, layerColour, isArea, rea
 import { MIRROR_NAMES } from '../js/regions.js';
 import { renderTile } from './preview.js';
 import { initPicker } from './picker.js';
+import { carCss } from './cargrad.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -175,6 +176,7 @@ export function initUI(app, actions, version) {
       ['Undo', 'Ctrl+Z', 'undo', { off: !app.canUndo }], ['Redo', 'Ctrl+Y', 'redo', { off: !app.canRedo }], 0,
       ...layerItems(), 0,
       ['Select all', 'Ctrl+A', 'selectAll'], 0,
+      ['New car gradient', '', 'addCarGradient'], 0,
       ['Group', 'Ctrl+G', 'group', { off: actions.selectedLayers().length < 2 }],
       ['Ungroup', 'Ctrl+Shift+G', 'ungroup', { off: !actions.selectedLayers().some((l) => l.groupId) }],
     ],
@@ -247,6 +249,7 @@ export function initUI(app, actions, version) {
 
   // ---------- panels ----------
   const swatch = (l) => {
+    if (l.car) return `background:${carCss(l.car.blocks)}`;
     if (l.type === 'fill' && l.color) return `background:${esc(l.color)}`;
     // ponytail: the layer's own picture as the swatch; skip the very large ones
     if (l.src && l.src.length < 300000 && /^data:image\/[\w+.-]+;base64,[\w+/=]+$/.test(l.src)) return `background-image:url(${l.src})`;
@@ -401,6 +404,15 @@ export function initUI(app, actions, version) {
     }
     const l = app.doc.layers.find((x) => x.id === app.sel);
     if (!l) return colourHead('<span class="pname muted">New shapes</span>');
+    if (l.car) { // one fade over the whole car: its colours and car lines are set in its own window
+      const lines = ((app.doc.regionMap || {}).carLines || []).length;
+      return `<div class="phead"><span class="cgsw" style="background:${carCss(l.car.blocks)}"></span><span class="pnames"><input id="f-name" class="pname" type="text" value="${esc(l.name)}" title="Its name in the Layers list" aria-label="Name"></span></div>` +
+        `<div class="acts"><button class="btn" data-act="openCarGradient" title="Its colours along the car, and which stretch of the car each panel is">Edit gradient…</button></div>` +
+        `<div class="note">${lines ? `${lines} car line${lines > 1 ? 's' : ''}: it shows on the panels they cover` : 'No car lines yet: add one in Edit gradient to show it on the car'}</div>` +
+        slider('f-opacity', 0, 100, (l.opacity ?? 1) * 100, 'Opacity') +
+        field('Blend', `<select id="f-blend" title="Multiply darkens what is under it, for a texture such as worn cardboard">${opt('', 'Normal', !l.blend)}${opt('multiply', 'Multiply', l.blend === 'multiply')}</select>`) +
+        `<div class="acts">${trimButtons(l)}${trimClear(l)}</div>`;
+    }
     const isText = l.type === 'text', isPic = isText || l.type === 'image';
     const fx = l.fx || {};
     // this livery's fonts first: the Google fonts added to it, the uploaded ones, the

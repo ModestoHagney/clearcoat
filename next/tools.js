@@ -307,7 +307,7 @@ export function initTools(app, env) {
   function layerAt(p) {
     for (let i = app.doc.layers.length - 1; i >= 0; i--) {
       const l = app.doc.layers[i];
-      if (!l.visible || l.locked) continue;
+      if (!l.visible || l.locked || l.car) continue; // a car gradient covers the sheet: picked from the Layers panel
       if (l.specOnly && app.mode !== 'finish') continue; // an area belongs to Finish mode
       // ponytail: a sheet-sized box or picture would swallow every click, so it
       // is only picked from the Layers panel; give it a real hit shape later
@@ -574,7 +574,7 @@ export function initTools(app, env) {
       if (!d.went) { if (app.sel !== null) env.select(null); return; }
       const x0 = Math.min(d.a.x, d.b.x), x1 = Math.max(d.a.x, d.b.x), y0 = Math.min(d.a.y, d.b.y), y1 = Math.max(d.a.y, d.b.y);
       env.selectMany(app.doc.layers.filter((l) => {
-        if (!l.visible || l.locked || l.specOnly) return false;
+        if (!l.visible || l.locked || l.specOnly || l.car) return false;
         const b = boxOf(l);
         return b && b.x0 <= x1 && b.x1 >= x0 && b.y0 <= y1 && b.y1 >= y0; // touches the box
       }).map(l => l.id));
