@@ -31,7 +31,9 @@ export function parseRegionMap(data) {
   if (data.regions.length > MAP_LIMITS.regions) throw new Error(`too many regions (over ${MAP_LIMITS.regions})`);
   const nPoints = data.regions.reduce((n, r) => n + (r && Array.isArray(r.points) ? r.points.length : 0), 0);
   if (nPoints > MAP_LIMITS.points) throw new Error(`outlines are too detailed (over ${MAP_LIMITS.points} corners)`);
-  if (Array.isArray(data.links) && data.links.length > MAP_LIMITS.links) throw new Error(`too many links (over ${MAP_LIMITS.links})`);
+  for (const k of ['links', 'places', 'carLines']) {
+    if (Array.isArray(data[k]) && data[k].length > MAP_LIMITS.links) throw new Error(`too many ${k} (over ${MAP_LIMITS.links})`);
+  }
   const seen = new Set();
   const regions = data.regions.map((r, i) => {
     if (!r || typeof r !== 'object') throw new Error(`region ${i} is not an object`);
