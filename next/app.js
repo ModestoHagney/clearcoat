@@ -1877,7 +1877,14 @@ const actions = {
       download(new Blob([JSON.stringify({ overspray: 'palette', ...p }, null, 2)], { type: 'application/json' }), p.name.replace(/[^\w.-]+/g, '_') + '.palette.json');
       return;
     }
-    if (pick.act === 'delete') { // confirmed in the list; liveries that use its colours keep them
+    if (pick.act === 'delete') { // confirmed in the list. The saved colours it added to this livery go too: what is in them keeps the colour
+      const d = app.doc, ids = new Set(d.palette.filter(c => c.from === p.name).map(c => c.id));
+      if (ids.size) {
+        d.palette = d.palette.filter(c => !ids.has(c.id));
+        for (const l of d.layers) if (ids.has(l.colorRef)) l.colorRef = null;
+        if (ids.has(d.baseRef)) d.baseRef = null;
+        change({ now: true });
+      }
       library.palettes.splice(pick.i, 1);
       saveLibrary();
     }
@@ -1938,7 +1945,7 @@ const actions = {
     let added = 0, base = null;
     for (const c of p.colors) {
       let saved = d.palette.find(x => x.color === c.color);
-      if (!saved) { saved = { id: 'c' + newId(), name: c.name, color: c.color }; d.palette.push(saved); added++; }
+      if (!saved) { saved = { id: 'c' + newId(), name: c.name, color: c.color, from: p.name }; d.palette.push(saved); added++; } // from: so deleting the palette takes it out again
       if (c.name.trim().toLowerCase() === BASE_COAT.toLowerCase()) base = saved;
     }
     if (base) { d.baseColor = base.color; d.baseRef = base.id; }

@@ -877,6 +877,7 @@ export function initUI(app, actions, version) {
       (!list.length ? '<div class="note">No palettes yet. Save this livery\'s colours as one, or import a palette file.</div>'
         : list.map((p, i) => `<div class="prow"><button type="button" class="pbtn" data-pp="use" data-i="${i}" title="Add these colours to this livery">${p.colors.map((c) => `<i style="background:${esc(c.color)}" title="${esc(c.name)}"></i>`).join('')}<b>${esc(p.name)}</b><small>${fontNames(p).length ? 'Fonts: ' + esc(fontNames(p).join(', ')) : 'No fonts'}</small></button>` +
           `<span class="pacts"><button type="button" class="btn" data-pp="export" data-i="${i}" title="Download it as a file to share or keep">Export</button><button type="button" class="btn" data-pp="delete" data-i="${i}">Delete</button></span></div>`).join(''));
+    dlg.classList.add('pal');
     const p = ask({ title: 'Palettes', body, ok: null, cancel: 'Close' });
     dlg.onclick = (e) => { // anywhere in the window, so a click off an armed Delete stands it down
       const b = e.target.closest('button[data-pp]'), armed = $('dlg-body').querySelector('.btn.bad');
@@ -886,6 +887,7 @@ export function initUI(app, actions, version) {
     };
     await p;
     dlg.onclick = null;
+    dlg.classList.remove('pal');
     return picked;
   }
   // ---------- the library ----------

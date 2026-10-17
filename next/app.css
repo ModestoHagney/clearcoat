@@ -302,6 +302,7 @@ dialog .dbody:has(.keys) { max-height: 82vh; } /* the whole list in view where t
 dialog .dbody:focus-visible { outline: none; } /* a long list scrolls, and the browser would ring the scrolling box */
 dialog footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px 16px; }
 dialog.wide { width: min(720px, calc(100% - 32px)); }
+dialog.pal { width: min(600px, calc(100% - 32px)); }
 dialog.lib .dbody { height: 60vh; } /* the same size whichever tab is open */
 .tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 #lib-q { width: 100%; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bar); color: var(--fg); font: inherit; }
