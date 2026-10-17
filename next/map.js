@@ -27,19 +27,35 @@ function labelOf(r, later) {
 // the same colours should face each other across the join. Strong colours,
 // unlike each other, in an order that reads differently backwards: a link made
 // the wrong way round shows up.
-// Each link shuffles them into its own order (from its place in the list), so
-// ends of different links rarely share a colour.
+// Each link shuffles them into its own order, and leaves out colours close to
+// its panels' own fill, so ends of different links rarely share a colour and
+// the blocks stand out from the panel. A link's twin gets the same blocks.
 const BANDS = ['#ffffff', '#101114', '#e6194b', '#3cb44b', '#ffe119', '#4363d8', '#f58231',
   '#911eb4', '#42d4f4', '#f032e6', '#bfef45', '#469990', '#9a6324', '#808000'];
-function bandsFor(i) {
-  const out = [...BANDS];
-  let s = Math.imul(i + 1, 2654435761);
+const hueOf = (hex) => {
+  const [r, g, b] = [1, 3, 5].map(k => parseInt(hex.slice(k, k + 2), 16) / 255), mx = Math.max(r, g, b), d = mx - Math.min(r, g, b);
+  if (d < 0.2) return null; // white, black: never close to a panel
+  const h = mx === r ? (g - b) / d : mx === g ? 2 + (b - r) / d : 4 + (r - g) / d;
+  return (h * 60 + 360) % 360;
+};
+const panelHue = (i) => (i * 137.5) % 360; // as hue() above
+function bandsFor(key, avoid) {
+  const out = BANDS.filter(c => { const h = hueOf(c); return h === null || avoid.every(a => Math.min(Math.abs(h - a), 360 - Math.abs(h - a)) > 35); });
+  let s = Math.imul(key + 1, 2654435761);
   for (let k = out.length - 1; k > 0; k--) {
     s = Math.imul(s ^ (s >>> 15), 2246822507); s ^= s >>> 13;
     const j = (s >>> 0) % (k + 1);
     [out[k], out[j]] = [out[j], out[k]];
   }
   return out;
+}
+// a link and its twin share one number (the earlier one's place in the list),
+// so they get the same colours; worked out again only when the map changes
+let keyCache = { s: null, keys: [] };
+function linkKeys(m) {
+  const links = m.links || [], s = JSON.stringify([links, m.regions.map(r => [r.mirror, r.mirrorKind, r.center, r.points && r.points.length])]);
+  if (s !== keyCache.s) keyCache = { s, keys: links.map((l, i) => { const t = twinOf(m, l); return t ? Math.min(i, links.indexOf(t)) : i; }) };
+  return keyCache.keys;
 }
 const linkHue = (i) => `hsl(${(i * 137.5 + 40) % 360} 95% 62%)`;
 
@@ -57,9 +73,11 @@ export function guideCanvas(map) {
     ctx.fillStyle = hue(i); ctx.fill();
     ctx.strokeStyle = '#101114'; ctx.lineWidth = 3; ctx.stroke();
   });
+  const keys = linkKeys(map), at = (id) => panelHue(list.findIndex(r => r.id === id));
   (map.links || []).forEach((link, i) => {
     const n = Math.max(3, Math.min(16, Math.round(linkLength(map, link) / 48)));
-    const bands = bandsFor(i);
+    const twins = map.links.filter((l, j) => keys[j] === keys[i]);
+    const bands = bandsFor(keys[i], twins.flatMap(l => [at(l.a.region), at(l.b.region)]));
     for (const side of ['a', 'b']) {
       const r = regionById(map, link[side].region);
       if (!r) continue;
@@ -435,6 +453,7 @@ export function initMap(app, env) {
     const dot = (q, r, fill) => { const a = S(q); ctx.beginPath(); ctx.arc(a.x, a.y, r, 0, Math.PI * 2); ctx.fillStyle = fill; ctx.fill(); ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.stroke(); };
     // linked edges: both stretches of a link in one colour, a big dot on the ends that meet each other
     ctx.lineCap = 'round';
+    const keys = linkKeys(m);
     (m.links || []).forEach((link, i) => {
       for (const side of ['a', 'b']) {
         const pts = linkPoints(m, link, side);
@@ -443,9 +462,9 @@ export function initMap(app, env) {
         ctx.save(); trace(regionOutline(regionById(m, link[side].region))); ctx.clip();
         ctx.beginPath(); pts.forEach((q, k) => { const a = S(q); k ? ctx.lineTo(a.x, a.y) : ctx.moveTo(a.x, a.y); });
         ctx.strokeStyle = '#101114'; ctx.lineWidth = 11.2; ctx.stroke(); // half of each width shows
-        ctx.strokeStyle = linkHue(i); ctx.lineWidth = 6.4; ctx.stroke();
+        ctx.strokeStyle = linkHue(keys[i]); ctx.lineWidth = 6.4; ctx.stroke();
         ctx.restore();
-        dot(pts[0], 5, linkHue(i)); dot(pts[pts.length - 1], 3, linkHue(i));
+        dot(pts[0], 5, linkHue(keys[i])); dot(pts[pts.length - 1], 3, linkHue(keys[i]));
       }
     });
     ctx.lineCap = 'butt';
