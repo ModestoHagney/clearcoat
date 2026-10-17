@@ -191,13 +191,22 @@ export function initTools(app, env) {
 
   // Fill a panel: the panel's outline as a shape, a hair over the edge so no
   // bare line shows where the sim blends across panel edges
-  function fillPanel(p) {
+  // Shift: the panel joins the selected shape instead, so several panels make one layer
+  function fillPanel(p, e) {
     const r = pieceAt(app.doc.regionMap, p.x, p.y);
     if (!r) { env.say(app.doc.regionMap ? 'Click inside a panel' : 'Load a template first'); return; }
+    const pts = growOutline(regionOutline(r), 2).map(q => ({ x: Math.round(q.x * 10) / 10, y: Math.round(q.y * 10) / 10 }));
+    const into = e.shiftKey && selShape();
+    if (into) {
+      setShape(into, joined([into.pts, pts]));
+      into.name += ' + ' + r.name;
+      change({ now: true });
+      return;
+    }
     const layer = createFillLayer(app.colour);
     layer.shape = 'path';
     layer.name = r.name;
-    setShape(layer, growOutline(regionOutline(r), 2).map(q => ({ x: Math.round(q.x * 10) / 10, y: Math.round(q.y * 10) / 10 })));
+    setShape(layer, pts);
     env.created(layer);
     app.doc.layers.push(layer);
     app.sel = layer.id; // the tool stays armed: click the next panel
@@ -376,7 +385,7 @@ export function initTools(app, env) {
   function down(e, s) {
     const p = screenToDoc(s.x, s.y);
     if (app.trimming) { trimAt(p); return; }
-    if (app.tool === 'piece') { fillPanel(p); return; }
+    if (app.tool === 'piece') { fillPanel(p, e); return; }
     if (app.tool === 'text') { env.addText(p); return; }
     if (app.tool === 'shape') { rubber = { a: p, b: p }; return; }
     if (app.tool === 'stamp') { stampAt(p); return; }
