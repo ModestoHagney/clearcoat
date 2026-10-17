@@ -1162,7 +1162,7 @@ export function cleanPalette(palette) {
   if (!Array.isArray(palette)) return [];
   return palette
     .filter(c => c && typeof c.id === 'string' && /^#[0-9a-f]{6}$/i.test(c.color || ''))
-    .map(c => ({ id: c.id, name: String(c.name || 'Colour').slice(0, 40), color: c.color.toLowerCase() }));
+    .map(c => ({ id: c.id, name: String(c.name || 'Colour').slice(0, 40), color: c.color.toLowerCase(), ...(typeof c.from === 'string' ? { from: c.from.slice(0, 40) } : {}) })); // from: the palette that added it
 }
 
 // A palette file, read: one palette { name, colors: [{ name, color }], fonts? },

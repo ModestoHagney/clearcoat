@@ -40,6 +40,7 @@ test('cleanPalette keeps only well-formed colours', () => {
   assert.deepEqual(cleanPalette([{ id: 'a', name: 'A', color: '#ABCDEF' }, { id: 'b', color: 'red' }, null, { name: 'no id', color: '#000000' }]),
     [{ id: 'a', name: 'A', color: '#abcdef' }]);
   assert.deepEqual(cleanPalette(undefined), []);
+  assert.deepEqual(cleanPalette([{ id: 'a', name: 'A', color: '#000000', from: 'Team' }]), [{ id: 'a', name: 'A', color: '#000000', from: 'Team' }]); // which palette added it
 });
 
 test('a flipped ready-made shape stays flipped through a save and load', async () => {

@@ -302,6 +302,7 @@ dialog .dbody:has(.keys) { max-height: 82vh; } /* the whole list in view where t
 dialog .dbody:focus-visible { outline: none; } /* a long list scrolls, and the browser would ring the scrolling box */
 dialog footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px 16px; }
 dialog.wide { width: min(720px, calc(100% - 32px)); }
+dialog.pal { width: min(600px, calc(100% - 32px)); }
 dialog.lib .dbody { height: 60vh; } /* the same size whichever tab is open */
 .tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 #lib-q { width: 100%; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bar); color: var(--fg); font: inherit; }
@@ -394,11 +395,15 @@ body.workshop .bar .brand::after { content: " · drawing a shape"; font: 400 14p
 .shapebox > header .sep { width: 1px; height: 20px; background: var(--line); }
 .shapebox > header .btn:disabled { opacity: .4; cursor: default; }
 /* Palettes: one row each, its colours and name to use it, then Export and Delete */
-.prow { display: flex; gap: 6px; align-items: center; }
+.prow { display: flex; gap: 6px; }
+.pacts { display: flex; flex-direction: column; gap: 4px; } /* stacked, so the two fill the row's height */
+.pacts .btn { flex: 1; min-width: 80px; } /* Confirm takes Delete's place without the row moving */
+.pacts .btn.bad { background: var(--bad); border-color: var(--bad); color: var(--panel); font-weight: 500; }
 .pbtn { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 3px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; text-align: left; }
 .pbtn:hover { background: var(--hover); }
 .pbtn i { width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--line); }
 .pbtn b { flex-basis: 100%; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pbtn small { flex-basis: 100%; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* saved colours: two to a row, the name cut short if it is long */
 .saved { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 4px 6px; }
 .saved .chipwrap { min-width: 0; }

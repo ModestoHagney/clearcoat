@@ -401,6 +401,7 @@ export function initUI(app, actions, version) {
     const google = [...new Set(app.doc.googleFonts || [])], uploaded = (app.doc.customFonts || []).map((f) => f.name).filter((f) => !google.includes(f));
     const used = [...new Set(app.doc.layers.filter((x) => x.type === 'text' && x.font).map((x) => x.font))].filter((f) => !google.includes(f) && !uploaded.includes(f));
     const mine = [...google, ...uploaded, ...used], rest = [...new Set([...TEXT_FONTS, ...GOOGLE_FONTS])].filter((f) => !mine.includes(f));
+    for (const list of [google, uploaded, used, rest]) list.sort((a, b) => a.localeCompare(b)); // A to Z within each heading
     const fontOpts = (list, label) => (!list.length ? '' : (mine.length ? section(label) : '') + list.map((f) => opt(f, f, f === l.font)).join(''));
     const weights = isText ? actions.fontWeights(l.font) : [];
     const weight = weights.length < 2 ? '' : field('Weight', `<select id="f-fontWeight">${weights.map((w) => opt(w, WEIGHT_NAMES[w], w === (l.fontWeight || 400))).join('')}</select>`);
@@ -872,20 +873,24 @@ export function initUI(app, actions, version) {
     return { name, colors: rows.map((r, k) => ({ name: $('lc-n-' + k).value.trim() || r.name, color: hexOf($('lc-pick-' + k).value) || r.color })) };
   }
   // The saved palettes. → { act: 'save' | 'import' | 'use' | 'export' | 'delete', i } or null
-  const fontCount = (p) => (p.fonts ? p.fonts.google.length + p.fonts.custom.length : 0);
+  const fontNames = (p) => (p.fonts ? [...p.fonts.google, ...p.fonts.custom.map((f) => f.name)] : []);
   async function palettes(list) {
     let picked = null;
     const body = `<div class="acts"><button type="button" class="btn" data-pp="save" title="Its saved colours and every colour it uses">Save this livery's colours</button><button type="button" class="btn" data-pp="import">Import a file…</button></div>` +
       (!list.length ? '<div class="note">No palettes yet. Save this livery\'s colours as one, or import a palette file.</div>'
-        : list.map((p, i) => `<div class="prow"><button type="button" class="pbtn" data-pp="use" data-i="${i}" title="Add these colours to this livery">${p.colors.map((c) => `<i style="background:${esc(c.color)}" title="${esc(c.name)}"></i>`).join('')}<b>${esc(p.name)}${fontCount(p) ? ` · ${fontCount(p)} font${fontCount(p) > 1 ? 's' : ''}` : ''}</b></button>` +
-          `<button type="button" class="btn" data-pp="export" data-i="${i}" title="Download it as a file to share or keep">Export</button><button type="button" class="btn" data-pp="delete" data-i="${i}">Delete</button></div>`).join(''));
+        : list.map((p, i) => `<div class="prow"><button type="button" class="pbtn" data-pp="use" data-i="${i}" title="Add these colours to this livery">${p.colors.map((c) => `<i style="background:${esc(c.color)}" title="${esc(c.name)}"></i>`).join('')}<b>${esc(p.name)}</b><small>${fontNames(p).length ? 'Fonts: ' + esc(fontNames(p).join(', ')) : 'No fonts'}</small></button>` +
+          `<span class="pacts"><button type="button" class="btn" data-pp="export" data-i="${i}" title="Download it as a file to share or keep">Export</button><button type="button" class="btn" data-pp="delete" data-i="${i}">Delete</button></span></div>`).join(''));
+    dlg.classList.add('pal');
     const p = ask({ title: 'Palettes', body, ok: null, cancel: 'Close' });
-    $('dlg-body').onclick = (e) => {
-      const b = e.target.closest('button[data-pp]');
+    dlg.onclick = (e) => { // anywhere in the window, so a click off an armed Delete stands it down
+      const b = e.target.closest('button[data-pp]'), armed = $('dlg-body').querySelector('.btn.bad');
+      if (armed && armed !== b) { armed.classList.remove('bad'); armed.textContent = 'Delete'; } // a click anywhere else: not deleted
+      if (b && b.dataset.pp === 'delete' && b !== armed) { b.classList.add('bad'); b.textContent = 'Confirm'; return; } // the first click asks
       if (b) { picked = { act: b.dataset.pp, i: +b.dataset.i || 0 }; dlg.close('ok'); }
     };
     await p;
-    $('dlg-body').onclick = null;
+    dlg.onclick = null;
+    dlg.classList.remove('pal');
     return picked;
   }
   // ---------- the library ----------
