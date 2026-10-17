@@ -1924,7 +1924,10 @@ const actions = {
     for (const r of d.finishRules || []) r.color = now(r.color);
     change({ now: true });
     if (!save) return;
-    actions.keepPalettes(readPalettes({ name: res.name, colors: res.colors, fonts: { google: d.googleFonts, custom: d.customFonts } })); // its fonts go with it
+    // its fonts go with it: those added by name, the built-in Google ones its
+    // text uses, and the uploaded ones
+    const google = [...(d.googleFonts || []), ...d.layers.filter(l => l.type === 'text' && GOOGLE_FONTS.includes(l.font)).map(l => l.font)];
+    actions.keepPalettes(readPalettes({ name: res.name, colors: res.colors, fonts: { google, custom: d.customFonts } }));
     ui.say(`Palette "${res.name}" saved. Any livery can use it from Palettes.`);
   },
   // its colours join this livery's saved colours (one already there is not
