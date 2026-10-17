@@ -17,6 +17,7 @@ const {
   createFillLayer,
   serializeDoc,
   deserializeDoc,
+  fadeStops,
   resolveParams,
   defaultParams,
   readPalettes,
@@ -82,6 +83,16 @@ test('createFillLayer initializes colorMid/midPos and serializeDoc keeps them', 
   const out = serializeDoc(doc);
   assert.equal(out.layers[0].colorMid, '#00ff00');
   assert.equal(out.layers[0].midPos, 0.25);
+});
+
+test('a fade keeps the colours it passes through, in order along it', async () => {
+  const fill = createFillLayer('#123456');
+  fill.stops = [{ color: '#00ff00', at: 0.7 }, { color: '#ff0000', at: 0.2 }];
+  const doc = createDoc();
+  doc.layers.push(fill);
+  const back = await deserializeDoc(JSON.parse(JSON.stringify(serializeDoc(doc))));
+  assert.deepEqual(fadeStops(back.layers[0]).map(o => o.color), ['#ff0000', '#00ff00']);
+  assert.deepEqual(fadeStops({ colorMid: '#abcdef', midPos: 0.3 }), [{ color: '#abcdef', at: 0.3 }]); // an older save's middle colour
 });
 
 test('deserializeDoc restores fill colorMid/midPos with defaults', async () => {

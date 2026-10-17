@@ -289,6 +289,9 @@ export function initUI(app, actions, version) {
     const out = fading && typeof l.color2 === 'string' && l.color2.length === 9 && l.color2.endsWith('00');
     return `<label class="switch">Fade<input id="f-fade" type="checkbox"${fading ? ' checked' : ''}></label>` + (!fading ? '' :
       fadeWay(l) +
+      // the colours it passes through on the way, each placed along it
+      (l.stops || []).map((o, k) => `<div class="with">${slider(`f-stop-${k}`, 1, 99, o.at * 100, `Colour ${k + 2}`, 'How far along the fade this colour sits')}<input id="f-stop-c${k}" data-fstop="${k}" type="color" value="${esc(hexOf(o.color) || '#ffffff')}" aria-label="Colour ${k + 2} of the fade"><button type="button" class="icon" data-fstopdrop="${k}" title="Take this colour out" aria-label="Take colour ${k + 2} out">${svg('close')}</button></div>`).join('') +
+      ((l.stops || []).length < 8 ? '<div class="acts"><button class="btn" data-act="addFadeColour" title="Add a colour for the fade to pass through on the way">Add a colour</button></div>' : '') +
       field('Fades to', `<span class="pair"><input id="f-fade-to" type="color" value="${esc(out ? '#ffffff' : hexOf(l.color2 || '') || '#ffffff')}"${out ? ' disabled' : ''} aria-label="The colour it fades to"><label class="inline"><input id="f-fade-out" type="checkbox"${out ? ' checked' : ''}>Nothing</label></span>`) +
       aimNote);
   }
@@ -640,6 +643,9 @@ export function initUI(app, actions, version) {
     const fn = /^fn-(met|rough|clear|amount|size|strength|bright)$/.exec(t.id || '');
     if (fn) { actions.tweakFinish(fn[1], +t.value); drawTile(); return; }
     if (t.id === 'f-fade-to') { actions.setFade('to', t.value); return; }
+    if (t.dataset.fstop !== undefined) { actions.fadeColour(+t.dataset.fstop, { color: t.value }); return; }
+    const stop = /^f-stop-(\d+)$/.exec(t.id || '');
+    if (stop) { actions.fadeColour(+stop[1], { at: +t.value / 100 }); return; }
     if (t.dataset.repc !== undefined) { if (+t.dataset.repc < 0) actions.setColour(t.value); else actions.repeatColour(+t.dataset.repc, t.value); return; } // -1: the layer's own colour
     const rep = /^f-rep-(count|rows|gapX|gapY|angle|space|rSize|rTurn)$/.exec(t.id || '');
     if (rep) { actions.setRepeat({ [rep[1]]: +t.value }, false); return; }
@@ -793,6 +799,7 @@ export function initUI(app, actions, version) {
     if (id === 'f-rep-mix') return actions.setRepeat({ mix: e.target.value });
     if (id === 'f-rep-fadeOut' || id === 'f-rep-shrink') return actions.setRepeat({ [id.slice(6)]: e.target.checked });
     if (id === 'f-rep-addshape') { if (e.target.value) actions.addRepeatShape(e.target.value); return; }
+    if (e.target.dataset.fstop !== undefined) return; // as the Repeat colours just below
     if (e.target.dataset.repc !== undefined) return; // nothing is redrawn: that would swallow the click that took the focus away
     if (id === 'f-fade-out') return actions.setFade('out', e.target.checked);
     if (id === 'f-italic') { actions.setProp('italic', e.target.checked); return; }
@@ -1122,6 +1129,7 @@ export function initUI(app, actions, version) {
     if (t.dataset.fade) return actions.setFade('style', t.dataset.fade);
     if (t.dataset.repsdrop !== undefined) return actions.dropRepeatShape(+t.dataset.repsdrop);
     if (t.dataset.repcdrop !== undefined) return actions.dropRepeatColour(+t.dataset.repcdrop);
+    if (t.dataset.fstopdrop !== undefined) return actions.dropFadeColour(+t.dataset.fstopdrop);
     if (t.dataset.piece) return actions.pickPiece(t.dataset.piece);
     if (t.dataset.tool === 'image') return actions.openLibrary(); // nothing to arm: it opens the library
     if (t.dataset.tool) return actions.setTool(t.dataset.tool);

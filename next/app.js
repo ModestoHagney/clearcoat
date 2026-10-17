@@ -684,7 +684,7 @@ const TEXT_KEYS = new Set(['text', 'font', 'fontSize', 'textColor', 'outlineColo
 // they are never changed in place)
 function cloneLayer(l) {
   const c = { ...l, id: newId() }; // still tagged with the original's group: paste gives copies a group of their own
-  for (const k of ['pts', 'clipAt']) if (Array.isArray(l[k])) c[k] = structuredClone(l[k]);
+  for (const k of ['pts', 'clipAt', 'stops']) if (Array.isArray(l[k])) c[k] = structuredClone(l[k]);
   if (Array.isArray(l.clip)) c.clip = l.clip.map(poly => poly.map(q => ({ ...q })));
   for (const k of ['matParams', 'fx', 'fadeFrom', 'fadeTo']) if (l[k]) c[k] = { ...l[k] };
   return c;
@@ -1190,6 +1190,29 @@ const actions = {
     aim(ls, part === 'style');
     change(part === 'to' ? { panels: false } : { now: true });
   },
+  // The colours a fade passes through between its own colour and the one it
+  // fades to, [{ color, at: 0–1 }]. f(stops) → the new list, which every
+  // selected shape takes, so they still fade as one. `panels`: as setRepeat.
+  setFadeStops(f, panels = true) {
+    const ls = selectedLayers().filter(l => l.type === 'fill' && !isArea(l));
+    if (!ls.length || !canChange()) return;
+    const next = f((ls.find(hasFade) || ls[0]).stops || []);
+    for (const l of ls) l.stops = next.map(o => ({ ...o }));
+    change(panels ? { now: true } : { panels: false });
+  },
+  // a new colour in the middle of the widest stretch, its box opened to choose it
+  addFadeColour() {
+    let k = 0;
+    actions.setFadeStops((stops) => {
+      const ats = [0, ...stops.map(o => o.at), 1];
+      for (let i = 1; i < ats.length - 1; i++) if (ats[i + 1] - ats[i] >= ats[k + 1] - ats[k]) k = i; // a tie: the later stretch, so a new colour goes on towards the end
+      const l = actions.selected() || {};
+      return [...stops.slice(0, k), { color: nextMix([l.color, ...stops.map(o => o.color), String(l.color2 || '').slice(0, 7)]), at: (ats[k] + ats[k + 1]) / 2 }, ...stops.slice(k)];
+    });
+    setTimeout(() => { const box = $(`f-stop-c${k}`); if (box) box.click(); }, 0);
+  },
+  fadeColour(k, part) { actions.setFadeStops((stops) => stops.map((o, i) => (i === k ? { ...o, ...part } : o)), false); },
+  dropFadeColour(k) { actions.setFadeStops((stops) => stops.filter((_, i) => i !== k)); },
   // the mirrored side becomes a layer of its own, to be changed separately
   separate() {
     const l = actions.selected();
@@ -1390,7 +1413,7 @@ const actions = {
     const same = (f) => targets.every(l => f(l) === f(top));
     const shapes = targets.every(l => isShape(l) || (isBox(l) && ['rect', 'ellipse', 'triangle'].includes(l.shape) && !l.flipH && !l.flipV));
     const sameColour = same(l => (l.color || '').toLowerCase());
-    const sameRest = same(l => l.fillType || 'solid') && same(l => l.color2 || '') && same(l => l.opacity ?? 1) && same(l => l.blend || '')
+    const sameRest = same(l => l.fillType || 'solid') && same(l => l.color2 || '') && same(l => JSON.stringify(l.stops || [])) && same(l => l.opacity ?? 1) && same(l => l.blend || '')
       && same(l => !!l.mirrored) && same(l => JSON.stringify(finishSpec(app.doc, l))) && same(l => JSON.stringify(l.clip || null))
       && same(l => JSON.stringify(l.repeat || null)); // copies and a plain shape are not the same thing
     // They cannot simply become one shape as they are: ask what is wanted.
