@@ -1113,7 +1113,7 @@ const actions = {
     app.sel = l.id; app.sels = [];
     change({ now: true });
     carGrad.open(l.id);
-    if (!(app.doc.regionMap && (app.doc.regionMap.carLines || []).length)) ui.say('Add a panel line to show it on the car');
+    if (!(app.doc.regionMap && (app.doc.regionMap.carLines || []).length)) ui.say('Set panels to show it on the car');
   },
   openCarGradient() { const l = actions.selected(); if (l && l.car) carGrad.open(l.id); },
   // the piece no longer placed on the car (Map › Place a piece)

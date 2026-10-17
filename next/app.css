@@ -435,13 +435,11 @@ option.sect { font-weight: 700; color: var(--fg); }
 option.sect, option.act { text-align: left; text-align-last: left; }
 
 /* the car gradient window (cargrad.js): the strip stands for the car, front to back */
-.cgwin { position: absolute; z-index: 30; left: 50%; bottom: 64px; transform: translateX(-50%); width: min(640px, calc(100% - 32px)); padding: 6px 14px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 12px 34px var(--shade); }
+.cgwin { position: absolute; z-index: 30; user-select: none; left: 50%; bottom: 64px; transform: translateX(-50%); width: min(640px, calc(100% - 32px)); padding: 6px 14px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 12px 34px var(--shade); }
 .cgwin header { display: flex; align-items: center; justify-content: space-between; cursor: move; user-select: none; }
 .cgwin header .icon svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; }
 .cg-ends { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; margin-top: 2px; }
 .cg-strip { position: relative; height: 34px; border-radius: 5px; border: 1px solid var(--line); }
-.cg-strip.wait { cursor: crosshair; outline: 2px dashed var(--accent); outline-offset: 2px; }
-.cg-pend { position: absolute; top: -4px; bottom: -4px; border: 2px solid var(--accent); border-radius: 4px; }
 .cg-blocks { position: relative; height: 26px; margin-top: 6px; }
 .cg-block { position: absolute; top: 0; height: 26px; min-width: 6px; }
 .cg-block input[type="color"] { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 1px solid var(--fg); border-radius: 4px; cursor: grab; }
@@ -452,16 +450,18 @@ option.sect, option.act { text-align: left; text-align-last: left; }
 .cg-block .mx { z-index: 2; }
 .cg-block:hover .mx { opacity: 1; }
 .cg-acts { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
-.cg-hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
 .cg-lines { position: relative; margin-top: 6px; }
 .cg-line { position: relative; height: 22px; }
 .cg-line:hover .mx { opacity: 1; }
 .cg-line .mx { right: -10px; top: 4px; }
-.cg-bar { position: absolute; top: 9px; height: 4px; background: var(--accent); border-radius: 2px; }
-.cg-bar i { position: absolute; top: -5px; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); border: 2px solid var(--panel); cursor: ew-resize; }
+.cg-bar { position: absolute; top: 9px; height: 4px; background: var(--c); border-radius: 2px; cursor: grab; }
+.cg-bar::before { content: ""; position: absolute; inset: -8px 0; } /* an easier grip than 4px */
+.cg-bar i { position: absolute; z-index: 1; top: -5px; width: 14px; height: 14px; border-radius: 50%; background: var(--c); border: 2px solid var(--panel); cursor: ew-resize; }
 .cg-bar i:first-child { left: -7px; } .cg-bar i:last-child { right: -7px; }
-.cg-bar::after { content: ""; position: absolute; right: -2px; top: -5px; border: 7px solid transparent; border-left-color: var(--accent); border-right: 0; }
-.cg-bar.back::after { right: auto; left: -2px; border-left: 0; border-right: 7px solid var(--accent); }
-.cg-name { position: absolute; top: 2px; padding: 0 12px; font-size: 12px; white-space: nowrap; }
-.cg-missing { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cg-bar::after { content: ""; position: absolute; right: -2px; top: -5px; border: 7px solid transparent; border-left-color: var(--c); border-right: 0; }
+.cg-bar.back::after { right: auto; left: -2px; border-left: 0; border-right: 7px solid var(--c); }
+.cg-line.on { background: var(--accent-soft); border-radius: 4px; }
+.cg-line.on .cg-bar { top: 8px; height: 6px; }
+@keyframes cg-cue { 50% { box-shadow: 0 0 0 4px var(--accent-soft), 0 0 0 6px var(--accent); } }
+.cg-line.cue .cg-bar, .btn.cue { animation: cg-cue 1.2s ease-in-out infinite; }
 .cgsw { width: 40px; height: 40px; flex: none; border-radius: 6px; border: 1px solid var(--line); }
