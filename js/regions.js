@@ -477,7 +477,7 @@ export function simplifyOutline(pts, tol) {
 // outline (array of { x, y }) per piece, largest first.
 // minArea drops specks; tolerance is how far (px) a simplified outline may
 // stray from the traced one — raise it for fewer points, lower for a closer fit.
-export function detectPieces(mask, w, h, { minArea = 600, tolerance = 2 } = {}) {
+export function detectPieces(mask, w, h, { minArea = 300, tolerance = 2 } = {}) {
   const seen = new Uint8Array(w * h);
   const stack = new Int32Array(w * h);
   const found = [];
