@@ -5,7 +5,7 @@
 // corrected.
 
 import { SIZE, createImageLayer, loadImage } from '../js/engine.js';
-import { regionOutline, regionById, centerLine, snapToOutline, slideAlong, edgeSpan, labelPoint, linkPoints, linkLength, linkDir, matchPoint, twinLink, twinOf, syncTwin } from '../js/regions.js';
+import { regionOutline, regionById, centerLine, snapToOutline, slideAlong, edgeSpan, labelPoint, linkPoints, linkLength, linkDir, matchPoint, twinLink, twinOf, syncTwin, addTwins, setMirror } from '../js/regions.js';
 import { pieceAt } from '../js/mirror.js';
 
 export const GUIDE = 'Panel guide'; // the layer that puts the panel colours on the car
@@ -109,6 +109,10 @@ export function initMap(app, env) {
   let seam = null;      // near a linked edge: that spot and the one it meets, { at, partner }
   let slide = null;     // a link's end being slid along its edge: { region, ends, start, moved }
   let picked = null;    // the link end last grabbed, for the arrow keys to nudge: { region, ends }
+  // Pair panels: click a panel, then its pair; again for the next pair. The
+  // Centreline tool (from the toolbar) also keeps going, one panel after another.
+  let pairFirst = null; // pair: the panel clicked first, waiting for its partner
+  let undos = [];       // centreline and pair: how to take back each one made, newest last → what to say
 
   const map = () => app.doc.regionMap;
   const sel = () => (map() && app.piece ? regionById(map(), app.piece) : null);
@@ -224,6 +228,9 @@ export function initMap(app, env) {
     env.mapChanged(`Linked ${nameOf(a1.region)} and ${nameOf(b1.region)}` + (twin ? `, and ${nameOf(twin.a.region)} and ${nameOf(twin.b.region)}` : ''));
   }
 
+  const copied = (added) => (added.length ? `, and ${added.length} link${added.length > 1 ? 's' : ''} copied to the other side` : '');
+  const dropAdded = (added) => { const l = map().links || []; for (const t of added) if (l.includes(t)) l.splice(l.indexOf(t), 1); };
+
   function down(e, s) {
     if (!map()) return;
     const p = screenToDoc(s.x, s.y);
@@ -242,12 +249,33 @@ export function initMap(app, env) {
       if (!pending) { pending = hit; requestDraw(); env.refreshChrome(); return; }
       if (Math.hypot(hit.x - pending.x, hit.y - pending.y) < 2) { env.say('The two corners need to be apart'); return; }
       const r = regionById(map(), hit.region), pt = (c) => ({ x: Math.round(c.x * 10) / 10, y: Math.round(c.y * 10) / 10 });
+      const before = r.center, first = pending;
       r.center = { a: pt(pending), b: pt(hit) };
       pending = snap = null;
       app.piece = r.id;
-      app.centreFor = null;
-      app.tool = 'mpick';
-      env.mapChanged(`Centreline set on ${r.name}`);
+      const added = addTwins(map()); // links made before the centreline get their twins now
+      if (app.centreFor) { app.centreFor = null; app.tool = 'mpick'; } // from the panel's button: just that one
+      else undos.push(() => { if (before) r.center = before; else delete r.center; dropAdded(added); pending = first; return `Centreline taken off ${r.name}`; });
+      env.mapChanged(`Centreline set on ${r.name}${copied(added)}`);
+      return;
+    }
+    if (app.tool === 'mpair') {
+      const r = pieceAt(map(), p.x, p.y);
+      if (!r) { env.say('Click a panel'); return; }
+      if (!pairFirst) { pairFirst = r.id; env.pickPiece(r.id); return; }
+      if (r.id === pairFirst) { env.say('Now click its pair, a different panel'); return; }
+      const a = regionById(map(), pairFirst), before = map().regions.map(x => [x, x.mirror, x.mirrorKind]);
+      setMirror(map(), a, r.id);
+      const added = addTwins(map());
+      pairFirst = null;
+      app.piece = a.id; // shows the pair just made
+      undos.push(() => {
+        for (const [x, m, k] of before) { if (m) x.mirror = m; else delete x.mirror; if (k) x.mirrorKind = k; else delete x.mirrorKind; }
+        dropAdded(added);
+        pairFirst = app.piece = a.id;
+        return `${a.name} and ${r.name} unpaired`;
+      });
+      env.mapChanged(`${a.name} paired with ${r.name}${copied(added)}`);
       return;
     }
     const r = pieceAt(map(), p.x, p.y);
@@ -289,26 +317,35 @@ export function initMap(app, env) {
 
   function key(e) {
     if (app.tool === 'mlink' && picked && !ends.length && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { nudge(e.key === 'ArrowRight' ? 1 : -1, e.shiftKey ? 10 : 1); return true; }
-    if (app.tool === 'mlink' && e.key === 'Backspace') { // takes back the last click, or the last link made
+    const back = e.key === 'Backspace' || e.key === 'Delete';
+    if ((app.tool === 'mcentre' || app.tool === 'mpair') && back) { // takes back the last click
+      if (pending || pairFirst) { pending = snap = pairFirst = null; if (app.tool === 'mpair') env.pickPiece(null); else { requestDraw(); env.refreshChrome(); } }
+      else if (undos.length) env.mapChanged(undos.pop()());
+      return true;
+    }
+    if (app.tool === 'mlink' && back) { // takes back the last click, or the last link made
       if (ends.length) { ends.pop(); requestDraw(); env.refreshChrome(); }
       else if (map() && (map().links || []).length) { const m = map(), twin = dropLink(m, m.links[m.links.length - 1]); seam = null; env.mapChanged(twin ? 'Last link removed, and its twin' : 'Last link removed'); }
       return true;
     }
     if (e.key !== 'Escape') return false;
     if (pending) { pending = null; requestDraw(); env.refreshChrome(); }
+    else if (pairFirst) { pairFirst = null; env.pickPiece(null); }
     else if (picked && app.tool === 'mlink') { picked = null; requestDraw(); env.refreshChrome(); }
     else if (ends.length) { ends = []; requestDraw(); env.refreshChrome(); }
-    else if (app.tool === 'mcentre' || app.tool === 'mlink') env.setTool('mpick');
+    else if (app.tool === 'mcentre' || app.tool === 'mlink' || app.tool === 'mpair') env.setTool('mpick');
     else env.pickPiece(null);
     return true;
   }
-  function cancel() { pending = snap = seam = slide = picked = null; ends = []; }
+  function cancel() { pending = snap = seam = slide = picked = pairFirst = null; ends = []; undos = []; }
 
   const hint = () => {
     if (app.tool === 'hand') return 'Drag to move the sheet · wheel zooms · H or Esc puts it down';
     if (!map()) return 'Load a template to get a map';
-    if (app.tool === 'mcentre') return pending ? 'Click the matching corner on the other side' : 'Click a corner, then its match on the other side';
-    if (app.tool === 'mlink') return [(picked ? '← → nudge this end (Shift: 10 px) · Esc lets go · ' : '') + 'Click one end of an edge that meets another panel · drag a link\'s end to move it (hold Alt to skip snapping), Shift+click it to nudge it with ← → · Alt+click removes a link', 'Click the other end, on the same panel', 'Now the spot on the other panel that meets end 1', 'And the spot that meets end 2'][ends.length] + (ends.length ? ' · Backspace takes one back' : '');
+    const takeBack = ' · Delete or Backspace takes one back';
+    if (app.tool === 'mcentre') return (pending ? 'Click the matching corner on the other side' : 'Click a corner, then its match on the other side') + (app.centreFor ? '' : takeBack);
+    if (app.tool === 'mpair') return (pairFirst ? `Now click the pair of ${nameOf(pairFirst)}` : 'Click a panel, then its pair on the other side of the car') + takeBack;
+    if (app.tool === 'mlink') return [(picked ? '← → nudge this end (Shift: 10 px) · Esc lets go · ' : '') + 'Click one end of an edge that meets another panel · drag a link\'s end to move it (hold Alt to skip snapping), Shift+click it to nudge it with ← → · Alt+click removes a link', 'Click the other end, on the same panel', 'Now the spot on the other panel that meets end 1', 'And the spot that meets end 2'][ends.length] + (ends.length ? takeBack : '');
     return sel() ? 'Name it, pair it or set its centreline on the right' : 'Click a panel';
   };
 

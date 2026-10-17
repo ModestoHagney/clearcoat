@@ -25,7 +25,7 @@ import { traceImage } from '../js/trace.js';
 import { finishSpec, finishList, withFinishes, setRule, clearRule, ruleFor, layerColour, layerColours, isArea, hasOwnFinish, readFinish, writeFinish, presetOf, FINISHES, SPARKLE } from '../js/finish.js';
 import { initMap, syncGuide, guideLayer } from './map.js';
 import { mirrorLayer, mirrorImage, withMirrors, withSeams, seamsOf } from '../js/mirror.js';
-import { regionOutline, parseRegionMap, regionById, renameRegion, setMirror } from '../js/regions.js';
+import { regionOutline, parseRegionMap, regionById, renameRegion, setMirror, addTwins } from '../js/regions.js';
 
 export const VERSION = self.VERSION || 'unknown'; // from version.js, which the page loads first
 
@@ -1070,7 +1070,8 @@ const actions = {
     const m = app.doc.regionMap, r = regionById(m, app.piece);
     if (!r) return;
     setMirror(m, r, id || null);
-    actions.mapChanged(id ? `${r.name} paired with ${regionById(m, id).name}` : `${r.name} unpaired`);
+    const n = id ? addTwins(m).length : 0; // links made before the pairing get their twins now
+    actions.mapChanged(id ? `${r.name} paired with ${regionById(m, id).name}${n ? `, and ${n} link${n > 1 ? 's' : ''} copied to the other side` : ''}` : `${r.name} unpaired`);
   },
   centreStart() { app.centreFor = app.piece; actions.setTool('mcentre'); },
   centreRemove() {

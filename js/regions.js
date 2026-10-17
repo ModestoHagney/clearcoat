@@ -547,6 +547,16 @@ export function twinLink(map, link) {
   const out = carriedLink(map, link);
   return out && !(map.links || []).some(l => sameLink(l, out, 2)) ? out : null;
 }
+// every link that has no twin yet but could have one now (after a pairing or a
+// centreline is added) gets its twin → the twins added
+export function addTwins(map) {
+  const added = [];
+  for (const l of [...(map.links || [])]) {
+    const t = !twinOf(map, l) && twinLink(map, l);
+    if (t) { map.links.push(t); added.push(t); }
+  }
+  return added;
+}
 // the link already in the map that is this one's twin (made with it, and maybe
 // nudged a little since), or null
 export function twinOf(map, link) {
